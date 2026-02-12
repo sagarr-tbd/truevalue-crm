@@ -4,12 +4,28 @@ import type { z } from "zod";
 
 // Infer types from Zod schemas
 export type Lead = z.infer<typeof leadSchema> & {
-  id?: number;
+  id?: string; // UUID from backend
+  orgId?: string;
   createdAt?: string;
   updatedAt?: string;
-  lastContact?: string;
-  initials?: string;
+  // Computed fields
   fullName?: string;
+  initials?: string;
+  // Activity tracking
+  lastActivityAt?: string;
+  lastContactedAt?: string;
+  activityCount?: number;
+  // Tags (read-only from API)
+  tags?: Array<{ id: string; name: string; color?: string }>;
+  // Conversion tracking (read-only)
+  convertedAt?: string;
+  convertedContactId?: string;
+  convertedCompanyId?: string;
+  convertedDealId?: string;
+  convertedBy?: string;
+  // Disqualification (read-only)
+  disqualifiedReason?: string;
+  disqualifiedAt?: string;
 };
 
 export type Account = z.infer<typeof accountSchema> & {
@@ -91,9 +107,10 @@ export type Meeting = z.infer<typeof meetingSchema> & {
   initials?: string;
 };
 
-// Status types
-export type LeadStatus = "New" | "Contacted" | "Qualified" | "Unqualified";
-export type LeadRating = "Hot" | "Warm" | "Cold";
+// Status types (lowercase to match backend API)
+export type LeadStatus = "new" | "contacted" | "qualified" | "unqualified" | "converted";
+// LeadRating is deprecated - use score (0-100) instead
+export type LeadRating = "Hot" | "Warm" | "Cold"; // Keep for backwards compatibility
 export type AccountType = "Customer" | "Partner" | "Prospect" | "Vendor" | "Other";
 export type DealStage = "Prospecting" | "Qualification" | "Proposal" | "Negotiation" | "Closed Won" | "Closed Lost";
 export type ForecastStatus = "Planning" | "On Track" | "At Risk" | "Achieved" | "Missed";

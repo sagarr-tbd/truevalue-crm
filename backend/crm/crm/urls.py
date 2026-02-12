@@ -31,6 +31,8 @@ urlpatterns = [
     # LEADS
     # ==========================================================================
     path('leads', views.LeadListView.as_view(), name='lead-list'),
+    path('leads/bulk-delete', views.LeadBulkDeleteView.as_view(), name='lead-bulk-delete'),
+    path('leads/bulk-update', views.LeadBulkUpdateView.as_view(), name='lead-bulk-update'),
     path('leads/web-form', views.LeadWebFormView.as_view(), name='lead-web-form'),
     path('leads/sources', views.LeadSourcesView.as_view(), name='lead-sources'),
     path('leads/<uuid:lead_id>', views.LeadDetailView.as_view(), name='lead-detail'),

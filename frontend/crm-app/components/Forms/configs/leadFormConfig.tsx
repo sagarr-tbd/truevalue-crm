@@ -7,43 +7,52 @@ import {
   Target,
   MapPin,
   FileText,
-  Image as ImageIcon,
 } from "lucide-react";
 import { leadSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
 
+/**
+ * Lead form configuration - aligned with backend API
+ * 
+ * Backend fields supported:
+ * - firstName, lastName (required)
+ * - email (required)
+ * - phone, mobile (optional)
+ * - companyName, title, website (optional)
+ * - status (new, contacted, qualified, unqualified, converted)
+ * - source (required), sourceDetail (optional)
+ * - score (0-100, replaces rating)
+ * - addressLine1, city, state, postalCode, country (optional)
+ * - description (optional)
+ * - tagIds (optional)
+ * - ownerId (optional)
+ */
 export const leadFormConfig: FormDrawerConfig = {
   entity: "Lead",
   entityIcon: <Target className="h-5 w-5 text-primary" />,
   schema: leadSchema,
   
   defaultValues: {
-    salutation: "",
     firstName: "",
     lastName: "",
     email: "",
     phone: "",
-    phoneType: "",
-    company: "",
+    mobile: "",
+    companyName: "",
     title: "",
-    source: "",
-    status: undefined,
-    rating: undefined,
-    expectedRevenue: undefined,
-    estimatedCloseDate: "",
     website: "",
-    industry: "",
-    employees: "",
-    address: "",
-    addressLine2: "",
+    source: "",
+    sourceDetail: "",
+    status: "new",
+    score: undefined,
+    addressLine1: "",
     city: "",
     state: "",
-    zipCode: "",
+    postalCode: "",
     country: "",
-    notes: "",
-    assignedTo: "",
-    referralSource: "",
-    campaign: "",
+    description: "",
+    tagIds: [],
+    ownerId: "",
   },
 
   quickFormSections: [
@@ -60,12 +69,12 @@ export const leadFormConfig: FormDrawerConfig = {
     {
       label: "Company Details",
       icon: <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["company", "title"],
+      fields: ["companyName", "title"],
     },
     {
       label: "Lead Information",
       icon: <Target className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["source", "status", "assignedTo"],
+      fields: ["source", "status"],
     },
   ],
 
@@ -75,13 +84,6 @@ export const leadFormConfig: FormDrawerConfig = {
       label: "Lead Details",
       icon: <User className="h-4 w-4" />,
       fields: [
-        {
-          name: "salutation",
-          label: "Salutation",
-          type: "select",
-          options: ["Mr.", "Ms.", "Mrs.", "Dr.", "Prof."],
-          placeholder: "Select...",
-        },
         {
           name: "firstName",
           label: "First Name",
@@ -97,11 +99,12 @@ export const leadFormConfig: FormDrawerConfig = {
           placeholder: "Doe",
         },
         {
-          name: "phoneType",
-          label: "Phone Type",
-          type: "select",
-          options: ["Office Phone", "Mobile", "Home", "Fax"],
-          placeholder: "Select...",
+          name: "email",
+          label: "Email",
+          type: "email",
+          required: true,
+          placeholder: "john.doe@company.com",
+          icon: <Mail className="h-4 w-4" />,
         },
         {
           name: "phone",
@@ -111,114 +114,25 @@ export const leadFormConfig: FormDrawerConfig = {
           icon: <Phone className="h-4 w-4" />,
         },
         {
-          name: "email",
-          label: "Email",
-          type: "email",
-          required: true,
-          placeholder: "john.doe@company.com",
-          icon: <Mail className="h-4 w-4" />,
+          name: "mobile",
+          label: "Mobile",
+          type: "tel",
+          placeholder: "+1 (555) 987-6543",
+          icon: <Phone className="h-4 w-4" />,
         },
         {
-          name: "company",
+          name: "companyName",
           label: "Company",
-          type: "select",
-          required: true,
-          options: [
-            "TechVision Inc",
-            "Global Solutions Ltd",
-            "Innovate Labs",
-            "Strategic Partners",
-            "NextGen Systems",
-          ],
-          placeholder: "Select company...",
+          type: "text",
+          placeholder: "Enter company name",
           icon: <Building2 className="h-4 w-4" />,
         },
         {
           name: "title",
           label: "Job Title",
-          type: "select",
-          options: [
-            "CEO",
-            "CTO",
-            "CFO",
-            "Manager",
-            "Director",
-            "VP",
-            "Engineer",
-            "Designer",
-            "Sales Rep",
-            "Other",
-          ],
-          placeholder: "Select title...",
+          type: "text",
+          placeholder: "e.g., Sales Manager",
           icon: <Briefcase className="h-4 w-4" />,
-        },
-        {
-          name: "source",
-          label: "Lead Source",
-          type: "select",
-          options: [
-            "Website",
-            "Referral",
-            "LinkedIn",
-            "Trade Show",
-            "Cold Call",
-            "Email Campaign",
-            "Social Media",
-          ],
-          placeholder: "Select source...",
-        },
-        {
-          name: "expectedRevenue",
-          label: "Estimated Budget",
-          type: "number",
-          placeholder: "50000",
-          helperText: "Enter amount in USD",
-        },
-        {
-          name: "estimatedCloseDate",
-          label: "Estimated Close Date",
-          type: "date",
-        },
-        {
-          name: "assignedTo",
-          label: "Assigned To",
-          type: "select",
-          options: [
-            "John Smith",
-            "Sarah Johnson",
-            "Mike Brown",
-            "Emily Davis",
-            "Robert Wilson",
-          ],
-          placeholder: "Select team member...",
-          icon: <User className="h-4 w-4" />,
-        },
-        {
-          name: "campaign",
-          label: "Campaign",
-          type: "text",
-          placeholder: "Q1 Marketing Campaign",
-        },
-        {
-          name: "status",
-          label: "Lead Status",
-          type: "select",
-          required: true,
-          options: ["New", "Contacted", "Qualified", "Unqualified"],
-          placeholder: "Select status...",
-        },
-        {
-          name: "rating",
-          label: "Lead Rating",
-          type: "select",
-          options: ["Hot", "Warm", "Cold"],
-          placeholder: "Select rating...",
-        },
-        {
-          name: "referralSource",
-          label: "Referral Source",
-          type: "text",
-          placeholder: "Partner name or referral code",
         },
         {
           name: "website",
@@ -227,82 +141,98 @@ export const leadFormConfig: FormDrawerConfig = {
           placeholder: "https://example.com",
         },
         {
-          name: "industry",
-          label: "Industry",
-          type: "text",
-          placeholder: "Technology",
+          name: "source",
+          label: "Lead Source",
+          type: "select",
+          required: true,
+          // Options loaded dynamically in LeadFormDrawer
+          options: [],
+          placeholder: "Select source...",
         },
         {
-          name: "employees",
-          label: "Number of Employees",
+          name: "sourceDetail",
+          label: "Source Details",
           type: "text",
-          placeholder: "50-100",
+          placeholder: "Additional source info (optional)",
+          helperText: "E.g., specific campaign name, referrer info",
+        },
+        {
+          name: "status",
+          label: "Lead Status",
+          type: "select",
+          required: true,
+          options: [
+            { value: "new", label: "New" },
+            { value: "contacted", label: "Contacted" },
+            { value: "qualified", label: "Qualified" },
+            { value: "unqualified", label: "Unqualified" },
+          ],
+          placeholder: "Select status...",
+        },
+        {
+          name: "score",
+          label: "Lead Score",
+          type: "number",
+          placeholder: "0-100",
+          helperText: "Quality score from 0-100",
+        },
+        {
+          name: "ownerId",
+          label: "Assigned To",
+          type: "select",
+          // Options loaded dynamically in LeadFormDrawer
+          options: [],
+          placeholder: "Select team member...",
+          icon: <User className="h-4 w-4" />,
         },
       ],
       layout: [
         {
-          gridClass: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+          gridClass: "grid-cols-1 sm:grid-cols-2 gap-4",
           fields: [
-            { name: "salutation" },
             { name: "firstName" },
             { name: "lastName" },
-            { name: "_placeholder", isPlaceholder: true },
           ],
         },
         {
-          gridClass: "grid-cols-1 sm:grid-cols-3 gap-4",
-          fields: [
-            { name: "phoneType" },
-            { name: "phone", colSpan: "sm:col-span-2" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          gridClass: "grid-cols-1 gap-4",
           fields: [
             { name: "email" },
-            { name: "company" },
           ],
         },
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
+            { name: "phone" },
+            { name: "mobile" },
+          ],
+        },
+        {
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
+            { name: "companyName" },
             { name: "title" },
-            { name: "source" },
           ],
         },
         {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          gridClass: "grid-cols-1 gap-4",
           fields: [
-            { name: "expectedRevenue" },
-            { name: "assignedTo" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-2 gap-4",
-          fields: [
-            { name: "estimatedCloseDate" },
-            { name: "campaign" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "status" },
-            { name: "rating" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "referralSource" },
             { name: "website" },
           ],
         },
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
-            { name: "industry" },
-            { name: "employees" },
+            { name: "source" },
+            { name: "sourceDetail" },
+          ],
+        },
+        {
+          gridClass: "grid-cols-1 lg:grid-cols-3 gap-4",
+          fields: [
+            { name: "status" },
+            { name: "score" },
+            { name: "ownerId" },
           ],
         },
       ],
@@ -313,16 +243,10 @@ export const leadFormConfig: FormDrawerConfig = {
       icon: <MapPin className="h-4 w-4" />,
       fields: [
         {
-          name: "address",
+          name: "addressLine1",
           label: "Street Address",
           type: "text",
           placeholder: "123 Business Ave, Suite 100",
-        },
-        {
-          name: "addressLine2",
-          label: "Address Line 2",
-          type: "text",
-          placeholder: "Apartment, suite, etc.",
         },
         {
           name: "city",
@@ -343,7 +267,7 @@ export const leadFormConfig: FormDrawerConfig = {
           placeholder: "United States",
         },
         {
-          name: "zipCode",
+          name: "postalCode",
           label: "Postal / ZIP Code",
           type: "text",
           placeholder: "94105",
@@ -352,11 +276,7 @@ export const leadFormConfig: FormDrawerConfig = {
       layout: [
         {
           gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "address" }],
-        },
-        {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "addressLine2" }],
+          fields: [{ name: "addressLine1" }],
         },
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
@@ -369,7 +289,7 @@ export const leadFormConfig: FormDrawerConfig = {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
             { name: "country" },
-            { name: "zipCode" },
+            { name: "postalCode" },
           ],
         },
       ],
@@ -380,39 +300,19 @@ export const leadFormConfig: FormDrawerConfig = {
       icon: <FileText className="h-4 w-4" />,
       fields: [
         {
-          name: "notes",
-          label: "Internal Notes",
+          name: "description",
+          label: "Description",
           type: "textarea",
           placeholder: "Add any additional notes about this lead...",
           helperText: "Notes are only visible to your team",
           icon: <FileText className="h-4 w-4" />,
         },
         {
-          name: "tags",
+          name: "tagIds",
           label: "Tags",
           type: "tags",
-          options: [
-            "Priority",
-            "Follow Up",
-            "VIP",
-            "Hot Lead",
-            "Qualified",
-            "Unqualified",
-            "Interested",
-            "Budget Approved",
-          ],
-        },
-      ],
-    },
-    {
-      id: "profile",
-      label: "Profile Picture",
-      icon: <ImageIcon className="h-4 w-4" />,
-      fields: [
-        {
-          name: "profilePicture",
-          label: "Profile Picture",
-          type: "profile",
+          // Options loaded dynamically in LeadFormDrawer
+          options: [],
         },
       ],
     },

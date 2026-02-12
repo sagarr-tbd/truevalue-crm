@@ -1,36 +1,74 @@
 // Zod validation schemas for forms
 import { z } from "zod";
 
-// Lead validation schema
+// Lead validation schema - aligned with backend API
 export const leadSchema = z.object({
-  salutation: z.string().optional(),
+  // Personal Information (required)
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().min(1, "Email is required").email("Invalid email format"),
-  phone: z.string().optional().refine((val) => {
-    if (!val) return true;
-    return /^[\d\s\-\+\(\)]+$/.test(val);
-  }, "Invalid phone format"),
-  phoneType: z.string().optional(),
-  company: z.string().min(1, "Company is required"),
-  title: z.string().optional(),
-  source: z.string().optional(),
+  
+  // Contact Information (optional)
+  phone: z.preprocess(
+    (val) => (val === null || val === "" ? undefined : val),
+    z.string().optional().refine((val) => {
+      if (!val) return true;
+      return /^[\d\s\-\+\(\)]+$/.test(val);
+    }, "Invalid phone format")
+  ),
+  mobile: z.preprocess(
+    (val) => (val === null || val === "" ? undefined : val),
+    z.string().optional().refine((val) => {
+      if (!val) return true;
+      return /^[\d\s\-\+\(\)]+$/.test(val);
+    }, "Invalid phone format")
+  ),
+  
+  // Company Information
+  companyName: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  title: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  website: z.preprocess(
+    (val) => (val === null || val === "" ? undefined : val),
+    z.string().optional().refine((val) => {
+      if (!val) return true;
+      try {
+        new URL(val.startsWith('http') ? val : `https://${val}`);
+        return true;
+      } catch {
+        return false;
+      }
+    }, "Invalid URL format")
+  ),
+  
+  // Lead Status & Source (backend fields)
   status: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["New", "Contacted", "Qualified", "Unqualified"], {
+    z.enum(["new", "contacted", "qualified", "unqualified", "converted"], {
       required_error: "Status is required",
       invalid_type_error: "Status is required",
     })
   ),
-  rating: z.preprocess(
-    (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Hot", "Warm", "Cold"]).optional()
+  source: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().min(1, "Source is required")
   ),
-  expectedRevenue: z.preprocess(
+  sourceDetail: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  
+  // Lead Score (0-100, replaces rating)
+  score: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
       if (typeof val === "string") {
-        const num = parseFloat(val);
+        const num = parseInt(val);
         return isNaN(num) ? undefined : num;
       }
       if (typeof val === "number") {
@@ -38,29 +76,52 @@ export const leadSchema = z.object({
       }
       return undefined;
     },
-    z.number().positive("Must be a positive number").optional()
+    z.number().min(0, "Score must be 0-100").max(100, "Score must be 0-100").optional()
   ),
-  estimatedCloseDate: z.string().optional(),
-  campaign: z.string().optional(),
-  referralSource: z.string().optional(),
-  website: z
-    .string()
-    .optional()
-    .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
-      message: "Invalid URL format",
-    }),
-  industry: z.string().optional(),
-  employees: z.string().optional(),
-  address: z.string().optional(),
-  addressLine2: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  zipCode: z.string().optional(),
-  country: z.string().optional(),
-  notes: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  assignedTo: z.string().optional(),
-  profilePicture: z.string().optional(),
+  
+  // Address
+  addressLine1: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  city: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  state: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  postalCode: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  country: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  
+  // Description/Notes
+  description: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
+  
+  // Custom Fields (JSON object)
+  customFields: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.record(z.any()).optional()
+  ),
+  
+  // Tags & Assignment
+  tagIds: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.array(z.string()).optional()
+  ),
+  ownerId: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().optional()
+  ),
 });
 
 // Account validation schema

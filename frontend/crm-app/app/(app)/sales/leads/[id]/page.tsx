@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
@@ -19,371 +19,260 @@ import {
   Activity,
   Target,
   Plus,
-  X,
-  CheckSquare,
-  FolderOpen,
+  MapPin,
+  Tag,
+  User,
+  AlertCircle,
+  XCircle,
+  Clock,
+  Loader2,
+  Video,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
+import { LeadConversionModal, type ConversionParams } from "@/components/LeadConversionModal";
 import { Textarea } from "@/components/ui/textarea";
 import { LeadFormDrawer } from "@/components/Forms/Sales";
-import type { Lead, LeadStatus, LeadRating } from "@/lib/types";
+import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
+import { toast } from "sonner";
+import {
+  useLead,
+  useUpdateLead,
+  useDeleteLead,
+  useConvertLead,
+  useDisqualifyLead,
+  type LeadFormData,
+} from "@/lib/queries/useLeads";
+import { useMembers } from "@/lib/queries/useMembers";
+import { useLeadActivities, useCreateActivity, type ActivityFormData, type ActivityType } from "@/lib/queries/useActivities";
 
-// Mock leads data (same as leads list page)
-const leads: Lead[] = [
-  {
-    id: 1,
-    firstName: "Michael",
-    lastName: "Anderson",
-    company: "TechVision Inc",
-    email: "michael.a@techvision.com",
-    phone: "+1 (555) 123-4567",
-    source: "Website",
-    status: "New" as LeadStatus,
-    rating: "Hot" as LeadRating,
-    industry: "Technology",
-    expectedRevenue: 75000,
-    createdAt: "Jan 25, 2026",
-    lastContact: "Jan 28, 2026",
-    initials: "MA",
-  },
-  {
-    id: 2,
-    firstName: "Jennifer",
-    lastName: "Martinez",
-    company: "Global Solutions Ltd",
-    email: "j.martinez@globalsol.com",
-    phone: "+1 (555) 234-5678",
-    source: "Referral",
-    status: "Contacted" as LeadStatus,
-    rating: "Hot" as LeadRating,
-    industry: "Finance",
-    expectedRevenue: 125000,
-    createdAt: "Jan 20, 2026",
-    lastContact: "Jan 27, 2026",
-    initials: "JM",
-  },
-  {
-    id: 3,
-    firstName: "Robert",
-    lastName: "Thompson",
-    company: "Innovate Labs",
-    email: "r.thompson@innovatelabs.io",
-    phone: "+1 (555) 345-6789",
-    source: "LinkedIn",
-    status: "Qualified" as LeadStatus,
-    rating: "Warm" as LeadRating,
-    industry: "Software",
-    expectedRevenue: 95000,
-    createdAt: "Jan 18, 2026",
-    lastContact: "Jan 26, 2026",
-    initials: "RT",
-  },
-  {
-    id: 4,
-    firstName: "Emily",
-    lastName: "White",
-    company: "Strategic Partners",
-    email: "emily.white@stratpartners.com",
-    phone: "+1 (555) 456-7890",
-    source: "Trade Show",
-    status: "New" as LeadStatus,
-    rating: "Cold" as LeadRating,
-    industry: "Consulting",
-    expectedRevenue: 45000,
-    createdAt: "Jan 27, 2026",
-    lastContact: "Jan 27, 2026",
-    initials: "EW",
-  },
-  {
-    id: 5,
-    firstName: "David",
-    lastName: "Brown",
-    company: "NextGen Systems",
-    email: "d.brown@nextgensys.com",
-    phone: "+1 (555) 567-8901",
-    source: "Email Campaign",
-    status: "Contacted" as LeadStatus,
-    rating: "Hot" as LeadRating,
-    industry: "Technology",
-    expectedRevenue: 180000,
-    createdAt: "Jan 15, 2026",
-    lastContact: "Jan 28, 2026",
-    initials: "DB",
-  },
-  {
-    id: 6,
-    firstName: "Amanda",
-    lastName: "Garcia",
-    company: "Digital Dynamics",
-    email: "a.garcia@digitaldyn.com",
-    phone: "+1 (555) 678-9012",
-    source: "Website",
-    status: "Qualified" as LeadStatus,
-    rating: "Warm" as LeadRating,
-    industry: "Marketing",
-    expectedRevenue: 62000,
-    createdAt: "Jan 22, 2026",
-    lastContact: "Jan 26, 2026",
-    initials: "AG",
-  },
-  {
-    id: 7,
-    firstName: "Christopher",
-    lastName: "Lee",
-    company: "Apex Solutions",
-    email: "c.lee@apexsol.com",
-    phone: "+1 (555) 789-0123",
-    source: "Referral",
-    status: "Qualified" as LeadStatus,
-    rating: "Warm" as LeadRating,
-    industry: "Healthcare",
-    expectedRevenue: 88000,
-    createdAt: "Jan 10, 2026",
-    lastContact: "Jan 24, 2026",
-    initials: "CL",
-  },
-  {
-    id: 8,
-    firstName: "Nicole",
-    lastName: "Taylor",
-    company: "Prime Industries",
-    email: "nicole.t@primeindustries.com",
-    phone: "+1 (555) 890-1234",
-    source: "Cold Call",
-    status: "New" as LeadStatus,
-    rating: "Cold" as LeadRating,
-    industry: "Manufacturing",
-    expectedRevenue: 52000,
-    createdAt: "Jan 28, 2026",
-    lastContact: "Jan 28, 2026",
-    initials: "NT",
-  },
-  {
-    id: 9,
-    firstName: "James",
-    lastName: "Wilson",
-    company: "FutureTech Co",
-    email: "j.wilson@futuretech.io",
-    phone: "+1 (555) 901-2345",
-    source: "LinkedIn",
-    status: "Qualified" as LeadStatus,
-    rating: "Hot" as LeadRating,
-    industry: "Technology",
-    expectedRevenue: 145000,
-    createdAt: "Jan 12, 2026",
-    lastContact: "Jan 27, 2026",
-    initials: "JW",
-  },
-  {
-    id: 10,
-    firstName: "Sophia",
-    lastName: "Davis",
-    company: "CloudFirst Inc",
-    email: "sophia.d@cloudfirst.com",
-    phone: "+1 (555) 012-3456",
-    source: "Website",
-    status: "Contacted" as LeadStatus,
-    rating: "Warm" as LeadRating,
-    industry: "Cloud Services",
-    expectedRevenue: 72000,
-    createdAt: "Jan 19, 2026",
-    lastContact: "Jan 25, 2026",
-    initials: "SD",
-  },
-];
-
-// Mock activity data
-type Activity = {
-  id: number;
-  type: "call" | "email" | "note" | "meeting";
-  title: string;
-  description: string;
-  date: string;
-  user: string;
+// Status color mapping (lowercase status values)
+const getStatusColor = (status: string) => {
+  const colors: Record<string, string> = {
+    new: "bg-blue-100 text-blue-700",
+    contacted: "bg-yellow-100 text-yellow-700",
+    qualified: "bg-green-100 text-green-700",
+    unqualified: "bg-gray-100 text-gray-600",
+    converted: "bg-purple-100 text-purple-700",
+  };
+  return colors[status?.toLowerCase()] || "bg-muted text-muted-foreground";
 };
 
-const mockActivities: Activity[] = [
-  {
-    id: 1,
-    type: "call",
-    title: "Initial Discovery Call",
-    description: "Discussed product requirements and timeline. Lead showed strong interest in enterprise features.",
-    date: "Jan 28, 2026",
-    user: "Sarah Johnson",
-  },
-  {
-    id: 2,
-    type: "email",
-    title: "Follow-up Email",
-    description: "Sent product brochure and pricing information.",
-    date: "Jan 27, 2026",
-    user: "Sarah Johnson",
-  },
-  {
-    id: 3,
-    type: "note",
-    title: "Internal Note",
-    description: "Lead mentioned budget approval expected next week. High priority follow-up needed.",
-    date: "Jan 26, 2026",
-    user: "Sarah Johnson",
-  },
-  {
-    id: 4,
-    type: "meeting",
-    title: "Product Demo Scheduled",
-    description: "Scheduled for Feb 5, 2026 at 2:00 PM. Will include technical team.",
-    date: "Jan 25, 2026",
-    user: "Sarah Johnson",
-  },
-];
-
-// Mock notes data
-type Note = {
-  id: number;
-  content: string;
-  author: string;
-  date: string;
+// Score color based on value
+const getScoreColor = (score: number | undefined) => {
+  if (score === undefined || score === null) return "text-muted-foreground";
+  if (score >= 80) return "text-green-600";
+  if (score >= 50) return "text-yellow-600";
+  return "text-red-600";
 };
 
-const mockNotes: Note[] = [
-  {
-    id: 1,
-    content: "Lead expressed interest in our enterprise solution. Budget approved for Q1. Decision maker is the CTO.",
-    author: "Sarah Johnson",
-    date: "Jan 28, 2026",
-  },
-  {
-    id: 2,
-    content: "Follow-up call scheduled for next week. Need to prepare custom demo based on their requirements.",
-    author: "Sarah Johnson",
-    date: "Jan 26, 2026",
-  },
-];
+const getScoreBgColor = (score: number | undefined) => {
+  if (score === undefined || score === null) return "bg-muted";
+  if (score >= 80) return "bg-green-100";
+  if (score >= 50) return "bg-yellow-100";
+  return "bg-red-100";
+};
 
-// Mock related items
-const mockTasks = [
-  { id: 1, title: "Schedule product demo", dueDate: "Feb 5, 2026", status: "In Progress" },
-  { id: 2, title: "Send pricing proposal", dueDate: "Feb 10, 2026", status: "Pending" },
-];
+// Format date helper
+const formatDate = (dateString: string | undefined) => {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
 
-const mockMeetings = [
-  { id: 1, title: "Product Demo", date: "Feb 5, 2026", time: "2:00 PM" },
-];
+// Calculate days since date
+const daysSince = (dateString: string | undefined) => {
+  if (!dateString) return 0;
+  const date = new Date(dateString);
+  const today = new Date();
+  const diffTime = Math.abs(today.getTime() - date.getTime());
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
 
-const mockDocuments = [
-  { id: 1, name: "Product Brochure.pdf", type: "PDF", size: "2.4 MB" },
-  { id: 2, name: "Pricing Sheet.xlsx", type: "Excel", size: "156 KB" },
-];
+// Activity type helpers
+const getActivityIcon = (type: string) => {
+  const icons: Record<string, React.ElementType> = {
+    task: FileText,
+    call: Phone,
+    email: Mail,
+    meeting: Video,
+    note: MessageSquare,
+  };
+  return icons[type] || Activity;
+};
+
+const getActivityColor = (type: string) => {
+  const colors: Record<string, string> = {
+    task: "bg-blue-100 text-blue-600",
+    call: "bg-green-100 text-green-600",
+    email: "bg-purple-100 text-purple-600",
+    meeting: "bg-orange-100 text-orange-600",
+    note: "bg-gray-100 text-gray-600",
+  };
+  return colors[type] || "bg-gray-100 text-gray-600";
+};
+
+const getStatusBadge = (status: string) => {
+  const badges: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-700",
+    in_progress: "bg-blue-100 text-blue-700",
+    completed: "bg-green-100 text-green-700",
+    cancelled: "bg-gray-100 text-gray-500",
+  };
+  return badges[status] || "bg-gray-100 text-gray-500";
+};
+
+const formatDateTime = (dateString: string | undefined) => {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+type TabType = "details" | "activity" | "notes";
 
 export default function LeadDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const leadId = params.id ? parseInt(params.id as string) : 0;
+  const leadId = params.id as string;
 
-  const [activeTab, setActiveTab] = useState<"details" | "activity" | "notes" | "related">("details");
+  const [activeTab, setActiveTab] = useState<TabType>("details");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDisqualifyModal, setShowDisqualifyModal] = useState(false);
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [disqualifyReason, setDisqualifyReason] = useState("");
   const [newNote, setNewNote] = useState("");
-  // Edit form modal state
+
+  // Form drawer state
   const [editFormOpen, setEditFormOpen] = useState(false);
 
-  // Find lead by ID
-  const lead = useMemo(() => {
-    return leads.find((l) => l.id === leadId);
-  }, [leadId]);
+  // Fetch lead from API
+  const { data: lead, isLoading, error } = useLead(leadId);
+  const updateLead = useUpdateLead();
+  const deleteLead = useDeleteLead();
+  const convertLead = useConvertLead();
+  const disqualifyLead = useDisqualifyLead();
+  
+  // Fetch all team members for owner name resolution
+  const { data: members = [], isLoading: isMembersLoading } = useMembers();
+  
+  // Fetch lead activities
+  const { data: activities = [], isLoading: isActivitiesLoading } = useLeadActivities(leadId);
+  const createActivity = useCreateActivity();
 
   // Calculate days in pipeline
   const daysInPipeline = useMemo(() => {
-    if (!lead) return 0;
-    const createdDate = new Date(lead.createdAt || "");
-    const today = new Date();
-    const diffTime = Math.abs(today.getTime() - createdDate.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }, [lead]);
-
-  // Get status color
-  const getStatusColor = (status: string) => {
-    const colors: Record<LeadStatus, string> = {
-      New: "bg-secondary/10 text-secondary",
-      Contacted: "bg-accent/10 text-accent",
-      Qualified: "bg-primary/10 text-primary",
-      Unqualified: "bg-muted text-muted-foreground",
-    };
-    return colors[status as LeadStatus] || "bg-muted text-muted-foreground";
-  };
-
-  // Get rating color
-  const getRatingColor = (rating: string | undefined) => {
-    if (!rating) return "bg-muted text-muted-foreground";
-    const colors: Record<LeadRating, string> = {
-      Hot: "bg-destructive/10 text-destructive",
-      Warm: "bg-accent/10 text-accent",
-      Cold: "bg-muted text-muted-foreground",
-    };
-    return colors[rating as LeadRating] || "bg-muted text-muted-foreground";
-  };
-
-  // Calculate lead score based on rating
-  const getLeadScore = (rating: string | undefined) => {
-    if (!rating) return 50;
-    const scores: Record<LeadRating, number> = {
-      Hot: 85,
-      Warm: 60,
-      Cold: 35,
-    };
-    return scores[rating as LeadRating] || 50;
-  };
+    return lead?.createdAt ? daysSince(lead.createdAt) : 0;
+  }, [lead?.createdAt]);
+  
+  // Get owner name from ID
+  const ownerInfo = useMemo(() => {
+    if (!lead?.ownerId) return { name: null, isLoading: false };
+    if (isMembersLoading) return { name: null, isLoading: true };
+    const owner = members.find(m => m.user_id === lead.ownerId);
+    if (owner) {
+      const name = owner.display_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'Unknown';
+      return { name, isLoading: false };
+    }
+    return { name: null, isLoading: false };
+  }, [lead?.ownerId, members, isMembersLoading]);
 
   // Handle delete
   const handleDelete = async () => {
-    setIsDeleting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await deleteLead.mutateAsync(leadId);
       router.push("/sales/leads");
     } catch (error) {
       console.error("Error deleting lead:", error);
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteModalOpen(false);
     }
   };
 
   // Handle form submission (update)
-  const handleFormSubmit = async (data: Partial<typeof lead>) => {
+  const handleFormSubmit = async (data: Partial<LeadFormData>) => {
     try {
-      console.log("Lead updated:", data);
-      // TODO: Replace with actual API call
-      // await api.updateLead(leadId, data)
-      
-      // Close modal
+      await updateLead.mutateAsync({
+        id: leadId,
+        data: data as LeadFormData,
+      });
       setEditFormOpen(false);
-      // Toast is shown by FormDrawer component
-      
-      // Refresh data (in real app, refetch from API)
-      // In this example, we would need to update the local lead object
     } catch (error) {
       console.error("Failed to update lead:", error);
-      throw error; // Let FormDrawer handle the error toast
+      throw error;
     }
   };
 
-  // Handle add note
-  const handleAddNote = () => {
+  // Handle convert to contact with modal params
+  const handleConvertWithParams = async (params: ConversionParams) => {
+    try {
+      const result = await convertLead.mutateAsync({
+        id: leadId,
+        params,
+      });
+      setShowConversionModal(false);
+      // Navigate to the new contact
+      if (result.contact?.id) {
+        router.push(`/sales/contacts/${result.contact.id}`);
+      } else {
+        router.push("/sales/leads");
+      }
+    } catch (error) {
+      console.error("Failed to convert lead:", error);
+    }
+  };
+
+  // Handle disqualify
+  const handleDisqualify = async () => {
+    try {
+      await disqualifyLead.mutateAsync({
+        id: leadId,
+        reason: disqualifyReason || "Not qualified",
+      });
+      setShowDisqualifyModal(false);
+      setDisqualifyReason("");
+    } catch (error) {
+      console.error("Failed to disqualify lead:", error);
+    }
+  };
+
+  // Handle add note - creates a note activity
+  const handleAddNote = async () => {
     if (!newNote.trim()) return;
-    // In a real app, this would make an API call
-    console.log("Adding note:", newNote);
-    setNewNote("");
+    try {
+      await createActivity.mutateAsync({
+        activityType: 'note' as ActivityType,
+        subject: newNote.trim().slice(0, 100),
+        description: newNote.trim(),
+        status: 'completed',
+        leadId: leadId,
+      });
+      toast.success("Note added successfully");
+      setNewNote("");
+    } catch (error) {
+      console.error("Failed to add note:", error);
+      toast.error("Failed to add note");
+    }
   };
+  
+  // Filter notes from activities
+  const notes = useMemo(() => {
+    return activities.filter(a => a.type === 'note');
+  }, [activities]);
 
-  // Handle convert to contact
-  const handleConvertToContact = () => {
-    // In a real app, this would navigate to contact creation with pre-filled data
-    router.push(`/sales/contacts/new?leadId=${leadId}`);
-  };
+  // Loading state
+  if (isLoading) {
+    return <DetailPageSkeleton />;
+  }
 
-  if (!lead) {
+  // Error state
+  if (error || !lead) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
         <motion.div
@@ -391,9 +280,15 @@ export default function LeadDetailPage() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center"
         >
-          <Target className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-          <h2 className="text-2xl font-semibold text-foreground mb-2">Lead Not Found</h2>
-          <p className="text-muted-foreground mb-6">The lead you&apos;re looking for doesn&apos;t exist.</p>
+          <AlertCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
+          <h2 className="text-2xl font-semibold text-foreground mb-2">
+            {error ? "Error Loading Lead" : "Lead Not Found"}
+          </h2>
+          <p className="text-muted-foreground mb-6">
+            {error
+              ? "There was an error loading this lead. Please try again."
+              : "The lead you're looking for doesn't exist or has been deleted."}
+          </p>
           <Link href="/sales/leads">
             <Button className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90">
               <ArrowLeft className="h-4 w-4 mr-2" />
@@ -405,7 +300,32 @@ export default function LeadDetailPage() {
     );
   }
 
-  const leadScore = getLeadScore(lead.rating);
+  // Map LeadViewModel to form data format
+  const leadFormData: Partial<LeadFormData> = {
+    firstName: lead.firstName,
+    lastName: lead.lastName,
+    email: lead.email,
+    phone: lead.phone,
+    mobile: lead.mobile,
+    companyName: lead.companyName,
+    title: lead.title,
+    website: lead.website,
+    source: lead.source,
+    sourceDetail: lead.sourceDetail,
+    status: lead.status as "new" | "contacted" | "qualified" | "unqualified" | "converted" | undefined,
+    score: lead.score,
+    addressLine1: lead.addressLine1,
+    city: lead.city,
+    state: lead.state,
+    postalCode: lead.postalCode,
+    country: lead.country,
+    description: lead.description,
+    tagIds: lead.tagIds,
+    ownerId: lead.ownerId,
+  };
+
+  const isConverted = lead.status?.toLowerCase() === "converted";
+  const isUnqualified = lead.status?.toLowerCase() === "unqualified";
 
   return (
     <div className="min-h-screen">
@@ -432,43 +352,64 @@ export default function LeadDetailPage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-xl font-bold shadow-lg">
-                {lead.initials}
+                {lead.initials || `${lead.firstName?.[0] || ""}${lead.lastName?.[0] || ""}`}
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-foreground mb-2">
-                  {lead.firstName} {lead.lastName}
+                  {lead.fullName || `${lead.firstName} ${lead.lastName}`}
                 </h1>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-lg text-muted-foreground">{lead.company}</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
+                  {lead.companyName && (
+                    <span className="text-lg text-muted-foreground flex items-center gap-1">
+                      <Building2 className="h-4 w-4" />
+                      {lead.companyName}
+                    </span>
+                  )}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
                     {lead.status}
                   </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRatingColor(lead.rating)}`}>
-                    {lead.rating || "N/A"}
-                  </span>
+                  {lead.score !== undefined && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getScoreBgColor(lead.score)} ${getScoreColor(lead.score)}`}>
+                      Score: {lead.score}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditFormOpen(true)}
-                className="flex items-center gap-2"
-              >
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleConvertToContact}
-              >
-                <UserPlus className="h-4 w-4" />
-                Convert to Contact
-              </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isConverted && !isUnqualified && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditFormOpen(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setShowConversionModal(true)}
+                    disabled={convertLead.isPending}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    {convertLead.isPending ? "Converting..." : "Convert"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-orange-600 hover:text-orange-700"
+                    onClick={() => setShowDisqualifyModal(true)}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Disqualify
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -481,6 +422,49 @@ export default function LeadDetailPage() {
             </div>
           </div>
         </motion.div>
+
+        {/* Conversion/Disqualification Banner */}
+        {isConverted && lead.convertedAt && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg"
+          >
+            <div className="flex items-center gap-2 text-purple-700">
+              <UserPlus className="h-5 w-5" />
+              <span className="font-medium">
+                This lead was converted on {formatDate(lead.convertedAt)}
+              </span>
+            </div>
+            {lead.convertedContactId && (
+              <Link href={`/sales/contacts/${lead.convertedContactId}`}>
+                <Button variant="link" className="text-purple-700 p-0 h-auto mt-1">
+                  View Contact →
+                </Button>
+              </Link>
+            )}
+          </motion.div>
+        )}
+
+        {isUnqualified && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg"
+          >
+            <div className="flex items-center gap-2 text-gray-700">
+              <XCircle className="h-5 w-5" />
+              <span className="font-medium">
+                This lead was disqualified on {formatDate(lead.disqualifiedAt)}
+              </span>
+            </div>
+            {lead.disqualifiedReason && (
+              <p className="text-sm text-gray-600 mt-1">
+                Reason: {lead.disqualifiedReason}
+              </p>
+            )}
+          </motion.div>
+        )}
 
         {/* Overview Cards */}
         <motion.div
@@ -505,6 +489,12 @@ export default function LeadDetailPage() {
                 <p className="text-xs text-muted-foreground">Phone</p>
                 <p className="text-sm font-medium">{lead.phone || "N/A"}</p>
               </div>
+              {lead.mobile && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Mobile</p>
+                  <p className="text-sm font-medium">{lead.mobile}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -518,16 +508,25 @@ export default function LeadDetailPage() {
             <CardContent className="space-y-2">
               <div>
                 <p className="text-xs text-muted-foreground">Company</p>
-                <p className="text-sm font-medium">{lead.company}</p>
+                <p className="text-sm font-medium">{lead.companyName || "N/A"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Industry</p>
-                <p className="text-sm font-medium">{lead.industry || "N/A"}</p>
+                <p className="text-xs text-muted-foreground">Title</p>
+                <p className="text-sm font-medium">{lead.title || "N/A"}</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Estimated Value</p>
-                <p className="text-sm font-medium">${(lead.expectedRevenue || 0).toLocaleString('en-US')}</p>
-              </div>
+              {lead.website && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Website</p>
+                  <a
+                    href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    {lead.website}
+                  </a>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -541,15 +540,17 @@ export default function LeadDetailPage() {
             <CardContent className="space-y-2">
               <div>
                 <p className="text-xs text-muted-foreground">Source</p>
-                <p className="text-sm font-medium">{lead.source || "N/A"}</p>
+                <p className="text-sm font-medium capitalize">{lead.source?.replace(/_/g, " ") || "N/A"}</p>
               </div>
+              {lead.sourceDetail && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Source Detail</p>
+                  <p className="text-sm font-medium">{lead.sourceDetail}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground">Created</p>
-                <p className="text-sm font-medium">{lead.createdAt || "N/A"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Last Contact</p>
-                <p className="text-sm font-medium">{lead.lastContact}</p>
+                <p className="text-sm font-medium">{lead.created || formatDate(lead.createdAt)}</p>
               </div>
             </CardContent>
           </Card>
@@ -567,13 +568,15 @@ export default function LeadDetailPage() {
                 <p className="text-sm font-medium">{daysInPipeline}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Activities</p>
-                <p className="text-sm font-medium">{mockActivities.length}</p>
+                <p className="text-xs text-muted-foreground">Activity Count</p>
+                <p className="text-sm font-medium">{lead.activityCount ?? 0}</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Notes</p>
-                <p className="text-sm font-medium">{mockNotes.length}</p>
-              </div>
+              {lead.lastActivityAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Last Activity</p>
+                  <p className="text-sm font-medium">{formatDate(lead.lastActivityAt)}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -590,13 +593,12 @@ export default function LeadDetailPage() {
                     { id: "details", label: "Details", icon: FileText },
                     { id: "activity", label: "Activity", icon: Activity },
                     { id: "notes", label: "Notes", icon: MessageSquare },
-                    { id: "related", label: "Related Items", icon: FolderOpen },
                   ].map((tab) => {
                     const Icon = tab.icon;
                     return (
                       <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id as any)}
+                        onClick={() => setActiveTab(tab.id as TabType)}
                         className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
                           activeTab === tab.id
                             ? "border-primary text-primary"
@@ -612,280 +614,403 @@ export default function LeadDetailPage() {
 
                 {/* Tab Content */}
                 <div className="p-6">
-              <AnimatePresence mode="wait">
-                {activeTab === "details" && (
-                  <motion.div
-                    key="details"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="space-y-6"
-                  >
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-semibold text-muted-foreground mb-3">Personal Information</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Full Name</label>
-                            <p className="text-sm font-medium text-foreground mt-1">
-                              {lead.firstName} {lead.lastName}
-                            </p>
+                  <AnimatePresence mode="wait">
+                    {activeTab === "details" && (
+                      <motion.div
+                        key="details"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-6"
+                      >
+                        {/* Main Grid - Contact & Company Info */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Contact Information Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-primary/10 rounded-lg">
+                                <Mail className="h-4 w-4 text-primary" />
+                              </div>
+                              <h3 className="text-base font-semibold">Contact Information</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Full Name</span>
+                                <span className="text-sm font-medium text-right">
+                                  {lead.fullName || `${lead.firstName} ${lead.lastName}`}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-start gap-4">
+                                <span className="text-sm text-muted-foreground shrink-0">Email</span>
+                                <a href={`mailto:${lead.email}`} className="text-sm font-medium text-primary hover:underline text-right break-all">
+                                  {lead.email}
+                                </a>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Phone</span>
+                                {lead.phone ? (
+                                  <a href={`tel:${lead.phone}`} className="text-sm font-medium">{lead.phone}</a>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">-</span>
+                                )}
+                              </div>
+                              {lead.mobile && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Mobile</span>
+                                  <a href={`tel:${lead.mobile}`} className="text-sm font-medium">{lead.mobile}</a>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Email</label>
-                            <p className="text-sm text-foreground mt-1">{lead.email}</p>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Phone</label>
-                            <p className="text-sm text-foreground mt-1">{lead.phone || "N/A"}</p>
+
+                          {/* Company Information Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-purple-500/10 rounded-lg">
+                                <Building2 className="h-4 w-4 text-purple-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Company Information</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Company</span>
+                                <span className="text-sm font-medium">{lead.companyName || "-"}</span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Job Title</span>
+                                <span className="text-sm font-medium">{lead.title || "-"}</span>
+                              </div>
+                              {lead.website && (
+                                <div className="flex justify-between items-start gap-4">
+                                  <span className="text-sm text-muted-foreground shrink-0">Website</span>
+                                  <a
+                                    href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm font-medium text-primary hover:underline text-right break-all"
+                                  >
+                                    {lead.website}
+                                  </a>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-muted-foreground mb-3">Company Information</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Company Name</label>
-                            <p className="text-sm font-medium text-foreground mt-1">{lead.company}</p>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Industry</label>
-                            <p className="text-sm text-foreground mt-1">{lead.industry || "N/A"}</p>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Estimated Value</label>
-                            <p className="text-sm font-semibold text-foreground mt-1 font-tabular">
-                              ${(lead.expectedRevenue || 0).toLocaleString('en-US')}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-muted-foreground mb-3">Lead Information</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Status</label>
-                            <div className="mt-1">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
-                                {lead.status}
-                              </span>
+
+                        {/* Lead Status & Source Row */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Lead Status Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-green-500/10 rounded-lg">
+                                <Target className="h-4 w-4 text-green-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Lead Status</h3>
                             </div>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Rating</label>
-                            <div className="mt-1">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRatingColor(lead.rating)}`}>
-                                {lead.rating || "N/A"}
-                              </span>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Source</label>
-                            <p className="text-sm text-foreground mt-1">{lead.source || "N/A"}</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-muted-foreground mb-3">Timeline</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Created Date</label>
-                            <p className="text-sm text-foreground mt-1">{lead.createdAt || "N/A"}</p>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Last Contact</label>
-                            <p className="text-sm text-foreground mt-1">{lead.lastContact}</p>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Days in Pipeline</label>
-                            <p className="text-sm font-semibold text-foreground mt-1">{daysInPipeline} days</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-
-                {activeTab === "activity" && (
-                  <motion.div
-                    key="activity"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="space-y-4"
-                  >
-                    {mockActivities.map((activity, index) => {
-                      const icons = {
-                        call: Phone,
-                        email: Mail,
-                        note: FileText,
-                        meeting: Calendar,
-                      };
-                      const Icon = icons[activity.type];
-                      const colors = {
-                        call: "bg-primary/10 text-primary",
-                        email: "bg-accent/10 text-accent",
-                        note: "bg-secondary/10 text-secondary",
-                        meeting: "bg-brand-purple/10 text-brand-purple",
-                      };
-
-                      return (
-                        <motion.div
-                          key={activity.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                          className="flex gap-4 pb-4 border-b border-border last:border-0"
-                        >
-                          <div className={`w-10 h-10 rounded-full ${colors[activity.type]} flex items-center justify-center flex-shrink-0`}>
-                            <Icon className="h-5 w-5" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <h4 className="text-sm font-semibold text-foreground">{activity.title}</h4>
-                              <span className="text-xs text-muted-foreground">{activity.date}</span>
-                            </div>
-                            <p className="text-sm text-muted-foreground mb-1">{activity.description}</p>
-                            <p className="text-xs text-muted-foreground">by {activity.user}</p>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-                )}
-
-                {activeTab === "notes" && (
-                  <motion.div
-                    key="notes"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="space-y-6"
-                  >
-                    {/* Add Note Form */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-foreground">Add Note</label>
-                      <Textarea
-                        placeholder="Enter your note here..."
-                        value={newNote}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewNote(e.target.value)}
-                        rows={4}
-                        className="resize-none"
-                      />
-                      <div className="flex justify-end">
-                        <Button
-                          onClick={handleAddNote}
-                          disabled={!newNote.trim()}
-                          className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-                          size="sm"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Note
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Notes List */}
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-semibold text-foreground">Previous Notes</h3>
-                      {mockNotes.map((note, index) => (
-                        <motion.div
-                          key={note.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                          className="p-4 bg-muted/50 rounded-lg border border-border"
-                        >
-                          <p className="text-sm text-foreground mb-2">{note.content}</p>
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>{note.author}</span>
-                            <span>{note.date}</span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {activeTab === "related" && (
-                  <motion.div
-                    key="related"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="space-y-6"
-                  >
-                    {/* Tasks */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <CheckSquare className="h-4 w-4" />
-                        Tasks ({mockTasks.length})
-                      </h3>
-                      <div className="space-y-2">
-                        {mockTasks.map((task) => (
-                          <div key={task.id} className="p-3 bg-muted/50 rounded-lg border border-border">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">{task.title}</span>
-                              <span className={`text-xs px-2 py-1 rounded-full ${
-                                task.status === "In Progress" 
-                                  ? "bg-primary/10 text-primary" 
-                                  : "bg-muted text-muted-foreground"
-                              }`}>
-                                {task.status}
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">Due: {task.dueDate}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Meetings */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        Meetings ({mockMeetings.length})
-                      </h3>
-                      <div className="space-y-2">
-                        {mockMeetings.map((meeting) => (
-                          <div key={meeting.id} className="p-3 bg-muted/50 rounded-lg border border-border">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-foreground">{meeting.title}</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {meeting.date} at {meeting.time}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Documents */}
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                        <FileText className="h-4 w-4" />
-                        Documents ({mockDocuments.length})
-                      </h3>
-                      <div className="space-y-2">
-                        {mockDocuments.map((doc) => (
-                          <div key={doc.id} className="p-3 bg-muted/50 rounded-lg border border-border flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-muted-foreground" />
-                              <div>
-                                <span className="text-sm text-foreground">{doc.name}</span>
-                                <p className="text-xs text-muted-foreground">{doc.type} • {doc.size}</p>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Status</span>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
+                                  {lead.status}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Score</span>
+                                <span className={`text-sm font-semibold ${getScoreColor(lead.score)}`}>
+                                  {lead.score !== undefined ? `${lead.score}/100` : "-"}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Days in Pipeline</span>
+                                <span className="text-sm font-medium">{daysInPipeline} days</span>
                               </div>
                             </div>
-                            <Button variant="ghost" size="sm">
-                              <X className="h-4 w-4" />
+                          </div>
+
+                          {/* Source Information Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-orange-500/10 rounded-lg">
+                                <Target className="h-4 w-4 text-orange-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Source Information</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Source</span>
+                                <span className="text-sm font-medium capitalize">{lead.source?.replace(/_/g, " ") || "-"}</span>
+                              </div>
+                              {lead.sourceDetail && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Detail</span>
+                                  <span className="text-sm font-medium">{lead.sourceDetail}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Created</span>
+                                <span className="text-sm font-medium">{lead.created || formatDate(lead.createdAt)}</span>
+                              </div>
+                              {lead.lastActivityAt && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Last Activity</span>
+                                  <span className="text-sm font-medium">{formatDate(lead.lastActivityAt)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Address & Tags Row */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Address Card */}
+                          {(lead.addressLine1 || lead.city || lead.state || lead.country) && (
+                            <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                              <div className="flex items-center gap-2 mb-4">
+                                <div className="p-2 bg-blue-500/10 rounded-lg">
+                                  <MapPin className="h-4 w-4 text-blue-500" />
+                                </div>
+                                <h3 className="text-base font-semibold">Address</h3>
+                              </div>
+                              <div className="text-sm space-y-1">
+                                {lead.addressLine1 && <p className="font-medium">{lead.addressLine1}</p>}
+                                <p className="text-muted-foreground">
+                                  {[lead.city, lead.state, lead.postalCode].filter(Boolean).join(", ")}
+                                </p>
+                                {lead.country && <p className="font-medium">{lead.country}</p>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Tags Card */}
+                          {lead.tags && lead.tags.length > 0 && (
+                            <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                              <div className="flex items-center gap-2 mb-4">
+                                <div className="p-2 bg-pink-500/10 rounded-lg">
+                                  <Tag className="h-4 w-4 text-pink-500" />
+                                </div>
+                                <h3 className="text-base font-semibold">Tags</h3>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {lead.tags.map((tag) => (
+                                  <span
+                                    key={tag.id}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+                                    style={{
+                                      backgroundColor: tag.color ? `${tag.color}20` : 'hsl(var(--primary) / 0.1)',
+                                      color: tag.color || 'hsl(var(--primary))',
+                                    }}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Description Card */}
+                        {lead.description && (
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-indigo-500/10 rounded-lg">
+                                <FileText className="h-4 w-4 text-indigo-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Description</h3>
+                            </div>
+                            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                              {lead.description}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Owner Card - if assigned */}
+                        {lead.ownerId && (
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-teal-500/10 rounded-lg">
+                                <User className="h-4 w-4 text-teal-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Assignment</h3>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-muted-foreground">Assigned To</span>
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-xs font-medium">
+                                  {ownerInfo.name ? ownerInfo.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?'}
+                                </div>
+                                <span className="text-sm font-medium">
+                                  {ownerInfo.isLoading ? 'Loading...' : (ownerInfo.name || 'Unknown User')}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {activeTab === "activity" && (
+                      <motion.div
+                        key="activity"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        className="space-y-4"
+                      >
+                        {/* Activity Header */}
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-foreground">Activity Timeline</h3>
+                          <span className="text-xs text-muted-foreground">
+                            {activities.length} {activities.length === 1 ? "activity" : "activities"}
+                          </span>
+                        </div>
+
+                        {/* Activity List */}
+                        {isActivitiesLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : activities.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No activities yet</p>
+                            <p className="text-sm">Activities will appear here when created</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {activities.map((activity, index) => {
+                              const ActivityIcon = getActivityIcon(activity.type);
+                              return (
+                                <div
+                                  key={activity.id}
+                                  className="relative flex gap-4 pb-4 last:pb-0"
+                                >
+                                  {/* Timeline line */}
+                                  {index < activities.length - 1 && (
+                                    <div className="absolute left-5 top-10 bottom-0 w-px bg-border" />
+                                  )}
+                                  
+                                  {/* Icon */}
+                                  <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${getActivityColor(activity.type)}`}>
+                                    <ActivityIcon className="h-5 w-5" />
+                                  </div>
+                                  
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <p className="font-medium text-sm text-foreground">
+                                          {activity.subject}
+                                        </p>
+                                        {activity.description && (
+                                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                                            {activity.description}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusBadge(activity.status)}`}>
+                                        {activity.status.replace("_", " ")}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {formatDateTime(activity.createdAt)}
+                                      </span>
+                                      {activity.dueDate && (
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="h-3 w-3" />
+                                          Due: {formatDate(activity.dueDate)}
+                                        </span>
+                                      )}
+                                      <span className="capitalize">{activity.type}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {activeTab === "notes" && (
+                      <motion.div
+                        key="notes"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        className="space-y-6"
+                      >
+                        {/* Add Note Form */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-semibold text-foreground">Add Note</label>
+                          <Textarea
+                            placeholder="Enter your note here..."
+                            value={newNote}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewNote(e.target.value)}
+                            rows={4}
+                            className="resize-none"
+                          />
+                          <div className="flex justify-end">
+                            <Button
+                              onClick={handleAddNote}
+                              disabled={!newNote.trim() || createActivity.isPending}
+                              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                              size="sm"
+                            >
+                              {createActivity.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Adding...
+                                </>
+                              ) : (
+                                <>
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Add Note
+                                </>
+                              )}
                             </Button>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        </div>
+
+                        {/* Notes List */}
+                        {isActivitiesLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : notes.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No notes yet</p>
+                            <p className="text-sm">Add your first note above</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            {notes.map((note) => (
+                              <div
+                                key={note.id}
+                                className="p-4 bg-muted/30 rounded-lg border border-border"
+                              >
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-foreground whitespace-pre-wrap">
+                                      {note.description || note.subject}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{formatDateTime(note.createdAt)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </CardContent>
             </Card>
@@ -929,17 +1054,27 @@ export default function LeadDetailPage() {
                           strokeWidth="8"
                           fill="none"
                           strokeDasharray={`${2 * Math.PI * 56}`}
-                          strokeDashoffset={`${2 * Math.PI * 56 * (1 - leadScore / 100)}`}
+                          strokeDashoffset={`${2 * Math.PI * 56 * (1 - (lead.score ?? 0) / 100)}`}
                           className="transition-all duration-500"
                         />
                       </svg>
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-2xl font-bold text-foreground">{leadScore}</span>
+                        <span className={`text-2xl font-bold ${getScoreColor(lead.score)}`}>
+                          {lead.score ?? "N/A"}
+                        </span>
                       </div>
                     </div>
                   </div>
                   <div className="text-center">
-                    <p className="text-sm text-muted-foreground">Rating: {lead.rating || "N/A"}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {lead.score !== undefined
+                        ? lead.score >= 80
+                          ? "Hot Lead"
+                          : lead.score >= 50
+                          ? "Warm Lead"
+                          : "Cold Lead"
+                        : "No score"}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -951,66 +1086,58 @@ export default function LeadDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.href = `mailto:${lead.email}`}
+                >
                   <Mail className="h-4 w-4" />
                   Send Email
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
-                  <Phone className="h-4 w-4" />
-                  Log Call
-                </Button>
+                {lead.phone && (
+                  <Button
+                    className="w-full justify-start gap-2"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.location.href = `tel:${lead.phone}`}
+                  >
+                    <Phone className="h-4 w-4" />
+                    Call
+                  </Button>
+                )}
                 <Button className="w-full justify-start gap-2" variant="outline" size="sm">
                   <Calendar className="h-4 w-4" />
                   Schedule Meeting
                 </Button>
                 <Button className="w-full justify-start gap-2" variant="outline" size="sm">
-                  <CheckSquare className="h-4 w-4" />
-                  Create Task
-                </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
                   <FileText className="h-4 w-4" />
-                  Add Document
+                  Add Note
                 </Button>
               </CardContent>
             </Card>
 
-            {/* Next Steps */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Next Steps</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      1
+            {/* Owner Info */}
+            {lead.ownerId && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Assigned To
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-medium">
+                      {ownerInfo.name ? ownerInfo.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?'}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Schedule product demo</p>
-                      <p className="text-xs text-muted-foreground mt-1">Due: Feb 5, 2026</p>
-                    </div>
+                    <span className="text-sm font-medium">
+                      {ownerInfo.isLoading ? 'Loading...' : (ownerInfo.name || 'Unknown User')}
+                    </span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Send pricing proposal</p>
-                      <p className="text-xs text-muted-foreground mt-1">Due: Feb 10, 2026</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Follow up call</p>
-                      <p className="text-xs text-muted-foreground mt-1">After demo</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
@@ -1022,21 +1149,85 @@ export default function LeadDetailPage() {
         onConfirm={handleDelete}
         title="Delete Lead"
         description="Are you sure you want to delete this lead? This will permanently remove it from your CRM and cannot be undone."
-        itemName={`${lead.firstName} ${lead.lastName}`}
+        itemName={lead.fullName || `${lead.firstName} ${lead.lastName}`}
         itemType="Lead"
         icon={Target}
-        isDeleting={isDeleting}
+        isDeleting={deleteLead.isPending}
       />
+
+      {/* Disqualify Modal */}
+      {showDisqualifyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-background rounded-lg shadow-lg p-6 w-full max-w-md mx-4"
+          >
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-orange-600" />
+              Disqualify Lead
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Are you sure you want to disqualify this lead? You can optionally provide a reason.
+            </p>
+            <Textarea
+              placeholder="Reason for disqualification (optional)"
+              value={disqualifyReason}
+              onChange={(e) => setDisqualifyReason(e.target.value)}
+              rows={3}
+              className="mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDisqualifyModal(false);
+                  setDisqualifyReason("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDisqualify}
+                disabled={disqualifyLead.isPending}
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+              >
+                {disqualifyLead.isPending ? "Disqualifying..." : "Disqualify"}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Edit Form Drawer */}
       <LeadFormDrawer
         isOpen={editFormOpen}
         onClose={() => setEditFormOpen(false)}
         onSubmit={handleFormSubmit}
-        initialData={lead}
+        initialData={leadFormData}
         mode="edit"
         defaultView="detailed"
       />
+
+      {/* Conversion Modal */}
+      {lead && (
+        <LeadConversionModal
+          isOpen={showConversionModal}
+          onClose={() => setShowConversionModal(false)}
+          onConvert={handleConvertWithParams}
+          lead={{
+            id: lead.id,
+            firstName: lead.firstName,
+            lastName: lead.lastName,
+            email: lead.email,
+            phone: lead.phone,
+            companyName: lead.companyName,
+            title: lead.title,
+            website: lead.website,
+          }}
+          isConverting={convertLead.isPending}
+        />
+      )}
     </div>
   );
 }

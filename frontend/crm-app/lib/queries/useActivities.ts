@@ -19,6 +19,7 @@ export interface ActivityQueryParams {
   status?: ActivityStatus;
   contact_id?: string;
   deal_id?: string;
+  lead_id?: string;
   search?: string;
 }
 
@@ -51,6 +52,18 @@ export function useContactTimeline(contactId: string) {
     queryKey: ['contacts', contactId, 'timeline'],
     queryFn: () => activitiesApi.getContactTimeline(contactId),
     enabled: !!contactId,
+  });
+}
+
+/**
+ * Hook to fetch lead activities
+ */
+export function useLeadActivities(leadId: string) {
+  return useQuery({
+    queryKey: ['leads', leadId, 'activities'],
+    queryFn: () => activitiesApi.getAll({ lead_id: leadId, page_size: 50 }),
+    enabled: !!leadId,
+    select: (data) => data.data,
   });
 }
 
