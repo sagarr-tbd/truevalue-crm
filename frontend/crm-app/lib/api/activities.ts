@@ -223,6 +223,7 @@ export const activitiesApi = {
     status?: ActivityStatus;
     contact_id?: string;
     deal_id?: string;
+    lead_id?: string;
     search?: string;
   }): Promise<{ data: ActivityViewModel[]; meta: { total: number; page: number; page_size: number } }> => {
     const queryParams = new URLSearchParams();
@@ -232,6 +233,7 @@ export const activitiesApi = {
     if (params?.status) queryParams.set('status', params.status);
     if (params?.contact_id) queryParams.set('contact_id', params.contact_id);
     if (params?.deal_id) queryParams.set('deal_id', params.deal_id);
+    if (params?.lead_id) queryParams.set('lead_id', params.lead_id);
     if (params?.search) queryParams.set('search', params.search);
 
     const url = `/crm/api/v1/activities${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;

@@ -21,7 +21,6 @@ import {
   ChevronDown,
   Check,
   Building2,
-  DollarSign,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,24 +30,28 @@ import DataTable from "@/components/DataTable";
 import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
-import type { Lead, LeadStatus, LeadRating } from "@/lib/types";
-import { useKeyboardShortcuts, useFilterPresets, useDebounce, useTableColumns } from "@/hooks";
+import type { Lead, LeadStatus } from "@/lib/types";
+import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
-import { AdvancedFilter, FilterField, FilterGroup, filterData } from "@/components/AdvancedFilter";
+import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
-import { ColumnSettings } from "@/components/DataTable";
+import { LeadConversionModal, type ConversionParams } from "@/components/LeadConversionModal";
 import { toast } from "sonner";
 import { 
   useLeads, 
   useCreateLead,
   useUpdateLead,
-  useDeleteLead, 
+  useDeleteLead,
+  useConvertLead,
   useBulkDeleteLeads, 
-  useBulkUpdateLeads 
+  useBulkUpdateLeads,
+  type LeadQueryParams,
+  type LeadViewModel,
 } from "@/lib/queries/useLeads";
+import { leadsApi } from "@/lib/api/leads";
 import { useUIStore } from "@/stores";
 
 // Lazy load heavy components that are only used conditionally
@@ -75,14 +78,6 @@ const BulkUpdateModal = dynamic(
 export default function LeadsPage() {
   const router = useRouter();
   
-  // React Query (server/mock data)
-  const { data: leads = [], isLoading } = useLeads();
-  const createLead = useCreateLead();
-  const updateLead = useUpdateLead();
-  const deleteLead = useDeleteLead();
-  const bulkDelete = useBulkDeleteLeads();
-  const bulkUpdate = useBulkUpdateLeads();
-  
   // Zustand (UI state)
   const { 
     viewMode, 
@@ -103,13 +98,78 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(leadsFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
+  const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   
-  // Debounce search query to prevent excessive filtering
+  // Debounce search query for API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  
+  // Advanced Filter state
+  const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const { presets, addPreset, deletePreset } = useFilterPresets('leads');
+
+  // Convert camelCase operator to snake_case for API
+  const toSnakeCaseOperator = (op: string): string => {
+    const operatorMap: Record<string, string> = {
+      'equals': 'equals',
+      'notEquals': 'not_equals',
+      'contains': 'contains',
+      'notContains': 'not_contains',
+      'startsWith': 'starts_with',
+      'endsWith': 'ends_with',
+      'isEmpty': 'is_empty',
+      'isNotEmpty': 'is_not_empty',
+      'greaterThan': 'greater_than',
+      'lessThan': 'less_than',
+      'greaterThanOrEqual': 'greater_than_or_equal',
+      'lessThanOrEqual': 'less_than_or_equal',
+    };
+    return operatorMap[op] || op;
+  };
+
+  // Build query params for server-side pagination (including advanced filters)
+  const queryParams: LeadQueryParams = useMemo(() => {
+    const params: LeadQueryParams = {
+      page: currentPage,
+      page_size: itemsPerPage,
+      search: debouncedSearchQuery || undefined,
+      status: statusFilter || undefined,
+      order_by: sortColumn ? `${sortDirection === 'desc' ? '-' : ''}${sortColumn}` : '-created_at',
+    };
+    
+    // Add advanced filters if present
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      params.filters = {
+        logic: (filterGroup.logic?.toLowerCase() || 'and') as 'and' | 'or',
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      };
+    }
+    
+    return params;
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, sortColumn, sortDirection, filterGroup]);
+  
+  // React Query (server data) - now with pagination
+  const { data: leadsResponse, isLoading } = useLeads(queryParams);
+  const leads = useMemo(() => leadsResponse?.data ?? [], [leadsResponse?.data]);
+  const totalItems = leadsResponse?.meta?.total ?? 0;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  
+  // Stats from API response (includes all leads, not just current page)
+  const apiStats = leadsResponse?.meta?.stats;
+  
+  const createLead = useCreateLead();
+  const updateLead = useUpdateLead();
+  const deleteLead = useDeleteLead();
+  const convertLead = useConvertLead();
+  const bulkDelete = useBulkDeleteLeads();
+  const bulkUpdate = useBulkUpdateLeads();
   
   // Save filters to store when they change
   useEffect(() => {
@@ -118,10 +178,15 @@ export default function LeadsPage() {
       status: statusFilter,
     });
   }, [searchQuery, statusFilter, setModuleFilters]);
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [leadToDelete, setLeadToDelete] = useState<typeof leads[0] | null>(null);
+  const [leadToDelete, setLeadToDelete] = useState<LeadViewModel | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Form modal states - Unified Modal
@@ -133,35 +198,27 @@ export default function LeadsPage() {
   // Filter dropdown ref for click outside
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Advanced Filter state
-  const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
-  const { presets, addPreset, deletePreset } = useFilterPresets('leads');
-
   // Bulk operations state
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
-  // Export columns configuration
-  const exportColumns: ExportColumn<Lead>[] = useMemo(() => [
+  // Conversion modal state
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [leadToConvert, setLeadToConvert] = useState<LeadViewModel | null>(null);
+
+  // Export columns configuration - fields from list API
+  const exportColumns: ExportColumn<LeadViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
     { key: 'firstName', label: 'First Name' },
     { key: 'lastName', label: 'Last Name' },
-    { key: 'company', label: 'Company' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
-    { key: 'source', label: 'Source' },
-    { key: 'status', label: 'Status' },
-    { key: 'rating', label: 'Rating' },
-    { key: 'industry', label: 'Industry' },
-    {
-      key: 'expectedRevenue',
-      label: 'Expected Revenue',
-      format: (value) => value ? `$${value.toLocaleString()}` : ''
-    },
-    { key: 'createdAt', label: 'Created Date' },
-    { key: 'lastContact', label: 'Last Contact' },
+    { key: 'companyName', label: 'Company' },
+    { key: 'status', label: 'Status', format: (value) => value ? String(value).charAt(0).toUpperCase() + String(value).slice(1) : '' },
+    { key: 'source', label: 'Source', format: (value) => value ? String(value).replace(/_/g, ' ') : '' },
+    { key: 'score', label: 'Score' },
+    { key: 'created', label: 'Created Date' },
   ], []);
 
   // Advanced filter fields configuration
@@ -171,20 +228,11 @@ export default function LeadsPage() {
       label: 'Status',
       type: 'select',
       options: [
-        { label: 'New', value: 'New' },
-        { label: 'Contacted', value: 'Contacted' },
-        { label: 'Qualified', value: 'Qualified' },
-        { label: 'Unqualified', value: 'Unqualified' },
-      ],
-    },
-    {
-      key: 'rating',
-      label: 'Rating',
-      type: 'select',
-      options: [
-        { label: 'Hot', value: 'Hot' },
-        { label: 'Warm', value: 'Warm' },
-        { label: 'Cold', value: 'Cold' },
+        { label: 'New', value: 'new' },
+        { label: 'Contacted', value: 'contacted' },
+        { label: 'Qualified', value: 'qualified' },
+        { label: 'Unqualified', value: 'unqualified' },
+        { label: 'Converted', value: 'converted' },
       ],
     },
     {
@@ -200,7 +248,7 @@ export default function LeadsPage() {
       placeholder: 'Enter last name...',
     },
     {
-      key: 'company',
+      key: 'companyName',
       label: 'Company',
       type: 'text',
       placeholder: 'Enter company...',
@@ -216,25 +264,20 @@ export default function LeadsPage() {
       label: 'Source',
       type: 'select',
       options: [
-        { label: 'Website', value: 'Website' },
-        { label: 'Referral', value: 'Referral' },
-        { label: 'LinkedIn', value: 'LinkedIn' },
-        { label: 'Trade Show', value: 'Trade Show' },
-        { label: 'Cold Call', value: 'Cold Call' },
-        { label: 'Email Campaign', value: 'Email Campaign' },
+        { label: 'Website', value: 'website' },
+        { label: 'Referral', value: 'referral' },
+        { label: 'LinkedIn', value: 'linkedin' },
+        { label: 'Trade Show', value: 'trade_show' },
+        { label: 'Cold Call', value: 'cold_call' },
+        { label: 'Email Campaign', value: 'email_campaign' },
+        { label: 'Social Media', value: 'social_media' },
       ],
     },
     {
-      key: 'industry',
-      label: 'Industry',
-      type: 'text',
-      placeholder: 'Enter industry...',
-    },
-    {
-      key: 'expectedRevenue',
-      label: 'Expected Revenue',
+      key: 'score',
+      label: 'Score',
       type: 'number',
-      placeholder: 'Enter amount...',
+      placeholder: 'Enter score (0-100)...',
     },
   ], []);
 
@@ -275,61 +318,45 @@ export default function LeadsPage() {
     ],
   });
 
-  // Filter options
+  // Filter options (using API stats for counts)
   const filterOptions = useMemo(() => [
     {
       label: "All Leads",
       value: null,
-      count: leads.length,
+      count: apiStats?.total ?? totalItems,
     },
     {
       label: "New",
-      value: "New",
-      count: leads.filter((l) => l.status === "New").length,
+      value: "new",
+      count: apiStats?.byStatus?.['new'] ?? 0,
     },
     {
       label: "Contacted",
-      value: "Contacted",
-      count: leads.filter((l) => l.status === "Contacted").length,
+      value: "contacted",
+      count: apiStats?.byStatus?.['contacted'] ?? 0,
     },
     {
       label: "Qualified",
-      value: "Qualified",
-      count: leads.filter((l) => l.status === "Qualified").length,
+      value: "qualified",
+      count: apiStats?.byStatus?.['qualified'] ?? 0,
     },
     {
       label: "Unqualified",
-      value: "Unqualified",
-      count: leads.filter((l) => l.status === "Unqualified").length,
+      value: "unqualified",
+      count: apiStats?.byStatus?.['unqualified'] ?? 0,
     },
-  ], []);
+    {
+      label: "Converted",
+      value: "converted",
+      count: apiStats?.byStatus?.['converted'] ?? 0,
+    },
+  ], [apiStats, totalItems]);
 
-  // Filter & sort logic (using debounced search query)
+  // Advanced filtering is now server-side - just apply client-side sorting if needed
   const filteredLeads = useMemo(() => {
     let filtered = leads;
 
-    // Search filter (debounced)
-    if (debouncedSearchQuery) {
-      filtered = filtered.filter(
-        (lead) =>
-          lead.firstName.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          lead.lastName.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          lead.company.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          lead.email.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      );
-    }
-
-    // Status filter (simple dropdown)
-    if (statusFilter) {
-      filtered = filtered.filter((lead) => lead.status === statusFilter);
-    }
-
-    // Advanced filter
-    if (filterGroup && filterGroup.conditions.length > 0) {
-      filtered = filterData(filtered, filterGroup);
-    }
-
-    // Sorting
+    // Client-side sorting (applies to current page)
     if (sortColumn) {
       filtered = [...filtered].sort((a, b) => {
         const aValue = a[sortColumn as keyof typeof a];
@@ -347,58 +374,50 @@ export default function LeadsPage() {
     }
 
     return filtered;
-  }, [leads, debouncedSearchQuery, statusFilter, filterGroup, sortColumn, sortDirection]);
+  }, [leads, sortColumn, sortDirection]);
 
-  // Pagination
-  const paginatedLeads = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredLeads.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredLeads, currentPage, itemsPerPage]);
+  // Pagination is now server-side - use data directly
+  const paginatedLeads = filteredLeads;
 
-  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
-
-  // Stats calculations
+  // Stats calculations using API stats (includes all leads, not just current page)
   const stats = useMemo(() => {
-    const hotLeads = leads.filter((l) => l.rating === "Hot");
-    const qualified = leads.filter((l) => l.status === "Qualified");
-    const totalValue = leads.reduce((sum, lead) => sum + (lead.expectedRevenue || 0), 0);
-    const avgValue = leads.length > 0 ? totalValue / leads.length : 0;
+    const totalLeads = apiStats?.total ?? totalItems;
+    const newLeads = apiStats?.byStatus?.['new'] ?? 0;
+    const qualified = apiStats?.byStatus?.['qualified'] ?? 0;
+    const contacted = apiStats?.byStatus?.['contacted'] ?? 0;
 
     return [
       {
         label: "Total Leads",
-        value: leads.length,
+        value: totalLeads,
         icon: Target,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
         trend: { value: 12, isPositive: true },
       },
       {
-        label: "Hot Leads",
-        value: hotLeads.length,
+        label: "New Leads",
+        value: newLeads,
         icon: Target,
-        iconBgColor: "bg-destructive/10",
-        iconColor: "text-destructive",
-        description: `${((hotLeads.length / leads.length) * 100).toFixed(0)}% of total`,
+        iconBgColor: "bg-accent/10",
+        iconColor: "text-accent",
+      },
+      {
+        label: "Contacted",
+        value: contacted,
+        icon: Phone,
+        iconBgColor: "bg-blue-500/10",
+        iconColor: "text-blue-500",
       },
       {
         label: "Qualified",
-        value: qualified.length,
+        value: qualified,
         icon: UserPlus,
         iconBgColor: "bg-primary/20",
         iconColor: "text-primary",
-        trend: { value: 8, isPositive: true },
-      },
-      {
-        label: "Est. Value",
-        value: `$${(totalValue / 1000).toFixed(0)}K`,
-        icon: DollarSign,
-        iconBgColor: "bg-accent/10",
-        iconColor: "text-accent",
-        description: `Avg: $${(avgValue / 1000).toFixed(0)}K`,
       },
     ];
-  }, []);
+  }, [apiStats, totalItems]);
 
   // Handlers
   const handleSort = (column: string) => {
@@ -414,21 +433,21 @@ export default function LeadsPage() {
     if (selectedLeads.length === paginatedLeads.length) {
       setSelectedLeads([]);
     } else {
-      setSelectedLeads(paginatedLeads.map((l) => l.id).filter((id): id is number => id !== undefined));
+      setSelectedLeads(paginatedLeads.map((l) => l.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
-    const numId = typeof id === "string" ? parseInt(id) : id;
-    if (selectedLeads.includes(numId)) {
-      setSelectedLeads(selectedLeads.filter((lId) => lId !== numId));
+    const strId = String(id);
+    if (selectedLeads.includes(strId)) {
+      setSelectedLeads(selectedLeads.filter((lId) => lId !== strId));
     } else {
-      setSelectedLeads([...selectedLeads, numId]);
+      setSelectedLeads([...selectedLeads, strId]);
     }
   };
 
   // Delete handlers
-  const handleDeleteClick = (lead: typeof leads[0]) => {
+  const handleDeleteClick = (lead: LeadViewModel) => {
     setLeadToDelete(lead);
     setIsDeleteModalOpen(true);
   };
@@ -454,9 +473,35 @@ export default function LeadsPage() {
     setLeadToDelete(null);
   };
 
+  // Open conversion modal for a lead
+  const handleConvertClick = (lead: LeadViewModel) => {
+    setLeadToConvert(lead);
+    setShowConversionModal(true);
+  };
+
+  // Handle conversion with modal params
+  const handleConvertWithParams = async (params: ConversionParams) => {
+    if (!leadToConvert) return;
+    
+    try {
+      const result = await convertLead.mutateAsync({
+        id: leadToConvert.id,
+        params,
+      });
+      setShowConversionModal(false);
+      setLeadToConvert(null);
+      // Navigate to the new contact after successful conversion
+      if (result.contact?.id) {
+        router.push(`/sales/contacts/${result.contact.id}`);
+      }
+    } catch (error) {
+      console.error("Failed to convert lead:", error);
+    }
+  };
+
   // Bulk operation handlers
   const handleSelectAllLeads = () => {
-    setSelectedLeads(filteredLeads.map(l => l.id).filter((id): id is number => id !== undefined));
+    setSelectedLeads(filteredLeads.map(l => l.id));
   };
 
   const handleDeselectAll = () => {
@@ -490,7 +535,7 @@ export default function LeadsPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredLeads.filter(lead => lead.id !== undefined && selectedLeads.includes(lead.id));
+    const selectedData = filteredLeads.filter(lead => selectedLeads.includes(lead.id));
     
     if (selectedData.length === 0) {
       toast.error("No leads selected for export");
@@ -498,7 +543,6 @@ export default function LeadsPage() {
     }
 
     try {
-      // Use the same export columns as the main ExportButton
       exportToCSV(
         selectedData, 
         exportColumns, 
@@ -566,15 +610,52 @@ export default function LeadsPage() {
     clearModuleFilters('leads');
   };
 
-  const handleAddLead = () => {
-    setFormMode("add");
-    setEditingLead(null);
-    setFormDrawerOpen(true);
-  };
-
-  const handleEditLead = (lead: Lead) => {
+  const handleEditLead = async (lead: LeadViewModel | Lead) => {
     setFormMode("edit");
-    setEditingLead(lead);
+    
+    try {
+      // Fetch full lead details to ensure all fields are available for editing
+      const fullLead = await leadsApi.getById(lead.id as string);
+      
+      // Map LeadViewModel to form-compatible format
+      setEditingLead({
+        id: fullLead.id,
+        firstName: fullLead.firstName,
+        lastName: fullLead.lastName,
+        email: fullLead.email,
+        phone: fullLead.phone,
+        mobile: fullLead.mobile,
+        companyName: fullLead.companyName,
+        title: fullLead.title,
+        website: fullLead.website,
+        source: fullLead.source,
+        sourceDetail: fullLead.sourceDetail,
+        status: fullLead.status as LeadStatus,
+        score: fullLead.score,
+        addressLine1: fullLead.addressLine1,
+        city: fullLead.city,
+        state: fullLead.state,
+        postalCode: fullLead.postalCode,
+        country: fullLead.country,
+        description: fullLead.description,
+        tagIds: fullLead.tagIds,
+        ownerId: fullLead.ownerId,
+      } as Lead);
+    } catch (error) {
+      console.error("Failed to fetch lead details:", error);
+      toast.error("Failed to load lead details");
+      // Fallback to minimal data from list
+      setEditingLead({
+        id: lead.id,
+        firstName: (lead as LeadViewModel).firstName,
+        lastName: (lead as LeadViewModel).lastName,
+        email: (lead as LeadViewModel).email,
+        companyName: (lead as LeadViewModel).companyName,
+        status: (lead as LeadViewModel).status as LeadStatus,
+        source: (lead as LeadViewModel).source,
+        tagIds: (lead as LeadViewModel).tagIds,
+      } as Lead);
+    }
     setFormDrawerOpen(true);
   };
 
@@ -582,7 +663,7 @@ export default function LeadsPage() {
   const handleFormSubmit = async (data: Partial<Lead>) => {
     try {
       if (formMode === "edit" && editingLead?.id) {
-        await updateLead.mutateAsync({ id: editingLead.id, data });
+        await updateLead.mutateAsync({ id: String(editingLead.id), data });
       } else {
         await createLead.mutateAsync(data);
       }
@@ -594,34 +675,35 @@ export default function LeadsPage() {
     }
   };
 
-  // Get status and rating colors
-  const getStatusColor = (status: string) => {
-    const colors: Record<LeadStatus, string> = {
-      New: "bg-secondary/10 text-secondary",
-      Contacted: "bg-accent/10 text-accent",
-      Qualified: "bg-primary/10 text-primary",
-      Unqualified: "bg-muted text-muted-foreground",
+  // Get status color (supports both lowercase and uppercase)
+  const getStatusColor = (status: string | undefined) => {
+    if (!status) return "bg-muted text-muted-foreground";
+    const normalizedStatus = status.toLowerCase();
+    const colors: Record<string, string> = {
+      new: "bg-secondary/10 text-secondary",
+      contacted: "bg-accent/10 text-accent",
+      qualified: "bg-primary/10 text-primary",
+      unqualified: "bg-muted text-muted-foreground",
+      converted: "bg-green-100 text-green-700",
     };
-    return colors[status as LeadStatus] || "bg-muted text-muted-foreground";
+    return colors[normalizedStatus] || "bg-muted text-muted-foreground";
   };
 
-  const getRatingColor = (rating: string | undefined) => {
-    if (!rating) return "bg-muted text-muted-foreground";
-    const colors: Record<LeadRating, string> = {
-      Hot: "bg-destructive/10 text-destructive",
-      Warm: "bg-accent/10 text-accent",
-      Cold: "bg-muted text-muted-foreground",
-    };
-    return colors[rating as LeadRating] || "bg-muted text-muted-foreground";
+  // Get score color based on value
+  const getScoreColor = (score: number | undefined) => {
+    if (!score) return "bg-muted text-muted-foreground";
+    if (score >= 80) return "bg-destructive/10 text-destructive";
+    if (score >= 50) return "bg-accent/10 text-accent";
+    return "bg-muted text-muted-foreground";
   };
 
-  // Table columns - Memoize to prevent infinite loop
+  // Table columns - matching list API response fields
   const columns = useMemo(() => [
     {
       key: "firstName",
       label: "Name",
       sortable: true,
-      render: (_: any, row: typeof leads[0]) => (
+      render: (_: unknown, row: LeadViewModel) => (
         <div 
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
           onClick={() => router.push(`/sales/leads/${row.id}`)}
@@ -631,11 +713,11 @@ export default function LeadsPage() {
           </div>
           <div>
             <div className="font-semibold text-foreground">
-              {row.firstName} {row.lastName}
+              {row.fullName || `${row.firstName} ${row.lastName}`}
             </div>
             <div className="text-sm text-muted-foreground flex items-center gap-1">
               <Building2 className="h-3 w-3" />
-              {row.company}
+              {row.companyName || "No company"}
             </div>
           </div>
         </div>
@@ -644,7 +726,8 @@ export default function LeadsPage() {
     {
       key: "email",
       label: "Contact",
-      render: (_: any, row: typeof leads[0]) => (
+      sortable: true,
+      render: (_: unknown, row: LeadViewModel) => (
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm text-foreground">
             <Mail className="h-4 w-4 text-muted-foreground" />
@@ -652,7 +735,7 @@ export default function LeadsPage() {
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Phone className="h-4 w-4" />
-            {row.phone}
+            {row.phone || "N/A"}
           </div>
         </div>
       ),
@@ -662,18 +745,18 @@ export default function LeadsPage() {
       label: "Status",
       sortable: true,
       render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
+        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(value)}`}>
           {value}
         </span>
       ),
     },
     {
-      key: "rating",
-      label: "Rating",
+      key: "score",
+      label: "Score",
       sortable: true,
-      render: (value: string | undefined) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRatingColor(value)}`}>
-          {value || "N/A"}
+      render: (value: number | undefined) => (
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getScoreColor(value)}`}>
+          {value ?? "N/A"}
         </span>
       ),
     },
@@ -682,22 +765,12 @@ export default function LeadsPage() {
       label: "Source",
       sortable: true,
       render: (value: string | undefined) => (
-        <span className="text-sm text-foreground">{value || "N/A"}</span>
+        <span className="text-sm text-foreground capitalize">{value?.replace(/_/g, ' ') || "N/A"}</span>
       ),
     },
     {
-      key: "expectedRevenue",
-      label: "Est. Value",
-      sortable: true,
-      render: (value: number) => (
-        <span className="font-tabular font-semibold text-foreground">
-          ${(value || 0).toLocaleString('en-US')}
-        </span>
-      ),
-    },
-    {
-      key: "lastContact",
-      label: "Last Contact",
+      key: "created",
+      label: "Created",
       sortable: true,
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -706,19 +779,7 @@ export default function LeadsPage() {
         </div>
       ),
     },
-  ], [router]); // Add router as dependency since it's used in the render functions
-
-  // Table columns hook
-  const {
-    columnState,
-    toggleColumnVisibility,
-    reorderColumns,
-    resetColumns,
-  } = useTableColumns({
-    columns,
-    tableId: "leads-table",
-    enablePersistence: true,
-  });
+  ], [router]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -728,7 +789,7 @@ export default function LeadsPage() {
         icon={Target}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${leads.length} leads in pipeline`}
+        subtitle={`${totalItems} leads in pipeline`}
         searchPlaceholder="Search leads by name, company, or email..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
@@ -747,15 +808,6 @@ export default function LeadsPage() {
               )}
             </Button>
             <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} />
-            
-            {/* Column Settings */}
-            <ColumnSettings
-              columns={columns}
-              columnState={columnState}
-              onToggleVisibility={toggleColumnVisibility}
-              onReorder={reorderColumns}
-              onReset={resetColumns}
-            />
             
             {/* Mobile Advanced Filter Button */}
             <Button
@@ -910,7 +962,7 @@ export default function LeadsPage() {
       {selectedLeads.length > 0 && (
         <BulkActionsToolbar
           selectedCount={selectedLeads.length}
-          totalCount={filteredLeads.length}
+          totalCount={totalItems}
           onSelectAll={handleSelectAllLeads}
           onDeselectAll={handleDeselectAll}
           onDelete={() => setShowBulkDelete(true)}
@@ -937,11 +989,10 @@ export default function LeadsPage() {
           sortColumn={sortColumn}
           sortDirection={sortDirection}
           showSelection={true}
+          loading={isLoading}
           emptyMessage="No leads found"
           emptyDescription="Try adjusting your search or filters, or add a new lead"
-          tableId="leads-table"
-          externalColumnState={columnState}
-          renderActions={(row) => (
+          renderActions={(row: LeadViewModel) => (
             <ActionMenu
               items={[
                 {
@@ -956,21 +1007,25 @@ export default function LeadsPage() {
                     handleEditLead(row);
                     setDefaultView("detailed");
                   },
+                  disabled: row.status?.toLowerCase() === "converted" || row.status?.toLowerCase() === "unqualified",
                 },
                 {
                   label: "Send Email",
                   icon: Mail,
-                  onClick: () => console.log("Email", row.id),
+                  onClick: () => window.location.href = `mailto:${row.email}`,
+                  disabled: !row.email,
                 },
                 {
                   label: "Call Lead",
                   icon: Phone,
-                  onClick: () => console.log("Call", row.id),
+                  onClick: () => row.phone && (window.location.href = `tel:${row.phone}`),
+                  disabled: !row.phone,
                 },
                 {
                   label: "Convert to Contact",
                   icon: UserPlus,
-                  onClick: () => console.log("Convert", row.id),
+                  onClick: () => handleConvertClick(row),
+                  disabled: row.status?.toLowerCase() === "converted" || row.status?.toLowerCase() === "unqualified" || convertLead.isPending,
                 },
                 { divider: true, label: "", onClick: () => {} },
                 {
@@ -1001,11 +1056,11 @@ export default function LeadsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">
-                        {lead.firstName} {lead.lastName}
+                        {lead.fullName || `${lead.firstName} ${lead.lastName}`}
                       </h3>
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
                         <Building2 className="h-3 w-3" />
-                        {lead.company}
+                        {lead.companyName || "No company"}
                       </p>
                     </div>
                   </div>
@@ -1024,21 +1079,25 @@ export default function LeadsPage() {
                             handleEditLead(lead);
                             setDefaultView("detailed");
                           },
+                          disabled: lead.status?.toLowerCase() === "converted" || lead.status?.toLowerCase() === "unqualified",
                         },
                         {
                           label: "Send Email",
                           icon: Mail,
-                          onClick: () => console.log("Email", lead.id),
+                          onClick: () => window.location.href = `mailto:${lead.email}`,
+                          disabled: !lead.email,
                         },
                         {
                           label: "Call Lead",
                           icon: Phone,
-                          onClick: () => console.log("Call", lead.id),
+                          onClick: () => lead.phone && (window.location.href = `tel:${lead.phone}`),
+                          disabled: !lead.phone,
                         },
                         {
                           label: "Convert to Contact",
                           icon: UserPlus,
-                          onClick: () => console.log("Convert", lead.id),
+                          onClick: () => handleConvertClick(lead),
+                          disabled: lead.status?.toLowerCase() === "converted" || lead.status?.toLowerCase() === "unqualified" || convertLead.isPending,
                         },
                         { divider: true, label: "", onClick: () => {} },
                         {
@@ -1054,11 +1113,11 @@ export default function LeadsPage() {
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(lead.status)}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
                       {lead.status}
                     </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRatingColor(lead.rating)}`}>
-                      {lead.rating || "N/A"}
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getScoreColor(lead.score)}`}>
+                      Score: {lead.score ?? "N/A"}
                     </span>
                   </div>
 
@@ -1074,15 +1133,15 @@ export default function LeadsPage() {
                   </div>
 
                   <div className="flex items-center justify-between pt-2 border-t border-border">
-                    <span className="text-sm text-muted-foreground">Est. Value</span>
-                    <span className="text-lg font-bold text-primary font-tabular">
-                      ${((lead.expectedRevenue || 0) / 1000).toFixed(0)}K
+                    <span className="text-sm text-muted-foreground">Source</span>
+                    <span className="text-sm font-medium text-foreground capitalize">
+                      {lead.source?.replace(/_/g, ' ') || "N/A"}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>Last: {lead.lastContact}</span>
+                    <span>Created: {lead.created}</span>
                   </div>
                 </div>
               </Card>
@@ -1095,7 +1154,7 @@ export default function LeadsPage() {
       <DataPagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredLeads.length}
+        totalItems={totalItems}
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
@@ -1155,12 +1214,33 @@ export default function LeadsPage() {
         title="Update Lead Status"
         field="Status"
         options={[
-          { label: 'New', value: 'New' as LeadStatus },
-          { label: 'Contacted', value: 'Contacted' as LeadStatus },
-          { label: 'Qualified', value: 'Qualified' as LeadStatus },
-          { label: 'Unqualified', value: 'Unqualified' as LeadStatus },
+          { label: 'New', value: 'new' as LeadStatus },
+          { label: 'Contacted', value: 'contacted' as LeadStatus },
+          { label: 'Qualified', value: 'qualified' as LeadStatus },
+          { label: 'Unqualified', value: 'unqualified' as LeadStatus },
         ]}
       />
+
+      {/* Lead Conversion Modal */}
+      {leadToConvert && (
+        <LeadConversionModal
+          isOpen={showConversionModal}
+          onClose={() => {
+            setShowConversionModal(false);
+            setLeadToConvert(null);
+          }}
+          onConvert={handleConvertWithParams}
+          lead={{
+            id: leadToConvert.id,
+            firstName: leadToConvert.firstName,
+            lastName: leadToConvert.lastName,
+            email: leadToConvert.email,
+            phone: leadToConvert.phone,
+            companyName: leadToConvert.companyName,
+          }}
+          isConverting={convertLead.isPending}
+        />
+      )}
     </div>
   );
 }

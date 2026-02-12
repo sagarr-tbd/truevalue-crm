@@ -386,6 +386,8 @@ class LeadListView(BaseAPIView):
     
     def get(self, request):
         """List leads."""
+        import json
+        
         service = self.get_service(LeadService)
         
         search = request.query_params.get('search')
@@ -393,25 +395,52 @@ class LeadListView(BaseAPIView):
         source = request.query_params.get('source')
         order_by = request.query_params.get('order_by', '-created_at')
         
+        # Parse advanced filters (JSON string)
+        advanced_filters = None
+        filter_logic = 'and'
+        filters_param = request.query_params.get('filters')
+        if filters_param:
+            try:
+                filter_data = json.loads(filters_param)
+                advanced_filters = filter_data.get('conditions', [])
+                filter_logic = filter_data.get('logic', 'and')
+            except (json.JSONDecodeError, TypeError):
+                pass  # Invalid JSON, ignore
+        
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
         offset = (page - 1) * page_size
         
-        leads = service.list(
+        # Get filtered queryset (without pagination) for count
+        filtered_qs = service.list(
             search=search,
             status=status_param,
             source=source,
             order_by=order_by,
-            limit=page_size,
-            offset=offset,
+            limit=None,  # No limit for count
+            offset=0,
+            advanced_filters=advanced_filters,
+            filter_logic=filter_logic,
         )
         
-        total = service.count()
+        # Get total count of filtered results
+        total = filtered_qs.count()
+        
+        # Get paginated leads
+        leads = filtered_qs[offset:offset + page_size]
+        
+        # Get stats for all leads (not filtered)
+        stats = service.get_stats()
         
         serializer = LeadListSerializer(leads, many=True)
         return Response({
             'data': serializer.data,
-            'meta': {'page': page, 'page_size': page_size, 'total': total}
+            'meta': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'stats': stats,
+            }
         })
     
     def post(self, request):
@@ -485,6 +514,37 @@ class LeadDisqualifyView(BaseAPIView):
         lead = service.disqualify(lead_id, reason)
         
         return Response(LeadSerializer(lead).data)
+
+
+class LeadBulkDeleteView(BaseAPIView):
+    """Bulk delete leads."""
+    
+    def post(self, request):
+        """Delete multiple leads by IDs."""
+        serializer = BulkDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        service = self.get_service(LeadService)
+        result = service.bulk_delete(serializer.validated_data['ids'])
+        
+        return Response(BulkResultSerializer(result).data)
+
+
+class LeadBulkUpdateView(BaseAPIView):
+    """Bulk update leads."""
+    
+    def post(self, request):
+        """Update multiple leads with the same data."""
+        serializer = BulkUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        service = self.get_service(LeadService)
+        result = service.bulk_update(
+            serializer.validated_data['ids'],
+            serializer.validated_data['data']
+        )
+        
+        return Response(BulkResultSerializer(result).data)
 
 
 # =============================================================================
@@ -831,19 +891,17 @@ class ActivityListView(BaseAPIView):
         serializer = ActivitySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Auto-populate owner_id and created_by if not provided
+        # Auto-populate owner_id if not provided
         data = serializer.validated_data
         user_id = self.get_user_id()
         if not data.get('owner_id'):
             data['owner_id'] = user_id
-        if not data.get('created_by'):
-            data['created_by'] = user_id
         
         service = self.get_service(ActivityService)
         activity = service.create(data)
         
         return Response(
-            ActivitySerializer(activity).data,
+            {'data': ActivitySerializer(activity).data},
             status=status.HTTP_201_CREATED
         )
 

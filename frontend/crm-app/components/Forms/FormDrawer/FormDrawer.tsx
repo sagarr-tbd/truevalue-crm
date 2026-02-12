@@ -66,8 +66,14 @@ export function FormDrawer<T = any>({
         // Sanitize data to convert null to undefined
         const sanitizedData = sanitizeFormData(initialData as Record<string, any>);
         reset(sanitizedData as any);
-        // Support both 'tagIds' (form field) and 'tags' (legacy) 
-        setSelectedTags((initialData as any).tagIds || (initialData as any).tags || []);
+        
+        // Support both 'tagIds' (form field) and 'tags' (legacy)
+        // Ensure we always extract string IDs, even if tags are objects
+        const rawTags = (initialData as any).tagIds || (initialData as any).tags || [];
+        const normalizedTagIds = rawTags.map((tag: string | { id: string }) => 
+          typeof tag === 'string' ? tag : tag.id
+        );
+        setSelectedTags(normalizedTagIds);
         setProfilePicture(null); // Profile picture as File object can't be restored
       } else {
         reset(config.defaultValues);
