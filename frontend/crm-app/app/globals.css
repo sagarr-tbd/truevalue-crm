@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* React Big Calendar Custom Styles */
+@layer components {
+  .rbc-calendar {
+    @apply text-foreground;
+  }
+
+  .rbc-header {
+    @apply border-border bg-muted/30 py-3 font-semibold text-sm;
+  }
+
+  .rbc-today {
+    @apply bg-primary/5;
+  }
+
+  .rbc-off-range-bg {
+    @apply bg-muted/20;
+  }
+
+  .rbc-date-cell {
+    @apply text-foreground;
+  }
+
+  .rbc-now .rbc-button-link {
+    @apply text-primary font-bold;
+  }
+
+  .rbc-event {
+    @apply cursor-pointer;
+  }
+
+  .rbc-event:hover {
+    @apply opacity-90;
+  }
+
+  .rbc-event-label {
+    @apply text-xs;
+  }
+
+  .rbc-month-view,
+  .rbc-time-view,
+  .rbc-agenda-view {
+    @apply border border-border rounded-lg bg-background;
+  }
+
+  .rbc-month-row,
+  .rbc-day-bg,
+  .rbc-time-content,
+  .rbc-time-header-content {
+    @apply border-border;
+  }
+
+  .rbc-time-slot {
+    @apply border-border;
+  }
+
+  .rbc-current-time-indicator {
+    @apply bg-primary;
+  }
+
+  .rbc-agenda-table {
+    @apply border-border;
+  }
+
+  .rbc-agenda-date-cell,
+  .rbc-agenda-time-cell {
+    @apply text-muted-foreground;
+  }
+
+  .rbc-agenda-event-cell {
+    @apply text-foreground;
+  }
+
+  .rbc-selected-cell {
+    @apply bg-primary/10;
+  }
+
+  .rbc-show-more {
+    @apply text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 rounded px-2 py-1 text-xs font-medium;
+  }
+
+  .rbc-overlay {
+    @apply bg-background border border-border rounded-lg shadow-lg;
+  }
+
+  .rbc-overlay-header {
+    @apply border-b border-border pb-2 font-semibold;
+  }
+}
+
+@layer base {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  :root {
+    /* Base Colors */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    
+    /* TruevalueCRM Brand Colors */
+    --primary: 176 73% 44%;           /* Teal #1DB8AD */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 255 29% 43%;         /* Purple #5D4E8E */
+    --secondary-foreground: 0 0% 100%;
+    --accent: 14 100% 71%;            /* Coral #FF8B6D */
+    --accent-foreground: 0 0% 100%;
+    
+    /* UI Elements */
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 176 73% 44%;              /* Teal ring */
+    --radius: 0.5rem;
+    
+    /* Brand Color Variables */
+    --brand-teal: 176 73% 44%;        /* #1DB8AD */
+    --brand-coral: 14 100% 71%;       /* #FF8B6D */
+    --brand-purple: 255 29% 43%;      /* #5D4E8E */
+    
+    /* Chart Colors - Used in Recharts components and Kanban board gradients */
+    --chart-1: 176 73% 44%;           /* Teal */
+    --chart-2: 255 29% 43%;           /* Purple */
+    --chart-3: 14 100% 71%;           /* Coral */
+    --chart-4: 142 71% 45%;           /* Green */
+    --chart-5: 45 93% 47%;            /* Orange */
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    
+    /* TruevalueCRM Brand Colors (Dark Mode) */
+    --primary: 176 73% 54%;           /* Lighter Teal for dark mode */
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 255 29% 53%;         /* Lighter Purple for dark mode */
+    --secondary-foreground: 210 40% 98%;
+    --accent: 14 100% 76%;            /* Lighter Coral for dark mode */
+    --accent-foreground: 222.2 47.4% 11.2%;
+    
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 176 73% 54%;
+    
+    /* Brand Color Variables */
+    --brand-teal: 176 73% 54%;
+    --brand-coral: 14 100% 76%;
+    --brand-purple: 255 29% 53%;
+    
+    /* Chart Colors (Dark Mode) - Used in Recharts components and Kanban board gradients */
+    --chart-1: 176 73% 54%;           /* Lighter Teal */
+    --chart-2: 255 29% 53%;           /* Lighter Purple */
+    --chart-3: 14 100% 76%;           /* Lighter Coral */
+    --chart-4: 142 71% 55%;           /* Lighter Green */
+    --chart-5: 45 93% 57%;            /* Lighter Orange */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter font features */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  /* Optimize number rendering for CRM data */
+  .font-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

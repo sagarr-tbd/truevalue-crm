@@ -1,0 +1,101 @@
+version: '3.8'
+
+# =============================================================================
+# TrueValue CRM Product - Docker Compose
+# =============================================================================
+# 
+# This compose file runs the CRM product services.
+# Requires: truevalue-platform services running (gateway, auth, org, etc.)
+#
+# Usage:
+#   1. Start platform first: cd ../TrueValueCRM && docker-compose up -d
+#   2. Start CRM: docker-compose up -d
+#
+# =============================================================================
+
+networks:
+  # Connect to platform's internal network
+  platform_internal:
+    external: true
+    name: truevaluecrm_internal
+  # Connect to platform's infrastructure (Redis, Kafka, ES)
+  platform_infra:
+    external: true
+    name: truevaluecrm_infrastructure
+  # CRM's own network for frontend <-> backend
+  crm:
+    driver: bridge
+
+services:
+  # =============================================================================
+  # CRM BACKEND
+  # =============================================================================
+  crm-backend:
+    build:
+      context: ./backend/crm
+      dockerfile: Dockerfile
+    container_name: crm-backend
+    environment:
+      # Database: Using local PostgreSQL on port 5433
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/crm_db
+      - REDIS_URL=redis://truevalue-redis:6379/3
+      - KAFKA_BOOTSTRAP_SERVERS=truevalue-kafka:9092
+      - ELASTICSEARCH_URL=http://truevalue-elasticsearch:9200
+      # Platform service URLs (internal network)
+      - AUTH_SERVICE_URL=http://truevalue-auth:8000
+      - ORG_SERVICE_URL=http://truevalue-org:8000
+      - PERMISSION_SERVICE_URL=http://truevalue-permission:8000
+      - BILLING_SERVICE_URL=http://truevalue-billing:8000
+      - DEBUG=${DEBUG:-true}
+      # Security
+      - GATEWAY_SECRET=${GATEWAY_SECRET}
+      - SERVICE_NAME=crm-service
+      - SERVICE_SECRET=${CRM_SERVICE_SECRET}
+      - GATEWAY_SERVICE_SECRET=${GATEWAY_SERVICE_SECRET}
+      - AUTH_SERVICE_SECRET=${AUTH_SERVICE_SECRET}
+      - ORG_SERVICE_SECRET=${ORG_SERVICE_SECRET}
+      - BILLING_SERVICE_SECRET=${BILLING_SERVICE_SECRET}
+      - GATEWAY_TRUST_ENABLED=true
+      - PYTHONPATH=/app:/shared
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8000"  # Exposed for direct dev access
+    volumes:
+      - ./backend/crm:/app
+      - ../TrueValueCRM/shared/python/truevalue-common/src:/shared
+    command: bash -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - crm
+      - platform_internal
+      - platform_infra
+
+  # =============================================================================
+  # CRM FRONTEND
+  # =============================================================================
+  crm-frontend:
+    build:
+      context: ./frontend/crm-app
+      dockerfile: Dockerfile
+    container_name: crm-frontend
+    environment:
+      # All API calls go through Gateway (8000)
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend/crm-app:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+    depends_on:
+      crm-backend:
+        condition: service_healthy
+    networks:
+      - crm

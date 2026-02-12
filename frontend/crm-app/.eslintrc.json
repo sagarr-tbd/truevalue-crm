@@ -1,0 +1,26 @@
+{
+  "extends": [
+    "next/core-web-vitals",
+    "next/typescript"
+  ],
+  "rules": {
+    // Disable specific rules
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "no-console": "warn",
+    
+    // TypeScript rules
+    "@typescript-eslint/no-non-null-assertion": "warn",
+    "@typescript-eslint/ban-ts-comment": "warn",
+    "@typescript-eslint/prefer-as-const": "warn",
+    
+    // React rules
+    "react-hooks/exhaustive-deps": "warn",
+    "react/no-unescaped-entities": "off",
+    "react/display-name": "off",
+    "react/prop-types": "off",
+    
+    // Import rules
+    "import/no-anonymous-default-export": "warn"
+  }
+}

@@ -1,0 +1,23 @@
+export { leadFormConfig } from "./leadFormConfig";
+export { accountFormConfig } from "./accountFormConfig";
+export { contactFormConfig } from "./contactFormConfig";
+export { dealFormConfig } from "./dealFormConfig";
+export { forecastFormConfig } from "./forecastFormConfig";
+export { documentFormConfig } from "./documentFormConfig";
+export { campaignFormConfig } from "./campaignFormConfig";
+export { taskFormConfig } from "./taskFormConfig";
+export { callFormConfig } from "./callFormConfig";
+export { meetingFormConfig } from "./meetingFormConfig";
+export { productFormConfig } from "./productFormConfig";
+export { vendorFormConfig } from "./vendorFormConfig";
+export { invoiceFormConfig } from "./invoiceFormConfig";
+export { quoteFormConfig } from "./quoteFormConfig";
+export { salesOrderFormConfig } from "./salesOrderFormConfig";
+export { purchaseOrderFormConfig } from "./purchaseOrderFormConfig";
+export { priceBookFormConfig } from "./priceBookFormConfig";
+export { caseFormConfig } from "./caseFormConfig";
+export { solutionFormConfig } from "./solutionFormConfig";
+export { serviceFormConfig } from "./serviceFormConfig";
+export { projectFormConfig } from "./projectFormConfig";
+export { reportFormConfig } from "./reportFormConfig";
+

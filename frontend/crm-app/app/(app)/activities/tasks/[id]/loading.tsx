@@ -1,0 +1,5 @@
+import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
+
+export default function TaskDetailLoading() {
+  return <DetailPageSkeleton />;
+}
