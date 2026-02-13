@@ -12,20 +12,21 @@ from django.utils import timezone
 
 from ..models import Lead, Contact, Company, Deal, Pipeline, PipelineStage, CRMAuditLog
 from ..exceptions import DuplicateEntityError, InvalidOperationError, EntityNotFoundError
-from .base_service import BaseService
+from .base_service import BaseService, AdvancedFilterMixin
 
 logger = logging.getLogger(__name__)
 
 
-class LeadService(BaseService[Lead]):
+class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     """Service for Lead operations."""
     
     model = Lead
     entity_type = 'lead'
     
     # Field mapping for advanced filters (frontend field -> backend field)
+    # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
     FILTER_FIELD_MAP = {
-        'name': ['first_name', 'last_name'],  # Special handling for name
+        'name': ['first_name', 'last_name'],  # Compound field - searches both
         'firstName': 'first_name',
         'lastName': 'last_name',
         'email': 'email',
@@ -40,82 +41,12 @@ class LeadService(BaseService[Lead]):
         'country': 'country',
     }
     
-    # Operator mapping for advanced filters
-    FILTER_OPERATOR_MAP = {
-        'equals': '__iexact',  # case-insensitive exact match
-        'not_equals': '__iexact',  # handled with exclude
-        'contains': '__icontains',
-        'not_contains': '__icontains',  # handled with exclude
-        'starts_with': '__istartswith',
-        'ends_with': '__iendswith',
-        'is_empty': '__isnull',
-        'is_not_empty': '__isnull',
-        'greater_than': '__gt',
-        'less_than': '__lt',
-        'greater_than_or_equal': '__gte',
-        'less_than_or_equal': '__lte',
-    }
-    
-    def _build_advanced_filter_q(self, conditions: List[Dict], logic: str = 'and'):
-        """Build Q object from advanced filter conditions."""
-        if not conditions:
-            return Q(), []
-        
-        q_objects = []
-        exclude_objects = []
-        
-        for condition in conditions:
-            field = condition.get('field')
-            operator = condition.get('operator', 'contains')
-            value = condition.get('value', '')
-            
-            # Get backend field name
-            backend_field = self.FILTER_FIELD_MAP.get(field, field)
-            
-            # Handle special 'name' field (searches first_name OR last_name)
-            if field == 'name':
-                name_q = Q()
-                django_op = self.FILTER_OPERATOR_MAP.get(operator, '__icontains')
-                if operator in ['not_equals', 'not_contains']:
-                    # Exclude both first_name and last_name containing value
-                    exclude_objects.append(
-                        Q(**{f'first_name{django_op}': value}) | 
-                        Q(**{f'last_name{django_op}': value})
-                    )
-                else:
-                    name_q = (
-                        Q(**{f'first_name{django_op}': value}) | 
-                        Q(**{f'last_name{django_op}': value})
-                    )
-                    q_objects.append(name_q)
-                continue
-            
-            # Build the lookup
-            django_op = self.FILTER_OPERATOR_MAP.get(operator, '__icontains')
-            
-            # Handle special operators
-            if operator == 'is_empty':
-                q = Q(**{f'{backend_field}__isnull': True}) | Q(**{f'{backend_field}': ''})
-                q_objects.append(q)
-            elif operator == 'is_not_empty':
-                q = Q(**{f'{backend_field}__isnull': False}) & ~Q(**{f'{backend_field}': ''})
-                q_objects.append(q)
-            elif operator in ['not_equals', 'not_contains']:
-                exclude_objects.append(Q(**{f'{backend_field}{django_op}': value}))
-            else:
-                q_objects.append(Q(**{f'{backend_field}{django_op}': value}))
-        
-        # Combine Q objects based on logic
-        if logic == 'or':
-            combined = Q()
-            for q in q_objects:
-                combined |= q
-        else:  # 'and'
-            combined = Q()
-            for q in q_objects:
-                combined &= q
-        
-        return combined, exclude_objects
+    def get_optimized_queryset(self):
+        """
+        Get queryset with prefetch_related for performance.
+        Prevents N+1 queries when serializing leads.
+        """
+        return self.get_queryset().prefetch_related('tags')
     
     def list(
         self,
@@ -132,7 +63,8 @@ class LeadService(BaseService[Lead]):
         filter_logic: str = 'and',
     ):
         """List leads with advanced filtering."""
-        qs = self.get_queryset()
+        # Use optimized queryset to prevent N+1 queries
+        qs = self.get_optimized_queryset()
         
         # Apply basic filters
         if filters:
@@ -165,13 +97,8 @@ class LeadService(BaseService[Lead]):
                 Q(phone__icontains=search)
             )
         
-        # Apply advanced filters
-        if advanced_filters:
-            filter_q, exclude_list = self._build_advanced_filter_q(advanced_filters, filter_logic)
-            if filter_q:
-                qs = qs.filter(filter_q)
-            for exclude_q in exclude_list:
-                qs = qs.exclude(exclude_q)
+        # Apply advanced filters using mixin
+        qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
         
         # Apply ordering
         qs = qs.order_by(order_by)

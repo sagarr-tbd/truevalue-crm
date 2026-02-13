@@ -215,7 +215,7 @@ CRM_SETTINGS = {
     },
     # Pipeline limits by plan
     'PIPELINE_LIMITS': {
-        'free': 1,
+        'free': 5,
         'starter': 3,
         'pro': 10,
         'enterprise': 0,

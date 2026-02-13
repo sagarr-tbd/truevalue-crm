@@ -20,6 +20,9 @@ Multi-tenant: All entities are org-scoped via org_id.
 import uuid
 from decimal import Decimal
 from django.db import models
+from django.db.models.functions import Upper
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.operations import TrigramExtension
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -27,6 +30,26 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 # =============================================================================
 # ABSTRACT BASE MODELS
 # =============================================================================
+
+class SoftDeleteManager(models.Manager):
+    """
+    Manager that excludes soft-deleted records by default.
+    
+    Use `.all_with_deleted()` to include deleted records.
+    Use `.deleted_only()` to get only deleted records.
+    """
+    
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+    
+    def all_with_deleted(self):
+        """Return all records including soft-deleted ones."""
+        return super().get_queryset()
+    
+    def deleted_only(self):
+        """Return only soft-deleted records."""
+        return super().get_queryset().filter(deleted_at__isnull=False)
+
 
 class BaseModel(models.Model):
     """Abstract base model with common fields."""
@@ -36,6 +59,52 @@ class BaseModel(models.Model):
     
     class Meta:
         abstract = True
+
+
+class SoftDeleteModel(BaseModel):
+    """
+    Abstract model with soft delete support.
+    
+    Instead of permanently deleting records, sets `deleted_at` timestamp.
+    Use `hard_delete()` for permanent deletion.
+    """
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.UUIDField(null=True, blank=True)  # User who deleted
+    
+    # Default manager excludes deleted records
+    objects = SoftDeleteManager()
+    
+    # Manager to access all records including deleted
+    all_objects = models.Manager()
+    
+    class Meta:
+        abstract = True
+    
+    @property
+    def is_deleted(self) -> bool:
+        """Check if record is soft-deleted."""
+        return self.deleted_at is not None
+    
+    def soft_delete(self, deleted_by: uuid.UUID = None):
+        """
+        Soft delete this record.
+        
+        Args:
+            deleted_by: UUID of user performing the deletion
+        """
+        self.deleted_at = timezone.now()
+        self.deleted_by = deleted_by
+        self.save(update_fields=['deleted_at', 'deleted_by', 'updated_at'])
+    
+    def restore(self):
+        """Restore a soft-deleted record."""
+        self.deleted_at = None
+        self.deleted_by = None
+        self.save(update_fields=['deleted_at', 'deleted_by', 'updated_at'])
+    
+    def hard_delete(self):
+        """Permanently delete this record."""
+        super().delete()
 
 
 class OrgScopedModel(BaseModel):
@@ -49,6 +118,19 @@ class OrgScopedModel(BaseModel):
 class OwnedModel(OrgScopedModel):
     """Abstract model for entities with ownership."""
     owner_id = models.UUIDField(db_index=True)  # User ID from Auth Service
+    
+    class Meta:
+        abstract = True
+
+
+class SoftDeleteOwnedModel(SoftDeleteModel):
+    """
+    Abstract model for owned entities with soft delete support.
+    
+    Use this for entities that should support soft delete (Contact, Lead, Deal, etc.)
+    """
+    org_id = models.UUIDField(db_index=True)
+    owner_id = models.UUIDField(db_index=True)
     
     class Meta:
         abstract = True
@@ -242,6 +324,12 @@ class Company(OwnedModel):
             models.Index(fields=['org_id', 'industry']),
             models.Index(fields=['org_id', 'owner_id']),
             models.Index(fields=['org_id', 'created_at']),
+            # GIN index for text search (requires pg_trgm extension)
+            GinIndex(
+                name='company_name_search_idx',
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+            ),
         ]
     
     def __str__(self):
@@ -252,9 +340,9 @@ class Company(OwnedModel):
 # CONTACT
 # =============================================================================
 
-class Contact(OwnedModel):
+class Contact(SoftDeleteOwnedModel):
     """
-    Contact entity.
+    Contact entity with soft delete support.
     
     Represents an individual person, typically a customer or prospect.
     Can be linked to multiple companies.
@@ -345,6 +433,17 @@ class Contact(OwnedModel):
             models.Index(fields=['org_id', 'primary_company']),
             models.Index(fields=['org_id', 'created_at']),
             models.Index(fields=['org_id', 'last_activity_at']),
+            # GIN indexes for text search (requires pg_trgm extension)
+            GinIndex(
+                name='contact_name_search_idx',
+                fields=['first_name', 'last_name'],
+                opclasses=['gin_trgm_ops', 'gin_trgm_ops'],
+            ),
+            GinIndex(
+                name='contact_email_search_idx',
+                fields=['email'],
+                opclasses=['gin_trgm_ops'],
+            ),
         ]
     
     def __str__(self):
@@ -474,6 +573,14 @@ class Pipeline(OrgScopedModel):
             models.Index(fields=['org_id', 'is_default']),
             models.Index(fields=['org_id', 'is_active']),
         ]
+        constraints = [
+            # Only one default pipeline per organization
+            models.UniqueConstraint(
+                fields=['org_id'],
+                condition=models.Q(is_default=True),
+                name='unique_default_pipeline_per_org'
+            ),
+        ]
         ordering = ['order', 'name']
     
     def __str__(self):
@@ -520,6 +627,25 @@ class PipelineStage(BaseModel):
         indexes = [
             models.Index(fields=['pipeline', 'order']),
         ]
+        constraints = [
+            # Only one "won" stage per pipeline
+            models.UniqueConstraint(
+                fields=['pipeline'],
+                condition=models.Q(is_won=True),
+                name='unique_won_stage_per_pipeline'
+            ),
+            # Only one "lost" stage per pipeline
+            models.UniqueConstraint(
+                fields=['pipeline'],
+                condition=models.Q(is_lost=True),
+                name='unique_lost_stage_per_pipeline'
+            ),
+            # A stage cannot be both won and lost
+            models.CheckConstraint(
+                check=~models.Q(is_won=True, is_lost=True),
+                name='stage_not_both_won_and_lost'
+            ),
+        ]
     
     def __str__(self):
         return f"{self.pipeline.name} - {self.name}"
@@ -533,9 +659,9 @@ class PipelineStage(BaseModel):
 # DEAL
 # =============================================================================
 
-class Deal(OwnedModel):
+class Deal(SoftDeleteOwnedModel):
     """
-    Deal/Opportunity entity.
+    Deal/Opportunity entity with soft delete support.
     
     Represents a sales opportunity with a value and expected close date.
     """
@@ -637,6 +763,27 @@ class Deal(OwnedModel):
             models.Index(fields=['org_id', 'value']),
             models.Index(fields=['contact']),
             models.Index(fields=['company']),
+            # GIN index for text search (requires pg_trgm extension)
+            GinIndex(
+                name='deal_name_search_idx',
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+            ),
+        ]
+        constraints = [
+            # Deal value must be non-negative
+            models.CheckConstraint(
+                check=models.Q(value__gte=0),
+                name='deal_value_non_negative'
+            ),
+            # Probability must be between 0 and 100
+            models.CheckConstraint(
+                check=(
+                    models.Q(probability__isnull=True) |
+                    (models.Q(probability__gte=0) & models.Q(probability__lte=100))
+                ),
+                name='deal_probability_valid_range'
+            ),
         ]
     
     def __str__(self):
@@ -707,9 +854,9 @@ class DealStageHistory(BaseModel):
 # LEAD
 # =============================================================================
 
-class Lead(OwnedModel):
+class Lead(SoftDeleteOwnedModel):
     """
-    Lead entity.
+    Lead entity with soft delete support.
     
     Represents an unqualified prospect that may convert to Contact + Deal.
     """
@@ -790,6 +937,22 @@ class Lead(OwnedModel):
             models.Index(fields=['org_id', 'owner_id']),
             models.Index(fields=['org_id', 'created_at']),
             models.Index(fields=['org_id', 'score']),
+            # GIN indexes for text search (requires pg_trgm extension)
+            GinIndex(
+                name='lead_name_search_idx',
+                fields=['first_name', 'last_name'],
+                opclasses=['gin_trgm_ops', 'gin_trgm_ops'],
+            ),
+            GinIndex(
+                name='lead_email_search_idx',
+                fields=['email'],
+                opclasses=['gin_trgm_ops'],
+            ),
+            GinIndex(
+                name='lead_company_search_idx',
+                fields=['company_name'],
+                opclasses=['gin_trgm_ops'],
+            ),
         ]
     
     def __str__(self):

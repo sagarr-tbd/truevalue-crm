@@ -269,8 +269,15 @@ export const contactSchema = z.object({
 
 // Deal validation schema
 export const dealSchema = z.object({
-  dealName: z.string().min(1, "Deal name is required"),
-  amount: z.preprocess(
+  // Required fields
+  name: z.string().min(1, "Deal name is required"),
+  
+  // Pipeline and Stage (stage_id is required)
+  pipelineId: z.string().optional(), // Uses default pipeline if not provided
+  stageId: z.string().min(1, "Stage is required"),
+  
+  // Deal value
+  value: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
       if (typeof val === "string") {
@@ -282,20 +289,18 @@ export const dealSchema = z.object({
       }
       return undefined;
     },
-    z.number().positive("Amount must be a positive number").optional()
+    z.number().positive("Deal value must be a positive number").optional()
   ),
-  stage: z.preprocess(
-    (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Prospecting", "Qualification", "Proposal", "Negotiation", "Closed Won", "Closed Lost"], {
-      required_error: "Stage is required",
-      invalid_type_error: "Stage is required",
-    })
-  ),
+  
+  // Currency
+  currency: z.string().optional(),
+  
+  // Win probability (0-100)
   probability: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
       if (typeof val === "string") {
-        const num = parseFloat(val);
+        const num = parseInt(val, 10);
         return isNaN(num) ? undefined : num;
       }
       if (typeof val === "number") {
@@ -305,16 +310,24 @@ export const dealSchema = z.object({
     },
     z.number().min(0, "Probability must be between 0-100").max(100, "Probability must be between 0-100").optional()
   ),
-  closeDate: z.string().optional(),
-  accountId: z.string().optional(),
-  contactId: z.string().optional(),
-  type: z.string().optional(),
-  source: z.string().optional(),
-  nextStep: z.string().optional(),
-  description: z.string().optional(),
-  competitorInfo: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  assignedTo: z.string().optional(),
+  
+  // Dates - validate format if provided
+  expectedCloseDate: z.string()
+    .refine((val) => !val || /^\d{4}-\d{2}-\d{2}/.test(val), {
+      message: "Invalid date format (expected YYYY-MM-DD)",
+    })
+    .optional(),
+  
+  // Related entities - UUID format validation
+  contactId: z.string().uuid("Invalid contact ID").optional().or(z.literal('')),
+  companyId: z.string().uuid("Invalid company ID").optional().or(z.literal('')),
+  ownerId: z.string().uuid("Invalid owner ID").optional().or(z.literal('')),
+  
+  // Additional info
+  description: z.string().max(5000, "Description too long").optional(),
+  
+  // Tags - validate UUIDs
+  tagIds: z.array(z.string().uuid("Invalid tag ID")).optional(),
 });
 
 // Forecast validation schema

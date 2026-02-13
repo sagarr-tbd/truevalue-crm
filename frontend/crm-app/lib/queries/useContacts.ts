@@ -3,6 +3,7 @@ import {
   contactsApi,
   ContactQueryParams,
   ContactFormData,
+  ContactOption,
 } from '@/lib/api/contacts';
 import { toast } from 'sonner';
 
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 export type {
   ContactQueryParams,
   ContactFormData,
+  ContactOption,
 } from '@/lib/api/contacts';
 
 // ============================================================================
@@ -21,6 +23,7 @@ export const contactKeys = {
   lists: () => [...contactKeys.all, 'list'] as const,
   list: (params?: ContactQueryParams) => [...contactKeys.lists(), params] as const,
   detail: (id: string) => [...contactKeys.all, 'detail', id] as const,
+  options: () => [...contactKeys.all, 'options'] as const,
 };
 
 // ============================================================================
@@ -30,10 +33,15 @@ export const contactKeys = {
 /**
  * Fetch contacts with pagination and filtering
  */
-export function useContacts(params: ContactQueryParams = {}) {
+export function useContacts(
+  params: ContactQueryParams = {},
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: contactKeys.list(params),
     queryFn: () => contactsApi.getAll(params),
+    enabled: options?.enabled ?? true,
+    staleTime: 60 * 1000, // 1 minute - list data can be slightly stale
   });
 }
 
@@ -45,6 +53,19 @@ export function useContact(id: string) {
     queryKey: contactKeys.detail(id),
     queryFn: () => contactsApi.getById(id),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000, // 2 minutes - detail data can be cached longer
+  });
+}
+
+/**
+ * Fetch contacts as dropdown options
+ * Used for select fields in forms
+ */
+export function useContactOptions() {
+  return useQuery({
+    queryKey: contactKeys.options(),
+    queryFn: () => contactsApi.getAsOptions(),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 }
 

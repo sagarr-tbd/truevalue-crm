@@ -44,6 +44,7 @@ urlpatterns = [
     # DEALS
     # ==========================================================================
     path('deals', views.DealListView.as_view(), name='deal-list'),
+    path('deals/bulk-delete', views.DealBulkDeleteView.as_view(), name='deal-bulk-delete'),
     path('deals/forecast', views.DealForecastView.as_view(), name='deal-forecast'),
     path('deals/<uuid:deal_id>', views.DealDetailView.as_view(), name='deal-detail'),
     path('deals/<uuid:deal_id>/move-stage', views.DealMoveStageView.as_view(), name='deal-move-stage'),

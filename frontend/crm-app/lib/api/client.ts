@@ -202,12 +202,13 @@ export interface APIError {
   details?: Record<string, any>;
 }
 
-export interface PaginatedResponse<T> {
+export interface PaginatedResponse<T, S = undefined> {
   data: T[];
   meta: {
     page: number;
     page_size: number;
     total: number;
+    stats?: S;
   };
 }
 

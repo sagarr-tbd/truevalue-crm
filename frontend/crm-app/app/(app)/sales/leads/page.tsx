@@ -35,6 +35,8 @@ import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
+import { toSnakeCaseOperator, getStatusColor } from "@/lib/utils";
+import { getLeadActionMenuItems } from "@/lib/utils/actionMenus";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
@@ -99,8 +101,6 @@ export default function LeadsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   
   // Debounce search query for API calls
@@ -111,25 +111,6 @@ export default function LeadsPage() {
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const { presets, addPreset, deletePreset } = useFilterPresets('leads');
 
-  // Convert camelCase operator to snake_case for API
-  const toSnakeCaseOperator = (op: string): string => {
-    const operatorMap: Record<string, string> = {
-      'equals': 'equals',
-      'notEquals': 'not_equals',
-      'contains': 'contains',
-      'notContains': 'not_contains',
-      'startsWith': 'starts_with',
-      'endsWith': 'ends_with',
-      'isEmpty': 'is_empty',
-      'isNotEmpty': 'is_not_empty',
-      'greaterThan': 'greater_than',
-      'lessThan': 'less_than',
-      'greaterThanOrEqual': 'greater_than_or_equal',
-      'lessThanOrEqual': 'less_than_or_equal',
-    };
-    return operatorMap[op] || op;
-  };
-
   // Build query params for server-side pagination (including advanced filters)
   const queryParams: LeadQueryParams = useMemo(() => {
     const params: LeadQueryParams = {
@@ -137,7 +118,6 @@ export default function LeadsPage() {
       page_size: itemsPerPage,
       search: debouncedSearchQuery || undefined,
       status: statusFilter || undefined,
-      order_by: sortColumn ? `${sortDirection === 'desc' ? '-' : ''}${sortColumn}` : '-created_at',
     };
     
     // Add advanced filters if present
@@ -153,7 +133,7 @@ export default function LeadsPage() {
     }
     
     return params;
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, sortColumn, sortDirection, filterGroup]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
   
   // React Query (server data) - now with pagination
   const { data: leadsResponse, isLoading } = useLeads(queryParams);
@@ -352,33 +332,6 @@ export default function LeadsPage() {
     },
   ], [apiStats, totalItems]);
 
-  // Advanced filtering is now server-side - just apply client-side sorting if needed
-  const filteredLeads = useMemo(() => {
-    let filtered = leads;
-
-    // Client-side sorting (applies to current page)
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [leads, sortColumn, sortDirection]);
-
-  // Pagination is now server-side - use data directly
-  const paginatedLeads = filteredLeads;
-
   // Stats calculations using API stats (includes all leads, not just current page)
   const stats = useMemo(() => {
     const totalLeads = apiStats?.total ?? totalItems;
@@ -420,20 +373,11 @@ export default function LeadsPage() {
   }, [apiStats, totalItems]);
 
   // Handlers
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
   const handleSelectAll = () => {
-    if (selectedLeads.length === paginatedLeads.length) {
+    if (selectedLeads.length === leads.length) {
       setSelectedLeads([]);
     } else {
-      setSelectedLeads(paginatedLeads.map((l) => l.id));
+      setSelectedLeads(leads.map((l) => l.id));
     }
   };
 
@@ -501,7 +445,7 @@ export default function LeadsPage() {
 
   // Bulk operation handlers
   const handleSelectAllLeads = () => {
-    setSelectedLeads(filteredLeads.map(l => l.id));
+    setSelectedLeads(leads.map(l => l.id));
   };
 
   const handleDeselectAll = () => {
@@ -535,7 +479,7 @@ export default function LeadsPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredLeads.filter(lead => selectedLeads.includes(lead.id));
+    const selectedData = leads.filter(lead => selectedLeads.includes(lead.id));
     
     if (selectedData.length === 0) {
       toast.error("No leads selected for export");
@@ -556,6 +500,19 @@ export default function LeadsPage() {
     }
   };
 
+  // Helper to get display value for filter conditions
+  const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
+    if (!field || !value) return value;
+    
+    // For select fields, look up the label from options
+    if (field.type === 'select' && field.options) {
+      const option = field.options.find(opt => opt.value === value);
+      if (option) return option.label;
+    }
+    
+    return value;
+  };
+
   // Filter chips data
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
@@ -572,10 +529,11 @@ export default function LeadsPage() {
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
+        const displayValue = getFilterDisplayValue(field, condition.value);
         chips.push({
           id: `advanced-filter-${index}`,
           label: field?.label || condition.field,
-          value: `${condition.operator}: ${condition.value}`,
+          value: `${condition.operator}: ${displayValue}`,
           color: 'secondary',
         });
       });
@@ -675,19 +633,18 @@ export default function LeadsPage() {
     }
   };
 
-  // Get status color (supports both lowercase and uppercase)
-  const getStatusColor = (status: string | undefined) => {
-    if (!status) return "bg-muted text-muted-foreground";
-    const normalizedStatus = status.toLowerCase();
-    const colors: Record<string, string> = {
-      new: "bg-secondary/10 text-secondary",
-      contacted: "bg-accent/10 text-accent",
-      qualified: "bg-primary/10 text-primary",
-      unqualified: "bg-muted text-muted-foreground",
-      converted: "bg-green-100 text-green-700",
-    };
-    return colors[normalizedStatus] || "bg-muted text-muted-foreground";
-  };
+  // Lead action menu handlers (must be after handleEditLead is defined)
+  const leadActionHandlers = useMemo(() => ({
+    onView: (id: string) => router.push(`/sales/leads/${id}`),
+    onEdit: (lead: LeadViewModel) => {
+      handleEditLead(lead);
+      setDefaultView("detailed");
+    },
+    onSendEmail: (email: string) => { if (email) window.location.href = `mailto:${email}`; },
+    onCall: (phone: string) => { if (phone) window.location.href = `tel:${phone}`; },
+    onConvert: handleConvertClick,
+    onDelete: handleDeleteClick,
+  }), [router, handleConvertClick, handleDeleteClick]);
 
   // Get score color based on value
   const getScoreColor = (score: number | undefined) => {
@@ -702,7 +659,6 @@ export default function LeadsPage() {
     {
       key: "firstName",
       label: "Name",
-      sortable: true,
       render: (_: unknown, row: LeadViewModel) => (
         <div 
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -726,7 +682,6 @@ export default function LeadsPage() {
     {
       key: "email",
       label: "Contact",
-      sortable: true,
       render: (_: unknown, row: LeadViewModel) => (
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm text-foreground">
@@ -743,9 +698,8 @@ export default function LeadsPage() {
     {
       key: "status",
       label: "Status",
-      sortable: true,
       render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(value)}`}>
+        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(value, 'lead')}`}>
           {value}
         </span>
       ),
@@ -753,7 +707,6 @@ export default function LeadsPage() {
     {
       key: "score",
       label: "Score",
-      sortable: true,
       render: (value: number | undefined) => (
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getScoreColor(value)}`}>
           {value ?? "N/A"}
@@ -763,7 +716,6 @@ export default function LeadsPage() {
     {
       key: "source",
       label: "Source",
-      sortable: true,
       render: (value: string | undefined) => (
         <span className="text-sm text-foreground capitalize">{value?.replace(/_/g, ' ') || "N/A"}</span>
       ),
@@ -771,7 +723,6 @@ export default function LeadsPage() {
     {
       key: "created",
       label: "Created",
-      sortable: true,
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Calendar className="h-4 w-4" />
@@ -902,7 +853,7 @@ export default function LeadsPage() {
               Import
             </Button>
             <ExportButton
-              data={filteredLeads}
+              data={leads}
               columns={exportColumns}
               filename={`leads-${new Date().toISOString().split('T')[0]}`}
               title="Leads Export"
@@ -980,68 +931,23 @@ export default function LeadsPage() {
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedLeads}
+          data={leads}
           columns={columns}
           selectedIds={selectedLeads}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
-          onSort={handleSort}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
           showSelection={true}
           loading={isLoading}
           emptyMessage="No leads found"
           emptyDescription="Try adjusting your search or filters, or add a new lead"
           renderActions={(row: LeadViewModel) => (
-            <ActionMenu
-              items={[
-                {
-                  label: "View Details",
-                  icon: FileText,
-                  onClick: () => router.push(`/sales/leads/${row.id}`),
-                },
-                {
-                  label: "Edit",
-                  icon: Edit,
-                  onClick: () => {
-                    handleEditLead(row);
-                    setDefaultView("detailed");
-                  },
-                  disabled: row.status?.toLowerCase() === "converted" || row.status?.toLowerCase() === "unqualified",
-                },
-                {
-                  label: "Send Email",
-                  icon: Mail,
-                  onClick: () => window.location.href = `mailto:${row.email}`,
-                  disabled: !row.email,
-                },
-                {
-                  label: "Call Lead",
-                  icon: Phone,
-                  onClick: () => row.phone && (window.location.href = `tel:${row.phone}`),
-                  disabled: !row.phone,
-                },
-                {
-                  label: "Convert to Contact",
-                  icon: UserPlus,
-                  onClick: () => handleConvertClick(row),
-                  disabled: row.status?.toLowerCase() === "converted" || row.status?.toLowerCase() === "unqualified" || convertLead.isPending,
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
-              ]}
-            />
+            <ActionMenu items={getLeadActionMenuItems(row, leadActionHandlers, { isConverting: convertLead.isPending })} />
           )}
         />
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedLeads.map((lead, index) => (
+          {leads.map((lead, index) => (
             <motion.div
               key={lead.id}
               initial={{ opacity: 0, y: 20 }}
@@ -1065,55 +971,13 @@ export default function LeadsPage() {
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu
-                      items={[
-                        {
-                          label: "View Details",
-                          icon: FileText,
-                          onClick: () => router.push(`/sales/leads/${lead.id}`),
-                        },
-                        {
-                          label: "Edit",
-                          icon: Edit,
-                          onClick: () => {
-                            handleEditLead(lead);
-                            setDefaultView("detailed");
-                          },
-                          disabled: lead.status?.toLowerCase() === "converted" || lead.status?.toLowerCase() === "unqualified",
-                        },
-                        {
-                          label: "Send Email",
-                          icon: Mail,
-                          onClick: () => window.location.href = `mailto:${lead.email}`,
-                          disabled: !lead.email,
-                        },
-                        {
-                          label: "Call Lead",
-                          icon: Phone,
-                          onClick: () => lead.phone && (window.location.href = `tel:${lead.phone}`),
-                          disabled: !lead.phone,
-                        },
-                        {
-                          label: "Convert to Contact",
-                          icon: UserPlus,
-                          onClick: () => handleConvertClick(lead),
-                          disabled: lead.status?.toLowerCase() === "converted" || lead.status?.toLowerCase() === "unqualified" || convertLead.isPending,
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(lead),
-                        },
-                      ]}
-                    />
+                    <ActionMenu items={getLeadActionMenuItems(lead, leadActionHandlers, { isConverting: convertLead.isPending })} />
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status, 'lead')}`}>
                       {lead.status}
                     </span>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getScoreColor(lead.score)}`}>

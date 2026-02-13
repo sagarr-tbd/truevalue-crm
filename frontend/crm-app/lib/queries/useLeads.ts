@@ -44,6 +44,7 @@ export function useLeads(params: LeadQueryParams = {}) {
   return useQuery({
     queryKey: leadKeys.list(params),
     queryFn: () => leadsApi.getAll(params),
+    staleTime: 60 * 1000, // 1 minute
   });
 }
 
@@ -55,6 +56,7 @@ export function useLead(id: string) {
     queryKey: leadKeys.detail(id),
     queryFn: () => leadsApi.getById(id),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }
 

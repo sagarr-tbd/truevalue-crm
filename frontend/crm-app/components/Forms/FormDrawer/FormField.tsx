@@ -66,6 +66,17 @@ export function FormField({ field, register, errors, watch, isSubmitting }: Form
       ? field.options 
       : [];
 
+    // Get the register props and wrap onChange to call custom handler
+    const registerProps = register(field.name);
+    const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      // Call the react-hook-form onChange first
+      registerProps.onChange(e);
+      // Then call custom onChange if provided
+      if (field.onChange) {
+        field.onChange(e.target.value);
+      }
+    };
+
     return (
       <div className="space-y-2">
         <label htmlFor={field.name} className="text-sm font-medium flex items-center gap-1.5">
@@ -84,7 +95,8 @@ export function FormField({ field, register, errors, watch, isSubmitting }: Form
             className={`${baseInputClasses} h-11 ${field.icon ? 'pl-10' : 'pl-3'} pr-10 appearance-none`}
             disabled={isSubmitting || field.disabled}
             value={watchedValue || ""}
-            {...register(field.name)}
+            {...registerProps}
+            onChange={handleSelectChange}
           >
             <option value="">{field.placeholder || "Select..."}</option>
             {options.map((opt) => {

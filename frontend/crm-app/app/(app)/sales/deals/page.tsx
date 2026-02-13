@@ -23,6 +23,8 @@ import {
   Calendar,
   ChevronDown,
   Check,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +39,8 @@ import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
-import { AdvancedFilter, FilterField, FilterGroup, filterData } from "@/components/AdvancedFilter";
+import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
+import { getDealActionMenuItems } from "@/lib/utils/actionMenus";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
@@ -46,11 +49,15 @@ import {
   useCreateDeal,
   useUpdateDeal,
   useDeleteDeal, 
-  useBulkDeleteDeals, 
-  useBulkUpdateDeals 
+  useBulkDeleteDeals,
+  useMoveStage,
+  DealViewModel,
+  DealFormData,
+  DealQueryParams,
 } from "@/lib/queries/useDeals";
+import { usePipelines, usePipelineKanban, useDefaultPipeline } from "@/lib/queries/usePipelines";
 import { useUIStore } from "@/stores";
-import { KanbanBoard } from "@/components/KanbanBoard";
+import { KanbanBoard, type KanbanDeal } from "@/components/KanbanBoard";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -71,14 +78,6 @@ const BulkUpdateModal = dynamic(
 export default function DealsPage() {
   const router = useRouter();
   
-  // React Query (server/mock data)
-  const { data: deals = [], isLoading } = useDeals();
-  const createDeal = useCreateDeal();
-  const updateDeal = useUpdateDeal();
-  const deleteDeal = useDeleteDeal();
-  const bulkDelete = useBulkDeleteDeals();
-  const bulkUpdate = useBulkUpdateDeals();
-  
   // Zustand (UI state)
   const { 
     viewMode, 
@@ -92,16 +91,14 @@ export default function DealsPage() {
   } = useUIStore();
   
   // Initialize filters from store
-  const dealsFilters = filters.deals || {};
+  const dealsFilters = (filters.deals || {}) as { search?: string; stage?: string; status?: string };
   
   // State management
   const [searchQuery, setSearchQuery] = useState(dealsFilters.search || "");
-  const [stageFilter, setStageFilter] = useState<string | null>(dealsFilters.stage || null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(dealsFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedDeals, setSelectedDeals] = useState<number[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [selectedDeals, setSelectedDeals] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   
   // Bulk operations state
@@ -123,61 +120,123 @@ export default function DealsPage() {
   // Debounce search query
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   
+  // Build query params for API
+  const queryParams: DealQueryParams = useMemo(() => ({
+    page: currentPage,
+    page_size: itemsPerPage,
+    search: debouncedSearchQuery || undefined,
+    status: statusFilter || undefined,
+    filters: filterGroup && filterGroup.conditions.length > 0 ? {
+      logic: filterGroup.logic.toLowerCase() as 'and' | 'or',
+      conditions: filterGroup.conditions.map(c => ({
+        field: c.field,
+        operator: c.operator,
+        value: c.value,
+      })),
+    } : undefined,
+  }), [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
+
+  // React Query - Server-side data
+  const { data: dealsResponse, isLoading, isError, error } = useDeals(queryParams);
+  const deals = dealsResponse?.data || [];
+  const totalDeals = dealsResponse?.meta?.total || 0;
+  const totalPages = Math.ceil(totalDeals / itemsPerPage);
+  
+  // Pipeline data
+  const { data: pipelines, isLoading: isPipelinesLoading } = usePipelines();
+  const { data: defaultPipeline } = useDefaultPipeline();
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
+  
+  // Set default pipeline when loaded
+  useEffect(() => {
+    if (defaultPipeline?.id && !selectedPipelineId) {
+      setSelectedPipelineId(defaultPipeline.id);
+    }
+  }, [defaultPipeline?.id, selectedPipelineId]);
+  
+  const pipelineId = selectedPipelineId || defaultPipeline?.id || '';
+  const { data: kanbanData, isLoading: isKanbanLoading } = usePipelineKanban(pipelineId);
+  
+  // Mutations
+  const createDeal = useCreateDeal();
+  const updateDeal = useUpdateDeal();
+  const deleteDeal = useDeleteDeal();
+  const bulkDelete = useBulkDeleteDeals();
+  const moveStage = useMoveStage();
+  
   // Save filters to store when they change
   useEffect(() => {
     setModuleFilters('deals', {
       search: searchQuery,
-      stage: stageFilter,
+      status: statusFilter,
     });
-  }, [searchQuery, stageFilter, setModuleFilters]);
+  }, [searchQuery, statusFilter, setModuleFilters]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [dealToDelete, setDealToDelete] = useState<typeof deals[0] | null>(null);
+  const [dealToDelete, setDealToDelete] = useState<DealViewModel | null>(null);
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
-  const [editingDeal, setEditingDeal] = useState<Partial<DealType> | null>(null);
+  const [editingDeal, setEditingDeal] = useState<DealViewModel | null>(null);
+  const [editingDealForm, setEditingDealForm] = useState<Partial<DealType> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
   // Export columns configuration
-  const exportColumns: ExportColumn<typeof deals[0]>[] = useMemo(() => [
+  const exportColumns: ExportColumn<DealViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
-    { key: 'dealName', label: 'Deal Name' },
-    { key: 'company', label: 'Company' },
+    { key: 'name', label: 'Deal Name' },
+    { key: 'companyName', label: 'Company' },
     { key: 'contactName', label: 'Contact' },
-    { key: 'amount', label: 'Amount' },
-    { key: 'stage', label: 'Stage' },
-    { key: 'probability', label: 'Probability' },
-    { key: 'closeDate', label: 'Close Date' },
-    { key: 'owner', label: 'Owner' },
-    { key: 'created', label: 'Created Date' },
+    { key: 'contactEmail', label: 'Contact Email' },
+    { key: 'value', label: 'Value' },
+    { key: 'currency', label: 'Currency' },
+    { key: 'weightedValue', label: 'Weighted Value' },
+    { key: 'stageName', label: 'Stage' },
+    { key: 'status', label: 'Status' },
+    { key: 'probability', label: 'Probability (%)' },
+    { key: 'expectedCloseDate', label: 'Expected Close Date' },
+    { key: 'stageEnteredAt', label: 'Stage Entered At' },
+    { key: 'lastActivityAt', label: 'Last Activity' },
+    { key: 'createdAt', label: 'Created Date' },
   ], []);
+
+  // Get stages from pipeline for filter options
+  const pipelineStages = defaultPipeline?.stages || [];
 
   // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
     {
-      key: 'dealName',
+      key: 'name',
       label: 'Deal Name',
       type: 'text',
     },
     {
-      key: 'company',
+      key: 'companyName',
       label: 'Company',
       type: 'text',
     },
     {
-      key: 'stage',
+      key: 'stage_id',
       label: 'Stage',
       type: 'select',
+      options: pipelineStages.map(s => ({ label: s.name, value: s.id })),
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      type: 'select',
       options: [
-        { label: 'Prospecting', value: 'Prospecting' },
-        { label: 'Qualification', value: 'Qualification' },
-        { label: 'Proposal', value: 'Proposal' },
-        { label: 'Negotiation', value: 'Negotiation' },
-        { label: 'Closed Won', value: 'Closed Won' },
-        { label: 'Closed Lost', value: 'Closed Lost' },
+        { label: 'Open', value: 'open' },
+        { label: 'Won', value: 'won' },
+        { label: 'Lost', value: 'lost' },
+        { label: 'Abandoned', value: 'abandoned' },
       ],
     },
     {
@@ -185,103 +244,70 @@ export default function DealsPage() {
       label: 'Contact',
       type: 'text',
     },
-  ], []);
+    {
+      key: 'value',
+      label: 'Deal Value',
+      type: 'number',
+    },
+    {
+      key: 'probability',
+      label: 'Probability',
+      type: 'number',
+    },
+    {
+      key: 'expectedCloseDate',
+      label: 'Expected Close Date',
+      type: 'date',
+    },
+  ], [pipelineStages]);
 
-  // Filter & sort logic (using debounced search query)
-  const filteredDeals = useMemo(() => {
-    let filtered = deals;
-
-    // Search filter (debounced)
-    if (debouncedSearchQuery) {
-      filtered = filtered.filter(
-        (deal) =>
-          deal.dealName?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          deal.company?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          deal.contactName?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      );
-    }
-
-    // Stage filter
-    if (stageFilter) {
-      filtered = filtered.filter((deal) => deal.stage === stageFilter);
-    }
-
-    // Advanced filter
-    if (filterGroup && filterGroup.conditions.length > 0) {
-      filtered = filterData(filtered, filterGroup);
-    }
-
-    // Sorting
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [deals, debouncedSearchQuery, stageFilter, filterGroup, sortColumn, sortDirection]);
-
-  // Pagination
-  const paginatedDeals = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredDeals.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredDeals, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredDeals.length / itemsPerPage);
-
-  // Stats calculations
+  // Stats from API response (includes all deals, not just current page)
+  const apiStats = dealsResponse?.meta?.stats;
+  
+  // Stats calculations using API stats
   const stats = useMemo(() => {
-    const totalRevenue = deals.reduce((sum, deal) => sum + deal.amount, 0);
-    const wonDeals = deals.filter((d) => d.stage === "Closed Won");
-    const wonRevenue = wonDeals.reduce((sum, deal) => sum + deal.amount, 0);
-    const activeDeals = deals.filter((d) => !d.stage.startsWith("Closed"));
-    const pipeline = activeDeals.reduce((sum, deal) => sum + deal.amount, 0);
+    const openValue = apiStats?.openValue ?? 0;
+    const wonValue = apiStats?.wonValue ?? 0;
+    const avgDealSize = apiStats?.avgDealSize ?? 0;
+    const totalCount = apiStats?.total ?? totalDeals;
+    const openCount = apiStats?.byStatus?.['open'] ?? 0;
+    const wonCount = apiStats?.byStatus?.['won'] ?? 0;
 
     return [
       {
         label: "Total Pipeline",
-        value: `$${(pipeline / 1000).toFixed(0)}K`,
+        value: `$${(openValue / 1000).toFixed(0)}K`,
         icon: TrendingUp,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
         trend: { value: 15, isPositive: true },
-        description: `${activeDeals.length} active deals`,
+        description: `${openCount} active deals`,
       },
       {
         label: "Won Revenue",
-        value: `$${(wonRevenue / 1000).toFixed(0)}K`,
+        value: `$${(wonValue / 1000).toFixed(0)}K`,
         icon: CheckCircle2,
-        iconBgColor: "bg-primary/20",
-        iconColor: "text-primary",
+        iconBgColor: "bg-green-500/10",
+        iconColor: "text-green-500",
         trend: { value: 12, isPositive: true },
-        description: `${wonDeals.length} deals closed`,
+        description: `${wonCount} deals closed`,
       },
       {
         label: "Avg Deal Size",
-        value: `$${deals.length > 0 ? ((totalRevenue / deals.length) / 1000).toFixed(0) : 0}K`,
+        value: `$${(avgDealSize / 1000).toFixed(0)}K`,
         icon: Target,
         iconBgColor: "bg-accent/10",
         iconColor: "text-accent",
       },
       {
         label: "Total Deals",
-        value: deals.length,
+        value: totalCount,
         icon: DollarSign,
         iconBgColor: "bg-secondary/10",
         iconColor: "text-secondary",
       },
     ];
-  }, [deals]);
+  }, [apiStats, totalDeals]);
 
   // Filter dropdown ref for click outside
   const filterDropdownRef = useRef<HTMLDivElement>(null);
@@ -305,74 +331,35 @@ export default function DealsPage() {
     };
   }, [showFilterDropdown]);
 
-  // Filter options
-  const filterOptions = useMemo(() => [
-    {
-      label: "All Deals",
-      value: null,
-      count: deals.length,
-    },
-    {
-      label: "Prospecting",
-      value: "Prospecting",
-      count: deals.filter((d) => d.stage === "Prospecting").length,
-    },
-    {
-      label: "Qualification",
-      value: "Qualification",
-      count: deals.filter((d) => d.stage === "Qualification").length,
-    },
-    {
-      label: "Proposal",
-      value: "Proposal",
-      count: deals.filter((d) => d.stage === "Proposal").length,
-    },
-    {
-      label: "Negotiation",
-      value: "Negotiation",
-      count: deals.filter((d) => d.stage === "Negotiation").length,
-    },
-    {
-      label: "Closed Won",
-      value: "Closed Won",
-      count: deals.filter((d) => d.stage === "Closed Won").length,
-    },
-    {
-      label: "Closed Lost",
-      value: "Closed Lost",
-      count: deals.filter((d) => d.stage === "Closed Lost").length,
-    },
-  ], [deals]);
+  // Status filter options with counts from API
+  const statusFilterOptions = useMemo(() => [
+    { label: "All Status", value: null, count: apiStats?.total ?? 0 },
+    { label: "Open", value: "open", count: apiStats?.byStatus?.['open'] ?? 0 },
+    { label: "Won", value: "won", count: apiStats?.byStatus?.['won'] ?? 0 },
+    { label: "Lost", value: "lost", count: apiStats?.byStatus?.['lost'] ?? 0 },
+    { label: "Abandoned", value: "abandoned", count: apiStats?.byStatus?.['abandoned'] ?? 0 },
+  ], [apiStats]);
 
   // Handlers
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
   const handleSelectAll = () => {
-    if (selectedDeals.length === paginatedDeals.length) {
+    if (selectedDeals.length === deals.length) {
       setSelectedDeals([]);
     } else {
-      setSelectedDeals(paginatedDeals.map((d) => d.id));
+      setSelectedDeals(deals.map((d) => d.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
-    const numId = typeof id === "string" ? parseInt(id) : id;
-    if (selectedDeals.includes(numId)) {
-      setSelectedDeals(selectedDeals.filter((dId) => dId !== numId));
+    const strId = String(id);
+    if (selectedDeals.includes(strId)) {
+      setSelectedDeals(selectedDeals.filter((dId) => dId !== strId));
     } else {
-      setSelectedDeals([...selectedDeals, numId]);
+      setSelectedDeals([...selectedDeals, strId]);
     }
   };
 
   // Delete handlers
-  const handleDeleteClick = (deal: typeof deals[0]) => {
+  const handleDeleteClick = (deal: DealViewModel) => {
     setDealToDelete(deal);
     setIsDeleteModalOpen(true);
   };
@@ -398,70 +385,105 @@ export default function DealsPage() {
   const handleAddDeal = () => {
     setFormMode("add");
     setEditingDeal(null);
+    setEditingDealForm(null);
     setFormDrawerOpen(true);
   };
 
-  const handleEditDeal = (deal: typeof deals[0]) => {
+  const handleEditDeal = (deal: DealViewModel) => {
     setFormMode("edit");
-    setEditingDeal({
-      dealName: deal.dealName,
-      amount: deal.amount,
-      stage: deal.stage as any,
+    // Store original deal for accessing IDs during submit
+    setEditingDeal(deal);
+    // Convert DealViewModel to form data format for the form
+    // Use current pipeline context as fallback since list API doesn't return pipeline_id
+    const formData: Partial<DealType> = {
+      name: deal.name,
+      pipelineId: deal.pipelineId || pipelineId,
+      stageId: deal.stageId,
+      value: deal.value,
+      currency: deal.currency,
       probability: deal.probability,
-      closeDate: deal.closeDate,
-      accountId: deal.company,
-      contactId: deal.contactName,
-      assignedTo: deal.owner,
-    });
+      expectedCloseDate: deal.expectedCloseDate,
+      contactId: deal.contactId,
+      companyId: deal.companyId,
+      ownerId: deal.ownerId,
+      description: deal.description,
+      tagIds: deal.tagIds || [],
+    };
+    setEditingDealForm(formData);
     setFormDrawerOpen(true);
   };
 
   const handleFormSubmit = async (data: Partial<DealType>) => {
     try {
       if (formMode === "add") {
-      const newDeal = {
-        dealName: data.dealName || "",
-        company: data.accountId || "",
-        contactName: data.contactId || "",
-        amount: data.amount || 0,
-        stage: data.stage || "Prospecting",
-        probability: data.probability || 10,
-        closeDate: data.closeDate || "",
-        owner: data.assignedTo || "Unassigned",
-      };
-        await createDeal.mutateAsync(newDeal);
+        // Use the stage from form data, or fallback to first stage from pipeline
+        const firstStage = pipelineStages[0];
+        const formData: DealFormData = {
+          name: data.name || "",
+          pipelineId: data.pipelineId || pipelineId,
+          stageId: data.stageId || firstStage?.id || "",
+          value: data.value || 0,
+          currency: data.currency || "INR",
+          probability: data.probability,
+          expectedCloseDate: data.expectedCloseDate,
+          contactId: data.contactId,
+          companyId: data.companyId,
+          ownerId: data.ownerId,
+          description: data.description,
+          tagIds: data.tagIds,
+        };
+        await createDeal.mutateAsync(formData);
       } else if (editingDeal) {
-        // Find the deal ID from the deals list
-        const dealToUpdate = deals.find(d => 
-          d.dealName === editingDeal.dealName
-        );
-        
-        if (dealToUpdate?.id) {
-          const updatedDeal = {
-            dealName: data.dealName || "",
-            company: data.accountId || "",
-            contactName: data.contactId || "",
-            amount: data.amount || 0,
-            stage: data.stage || "Prospecting",
-            probability: data.probability || 10,
-            closeDate: data.closeDate || "",
-            owner: data.assignedTo || "Unassigned",
-          };
-          await updateDeal.mutateAsync({ id: dealToUpdate.id, data: updatedDeal });
-        }
+        const formData: DealFormData = {
+          name: data.name || editingDeal.name,
+          pipelineId: data.pipelineId || editingDeal.pipelineId,
+          stageId: data.stageId || editingDeal.stageId,
+          value: data.value ?? editingDeal.value,
+          currency: data.currency || editingDeal.currency,
+          probability: data.probability ?? editingDeal.probability,
+          expectedCloseDate: data.expectedCloseDate || editingDeal.expectedCloseDate,
+          contactId: data.contactId || editingDeal.contactId,
+          companyId: data.companyId || editingDeal.companyId,
+          ownerId: data.ownerId || editingDeal.ownerId,
+          description: data.description ?? editingDeal.description,
+          tagIds: data.tagIds,
+        };
+        await updateDeal.mutateAsync({ id: editingDeal.id, data: formData });
       }
       
       setFormDrawerOpen(false);
       setEditingDeal(null);
     } catch (error) {
       console.error("Error submitting deal:", error);
-      throw error; // Let FormDrawer handle the error toast
+      throw error;
     }
+  };
+
+  // Deal action menu handlers
+  const dealActionHandlers = useMemo(() => ({
+    onView: (id: string) => router.push(`/sales/deals/${id}`),
+    onEdit: handleEditDeal,
+    onSendEmail: (email: string) => { if (email) window.location.href = `mailto:${email}`; },
+    onDelete: handleDeleteClick,
+  }), [router, handleEditDeal, handleDeleteClick]);
+
+  // Kanban drag handler
+  const handleKanbanDealMove = async (dealId: string, newStageId: string) => {
+    try {
+      await moveStage.mutateAsync({ id: dealId, stageId: newStageId });
+    } catch (error) {
+      console.error("Error moving deal:", error);
+    }
+  };
+
+  // Kanban deal click handler
+  const handleKanbanDealClick = (deal: KanbanDeal) => {
+    router.push(`/sales/deals/${deal.id}`);
   };
 
   // Bulk operation handlers
   const handleSelectAllDeals = () => {
-    setSelectedDeals(filteredDeals.map(d => d.id).filter((id): id is number => id !== undefined));
+    setSelectedDeals(deals.map(d => d.id));
   };
 
   const handleDeselectAll = () => {
@@ -481,21 +503,26 @@ export default function DealsPage() {
     }
   };
 
-  const handleBulkUpdateStage = async (stage: string) => {
+  const handleBulkUpdateStage = async (stageId: string) => {
     setIsBulkProcessing(true);
     try {
-      await bulkUpdate.mutateAsync({ ids: selectedDeals, data: { stage } });
+      // Move each deal to the new stage
+      await Promise.all(
+        selectedDeals.map(id => moveStage.mutateAsync({ id, stageId }))
+      );
       setSelectedDeals([]);
       setShowBulkUpdateStage(false);
+      toast.success(`${selectedDeals.length} deals moved successfully`);
     } catch (error) {
       console.error("Error bulk updating deals:", error);
+      toast.error("Failed to update deals");
     } finally {
       setIsBulkProcessing(false);
     }
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredDeals.filter(deal => deal.id !== undefined && selectedDeals.includes(deal.id));
+    const selectedData = deals.filter(deal => selectedDeals.includes(deal.id));
     
     if (selectedData.length === 0) {
       toast.error("No deals selected for export");
@@ -503,7 +530,6 @@ export default function DealsPage() {
     }
 
     try {
-      // Use the same export columns as the main ExportButton
       exportToCSV(
         selectedData, 
         exportColumns, 
@@ -517,15 +543,28 @@ export default function DealsPage() {
     }
   };
 
+  // Helper to get display value for filter conditions
+  const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
+    if (!field || !value) return value;
+    
+    // For select fields, look up the label from options
+    if (field.type === 'select' && field.options) {
+      const option = field.options.find(opt => opt.value === value);
+      if (option) return option.label;
+    }
+    
+    return value;
+  };
+
   // Filter chips data
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
     
-    if (stageFilter) {
+    if (statusFilter) {
       chips.push({
-        id: 'stage-filter',
-        label: 'Stage',
-        value: stageFilter,
+        id: 'status-filter',
+        label: 'Status',
+        value: statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1),
         color: 'primary',
       });
     }
@@ -533,21 +572,22 @@ export default function DealsPage() {
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
+        const displayValue = getFilterDisplayValue(field, condition.value);
         chips.push({
           id: `advanced-filter-${index}`,
           label: field?.label || condition.field,
-          value: `${condition.operator}: ${condition.value}`,
-          color: 'secondary',
+          value: `${condition.operator}: ${displayValue}`,
+          color: 'warning',
         });
       });
     }
     
     return chips;
-  }, [stageFilter, filterGroup, filterFields]);
+  }, [statusFilter, filterGroup, filterFields]);
 
   const handleRemoveFilterChip = (chipId: string) => {
-    if (chipId === 'stage-filter') {
-      setStageFilter(null);
+    if (chipId === 'status-filter') {
+      setStatusFilter(null);
     } else if (chipId.startsWith('advanced-filter')) {
       const index = parseInt(chipId.split('-')[2]);
       if (filterGroup) {
@@ -562,26 +602,15 @@ export default function DealsPage() {
         }
       }
     }
+    setCurrentPage(1);
   };
 
   const handleClearAllFilters = () => {
-    setStageFilter(null);
+    setStatusFilter(null);
     setSearchQuery('');
     setFilterGroup(null);
+    setCurrentPage(1);
     clearModuleFilters('deals');
-  };
-
-  // Get stage color helper
-  const getStageColor = (stage: string) => {
-    const colors = {
-      Prospecting: "bg-muted text-muted-foreground",
-      Qualification: "bg-secondary/10 text-secondary",
-      Proposal: "bg-accent/10 text-accent",
-      Negotiation: "bg-primary/10 text-primary",
-      "Closed Won": "bg-primary/20 text-primary",
-      "Closed Lost": "bg-destructive/10 text-destructive",
-    };
-    return colors[stage as keyof typeof colors] || "bg-muted text-muted-foreground";
   };
 
   // Keyboard shortcuts
@@ -594,6 +623,7 @@ export default function DealsPage() {
         description: "New deal",
         action: () => {
           setEditingDeal(null);
+          setEditingDealForm(null);
           setFormMode("add");
           setDefaultView("quick");
           setFormDrawerOpen(true);
@@ -602,13 +632,12 @@ export default function DealsPage() {
     ],
   });
 
-  // Table columns
-  const columns = [
+  // Table columns - memoized to prevent unnecessary re-renders
+  const columns = useMemo(() => [
     {
-      key: "dealName",
+      key: "name",
       label: "Deal",
-      sortable: true,
-      render: (_value: unknown, row: typeof deals[0]) => (
+      render: (_value: unknown, row: DealViewModel) => (
         <div 
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
           onClick={() => router.push(`/sales/deals/${row.id}`)}
@@ -617,59 +646,126 @@ export default function DealsPage() {
             {row.initials}
           </div>
           <div>
-            <div className="font-semibold text-foreground">{row.dealName}</div>
-            <div className="text-sm text-muted-foreground">{row.company}</div>
+            <div className="font-semibold text-foreground">{row.name}</div>
+            <div className="text-sm text-muted-foreground">{row.companyName || '-'}</div>
           </div>
         </div>
       ),
     },
     {
-      key: "amount",
-      label: "Amount",
-      sortable: true,
-      render: (value: number) => (
-        <span className="font-semibold text-foreground">
-          ${value.toLocaleString()}
-        </span>
+      key: "value",
+      label: "Value",
+      render: (value: number, row: DealViewModel) => (
+        <div className="text-right">
+          <div className="font-semibold text-foreground">
+            {row.currency === 'USD' ? '$' : row.currency}{(value || 0).toLocaleString()}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Weighted: {row.currency === 'USD' ? '$' : row.currency}{(row.weightedValue || 0).toLocaleString()}
+          </div>
+        </div>
       ),
     },
     {
-      key: "stage",
+      key: "stageName",
       label: "Stage",
-      sortable: true,
-      render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColor(value)}`}>
+      render: (value: string, row: DealViewModel) => (
+        <span 
+          className="px-3 py-1 rounded-full text-xs font-medium"
+          style={{ 
+            backgroundColor: row.stage?.color ? `${row.stage.color}20` : undefined,
+            color: row.stage?.color || undefined,
+          }}
+        >
           {value}
         </span>
       ),
     },
     {
+      key: "status",
+      label: "Status",
+      render: (value: string) => {
+        const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
+          open: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Open' },
+          won: { bg: 'bg-green-100', text: 'text-green-700', label: 'Won' },
+          lost: { bg: 'bg-red-100', text: 'text-red-700', label: 'Lost' },
+          abandoned: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Abandoned' },
+        };
+        const config = statusConfig[value] || statusConfig.open;
+        return (
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+            {config.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: "contactName",
+      label: "Contact",
+      sortable: false,
+      render: (value: string, row: DealViewModel) => (
+        <div>
+          <div className="text-sm text-foreground">{value || '-'}</div>
+          {row.contactEmail && (
+            <div className="text-xs text-muted-foreground max-w-[200px]">
+              {row.contactEmail}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "probability",
       label: "Probability",
-      sortable: true,
       render: (value: number) => (
         <div className="flex items-center gap-2">
-          <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+          <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden min-w-[60px]">
             <div
               className="bg-primary h-full rounded-full transition-all"
-              style={{ width: `${value}%` }}
+              style={{ width: `${value || 0}%` }}
             />
           </div>
           <span className="text-sm font-medium text-muted-foreground w-10 text-right">
-            {value}%
+            {value || 0}%
           </span>
         </div>
       ),
     },
     {
-      key: "closeDate",
+      key: "expectedCloseDate",
       label: "Close Date",
-      sortable: true,
       render: (value: string) => (
-        <span className="text-sm text-muted-foreground">{value}</span>
+        <span className="text-sm text-muted-foreground">
+          {value ? new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
+        </span>
       ),
     },
-  ];
+    {
+      key: "createdAt",
+      label: "Created",
+      render: (value: string) => (
+        <span className="text-sm text-muted-foreground">
+          {value ? new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}
+        </span>
+      ),
+    },
+  ], [router]); // Memoize columns with router dependency
+
+  // Handle error state
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <AlertCircle className="h-16 w-16 text-destructive" />
+        <h2 className="text-2xl font-semibold text-foreground">Error Loading Deals</h2>
+        <p className="text-muted-foreground">
+          {(error as Error)?.message || 'Failed to load deals. Please try again.'}
+        </p>
+        <Button onClick={() => window.location.reload()}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -679,7 +775,7 @@ export default function DealsPage() {
         icon={DollarSign}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${deals.length} deals in pipeline`}
+        subtitle={`${totalDeals} deals in pipeline`}
         searchPlaceholder="Search deals by name, company, or contact..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
@@ -726,11 +822,11 @@ export default function DealsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                title="Filter deals by stage"
+                title="Filter deals by stage or status"
               >
                 <Filter className="h-4 w-4 mr-2" />
-                {stageFilter
-                  ? filterOptions.find((f) => f.value === stageFilter)?.label
+                {statusFilter
+                  ? statusFilterOptions.find((f) => f.value === statusFilter)?.label
                   : "All Deals"}
                 <ChevronDown className="h-4 w-4 ml-2" />
               </Button>
@@ -744,11 +840,11 @@ export default function DealsPage() {
                     transition={{ duration: 0.1 }}
                     className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-border py-2 z-50"
                   >
-                    {filterOptions.map((option) => (
+                    {statusFilterOptions.map((option) => (
                       <button
-                        key={option.value || "all"}
+                        key={option.value || "all-status"}
                         onClick={() => {
-                          setStageFilter(option.value);
+                          setStatusFilter(option.value);
                           setShowFilterDropdown(false);
                           setCurrentPage(1);
                         }}
@@ -760,7 +856,7 @@ export default function DealsPage() {
                             {option.count}
                           </span>
                         </div>
-                        {stageFilter === option.value && (
+                        {statusFilter === option.value && (
                           <Check className="h-4 w-4 text-brand-teal" />
                         )}
                       </button>
@@ -797,7 +893,7 @@ export default function DealsPage() {
               Import
             </Button>
             <ExportButton
-              data={filteredDeals}
+              data={deals}
               columns={exportColumns}
               filename="deals-export"
               title="Deals Export"
@@ -813,6 +909,31 @@ export default function DealsPage() {
           </>
         }
       />
+
+      {/* Pipeline Switcher - Only show in Kanban view */}
+      {viewMode === "kanban" && pipelines && pipelines.length > 1 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Pipeline:</span>
+          <div className="relative">
+            <select
+              value={pipelineId}
+              onChange={(e) => setSelectedPipelineId(e.target.value)}
+              className="appearance-none bg-background border border-border rounded-lg px-4 py-2 pr-10 text-sm font-medium cursor-pointer hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+              disabled={isPipelinesLoading}
+            >
+              {pipelines.map((pipeline) => (
+                <option key={pipeline.id} value={pipeline.id}>
+                  {pipeline.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {kanbanData?.columns?.length || 0} stages
+          </span>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <AnimatePresence>
@@ -833,7 +954,7 @@ export default function DealsPage() {
         {selectedDeals.length > 0 && (
           <BulkActionsToolbar
             selectedCount={selectedDeals.length}
-            totalCount={filteredDeals.length}
+            totalCount={totalDeals}
             onSelectAll={handleSelectAllDeals}
             onDeselectAll={handleDeselectAll}
             onDelete={() => setShowBulkDelete(true)}
@@ -848,67 +969,42 @@ export default function DealsPage() {
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedDeals}
+          data={deals}
           columns={columns}
           selectedIds={selectedDeals}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
-          onSort={handleSort}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
           showSelection={true}
           loading={isLoading}
           emptyMessage="No deals found"
           emptyDescription="Try adjusting your search or filters, or add a new deal"
           renderActions={(row) => (
-            <ActionMenu
-              items={[
-                {
-                  label: "View Details",
-                  icon: FileText,
-                  onClick: () => router.push(`/sales/deals/${row.id}`),
-                },
-                {
-                  label: "Edit Deal",
-                  icon: Edit,
-                  onClick: () => handleEditDeal(row),
-                },
-                {
-                  label: "Send Email",
-                  icon: Mail,
-                  onClick: () => window.location.href = `mailto:${row.contactName}`,
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
-              ]}
-            />
+            <ActionMenu items={getDealActionMenuItems(row, dealActionHandlers)} />
           )}
         />
       ) : viewMode === "kanban" ? (
         /* Kanban View */
-        <KanbanBoard
-          deals={filteredDeals}
-          onDealMove={async (dealId, newStage) => {
-            try {
-              await updateDeal.mutateAsync({ 
-                id: dealId, 
-                data: { stage: newStage as "Prospecting" | "Qualified" | "Proposal" | "Negotiation" | "Closed Won" } 
-              });
-            } catch (error) {
-              console.error("Error moving deal:", error);
-            }
-          }}
-          onDealClick={(deal) => router.push(`/sales/deals/${deal.id}`)}
-        />
+        kanbanData ? (
+          <KanbanBoard
+            columns={kanbanData.columns}
+            onDealMove={handleKanbanDealMove}
+            onDealClick={handleKanbanDealClick}
+            isLoading={isKanbanLoading}
+            currency={kanbanData.pipeline.currency}
+          />
+        ) : isKanbanLoading ? (
+          <div className="flex items-center justify-center h-[500px]">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-[500px] text-muted-foreground">
+            No pipeline configured. Create a pipeline to use Kanban view.
+          </div>
+        )
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedDeals.map((deal, index) => (
+          {deals.map((deal, index) => (
             <motion.div
               key={deal.id}
               initial={{ opacity: 0, y: 20 }}
@@ -923,76 +1019,77 @@ export default function DealsPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">
-                        {deal.dealName}
+                        {deal.name}
                       </h3>
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
                         <Building2 className="h-3 w-3" />
-                        {deal.company}
+                        {deal.companyName || '-'}
                       </p>
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu
-                      items={[
-                        {
-                          label: "View Details",
-                          icon: FileText,
-                          onClick: () => router.push(`/sales/deals/${deal.id}`),
-                        },
-                        {
-                          label: "Edit Deal",
-                          icon: Edit,
-                          onClick: () => handleEditDeal(deal),
-                        },
-                        {
-                          label: "Send Email",
-                          icon: Mail,
-                          onClick: () => window.location.href = `mailto:${deal.contactName}`,
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(deal),
-                        },
-                      ]}
-                    />
+                    <ActionMenu items={getDealActionMenuItems(deal, dealActionHandlers)} />
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold text-foreground">
-                      ${(deal.amount / 1000).toFixed(0)}K
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColor(deal.stage)}`}>
-                      {deal.stage}
-                    </span>
+                    <div>
+                      <span className="text-2xl font-bold text-foreground">
+                        {deal.currency === 'USD' ? '$' : deal.currency}{((deal.value || 0) / 1000).toFixed(0)}K
+                      </span>
+                      <div className="text-xs text-muted-foreground">
+                        Weighted: {deal.currency === 'USD' ? '$' : deal.currency}{((deal.weightedValue || 0) / 1000).toFixed(0)}K
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 items-end">
+                      <span 
+                        className="px-3 py-1 rounded-full text-xs font-medium"
+                        style={{ 
+                          backgroundColor: deal.stage?.color ? `${deal.stage.color}20` : 'var(--muted)',
+                          color: deal.stage?.color || 'var(--muted-foreground)',
+                        }}
+                      >
+                        {deal.stageName}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        deal.status === 'won' ? 'bg-green-100 text-green-700' :
+                        deal.status === 'lost' ? 'bg-red-100 text-red-700' :
+                        deal.status === 'abandoned' ? 'bg-gray-100 text-gray-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {deal.status.charAt(0).toUpperCase() + deal.status.slice(1)}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Probability</span>
-                      <span className="font-semibold text-foreground">{deal.probability}%</span>
+                      <span className="font-semibold text-foreground">{deal.probability || 0}%</span>
                     </div>
                     <div className="bg-muted rounded-full h-2 overflow-hidden">
                       <div
                         className="bg-primary h-full rounded-full transition-all"
-                        style={{ width: `${deal.probability}%` }}
+                        style={{ width: `${deal.probability || 0}%` }}
                       />
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 text-sm text-muted-foreground pt-2 border-t border-border">
                     <Calendar className="h-4 w-4" />
-                    <span>Close: {deal.closeDate}</span>
+                    <span>Close: {deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'}</span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-4 w-4" />
-                    <span>{deal.owner}</span>
-                  </div>
+                  {deal.contactName && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <User className="h-4 w-4" />
+                      <span>{deal.contactName}</span>
+                      {deal.contactEmail && (
+                        <span className="text-xs text-muted-foreground truncate">({deal.contactEmail})</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -1005,7 +1102,7 @@ export default function DealsPage() {
         <DataPagination
           currentPage={currentPage}
           totalPages={totalPages}
-          totalItems={filteredDeals.length}
+          totalItems={totalDeals}
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
@@ -1017,7 +1114,7 @@ export default function DealsPage() {
           setSelectedDeals([]);
         }}
         filterInfo={
-          stageFilter ? `filtered by ${stageFilter}` : undefined
+          statusFilter ? `filtered by ${statusFilter}` : undefined
         }
       />
       )}
@@ -1029,7 +1126,7 @@ export default function DealsPage() {
         onConfirm={handleDeleteConfirm}
         title="Delete Deal"
         description="Are you sure you want to delete this deal? This will permanently remove it from your CRM and cannot be undone."
-        itemName={dealToDelete?.dealName}
+        itemName={dealToDelete?.name}
         itemType="Deal"
         icon={DollarSign}
         isDeleting={deleteDeal.isPending}
@@ -1052,14 +1149,10 @@ export default function DealsPage() {
         itemCount={selectedDeals.length}
         title="Update Stage"
         field="stage"
-        options={[
-          { label: 'Prospecting', value: 'Prospecting' },
-          { label: 'Qualification', value: 'Qualification' },
-          { label: 'Proposal', value: 'Proposal' },
-          { label: 'Negotiation', value: 'Negotiation' },
-          { label: 'Closed Won', value: 'Closed Won' },
-          { label: 'Closed Lost', value: 'Closed Lost' },
-        ]}
+        options={pipelineStages.map(stage => ({
+          label: stage.name,
+          value: stage.id,
+        }))}
       />
 
       {/* Advanced Filter Modal */}
@@ -1095,9 +1188,10 @@ export default function DealsPage() {
         onClose={() => {
           setFormDrawerOpen(false);
           setEditingDeal(null);
+          setEditingDealForm(null);
         }}
         onSubmit={handleFormSubmit}
-        initialData={editingDeal}
+        initialData={editingDealForm}
         mode={formMode}
         defaultView={defaultView}
       />

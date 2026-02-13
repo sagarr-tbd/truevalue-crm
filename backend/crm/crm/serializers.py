@@ -244,8 +244,34 @@ class ContactMinimalSerializer(serializers.ModelSerializer):
 # PIPELINE SERIALIZERS
 # =============================================================================
 
+class PipelineStageWriteSerializer(serializers.Serializer):
+    """
+    Serializer for creating/updating pipeline stages.
+    
+    This is the WRITE serializer - only validates user input.
+    Pipeline and order are handled by the service layer, not from request body.
+    """
+    name = serializers.CharField(max_length=100)
+    probability = serializers.IntegerField(min_value=0, max_value=100, default=0)
+    color = serializers.CharField(max_length=7, default='#6B7280')
+    is_won = serializers.BooleanField(default=False)
+    is_lost = serializers.BooleanField(default=False)
+    rotting_days = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    order = serializers.IntegerField(min_value=0, required=False)  # Optional - auto-calculated if not provided
+    
+    def validate(self, data):
+        """Validate is_won and is_lost are mutually exclusive."""
+        if data.get('is_won') and data.get('is_lost'):
+            raise serializers.ValidationError("A stage cannot be both 'won' and 'lost'")
+        return data
+
+
 class PipelineStageSerializer(serializers.ModelSerializer):
-    """Serializer for PipelineStage model."""
+    """
+    Serializer for PipelineStage model.
+    
+    This is the READ serializer - used for output/response.
+    """
     is_closed = serializers.BooleanField(read_only=True)
     deal_count = serializers.SerializerMethodField()
     deal_value = serializers.SerializerMethodField()
@@ -258,14 +284,15 @@ class PipelineStageSerializer(serializers.ModelSerializer):
             'deal_count', 'deal_value',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'pipeline', 'order', 'created_at', 'updated_at']
     
     def get_deal_count(self, obj) -> int:
         return obj.deals.filter(status='open').count()
     
     def get_deal_value(self, obj) -> Decimal:
+        from django.db.models import Sum
         return obj.deals.filter(status='open').aggregate(
-            total=serializers.Sum('value')
+            total=Sum('value')
         )['total'] or Decimal('0')
 
 
@@ -412,7 +439,7 @@ class DealListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'stage', 'value', 'currency',
             'weighted_value', 'expected_close_date', 'status',
-            'contact', 'company', 'tags', 'owner_id',
+            'contact', 'company', 'tags', 'owner_id', 'description',
             'stage_entered_at', 'last_activity_at', 'created_at'
         ]
 

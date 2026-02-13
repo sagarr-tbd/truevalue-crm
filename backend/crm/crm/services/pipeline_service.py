@@ -7,12 +7,16 @@ from uuid import UUID
 
 from django.db import transaction
 from django.conf import settings
+from django.core.cache import cache
 
 from ..models import Pipeline, PipelineStage, Deal
 from ..exceptions import InvalidOperationError, LimitExceededError, EntityNotFoundError
 from .base_service import BaseService
 
 logger = logging.getLogger(__name__)
+
+# Cache timeout in seconds (5 minutes)
+PIPELINE_CACHE_TIMEOUT = 300
 
 
 class PipelineService(BaseService[Pipeline]):
@@ -21,14 +25,51 @@ class PipelineService(BaseService[Pipeline]):
     model = Pipeline
     entity_type = 'pipeline'
     
+    def _get_pipeline_list_cache_key(self, is_active: bool = None) -> str:
+        """Generate cache key for pipeline list."""
+        active_suffix = f"_active_{is_active}" if is_active is not None else ""
+        return f"pipelines:org:{self.org_id}{active_suffix}"
+    
+    def _get_stages_cache_key(self, pipeline_id: UUID) -> str:
+        """Generate cache key for pipeline stages."""
+        return f"pipeline_stages:{pipeline_id}"
+    
+    def _invalidate_pipeline_cache(self, pipeline_id: UUID = None):
+        """
+        Invalidate pipeline caches.
+        
+        Call this after any pipeline or stage modification.
+        """
+        # Invalidate all list caches for this org
+        cache.delete(self._get_pipeline_list_cache_key())
+        cache.delete(self._get_pipeline_list_cache_key(is_active=True))
+        cache.delete(self._get_pipeline_list_cache_key(is_active=False))
+        
+        # Invalidate specific pipeline stages cache
+        if pipeline_id:
+            cache.delete(self._get_stages_cache_key(pipeline_id))
+    
     def list(
         self,
         filters: Dict[str, Any] = None,
         is_active: bool = None,
         order_by: str = 'order',
     ):
-        """List pipelines."""
-        qs = self.get_queryset()
+        """
+        List pipelines with caching.
+        
+        Note: Only caches when no custom filters and default ordering.
+        """
+        # Only cache simple queries (no custom filters, default ordering)
+        use_cache = not filters and order_by == 'order'
+        
+        if use_cache:
+            cache_key = self._get_pipeline_list_cache_key(is_active)
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return cached
+        
+        qs = self.get_queryset().prefetch_related('stages')
         
         if filters:
             qs = qs.filter(**filters)
@@ -36,7 +77,12 @@ class PipelineService(BaseService[Pipeline]):
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
         
-        return qs.order_by(order_by)
+        result = list(qs.order_by(order_by))
+        
+        if use_cache:
+            cache.set(cache_key, result, PIPELINE_CACHE_TIMEOUT)
+        
+        return result
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Pipeline:
@@ -76,6 +122,9 @@ class PipelineService(BaseService[Pipeline]):
                     is_lost=stage_data.get('is_lost', False),
                 )
         
+        # Invalidate cache
+        self._invalidate_pipeline_cache(pipeline.id)
+        
         return pipeline
     
     @transaction.atomic
@@ -91,7 +140,12 @@ class PipelineService(BaseService[Pipeline]):
                 is_default=True
             ).exclude(id=entity_id).update(is_default=False)
         
-        return super().update(entity_id, data, **kwargs)
+        result = super().update(entity_id, data, **kwargs)
+        
+        # Invalidate cache
+        self._invalidate_pipeline_cache(entity_id)
+        
+        return result
     
     @transaction.atomic
     def delete(self, entity_id: UUID, **kwargs) -> bool:
@@ -116,7 +170,12 @@ class PipelineService(BaseService[Pipeline]):
                 other_pipeline.is_default = True
                 other_pipeline.save(update_fields=['is_default'])
         
-        return super().delete(entity_id, **kwargs)
+        result = super().delete(entity_id, **kwargs)
+        
+        # Invalidate cache
+        self._invalidate_pipeline_cache(entity_id)
+        
+        return result
     
     def set_default(self, pipeline_id: UUID) -> Pipeline:
         """Set a pipeline as the default."""
@@ -132,19 +191,34 @@ class PipelineService(BaseService[Pipeline]):
             pipeline.is_default = True
             pipeline.save(update_fields=['is_default', 'updated_at'])
         
+        # Invalidate cache (affects all pipeline lists)
+        self._invalidate_pipeline_cache()
+        
         return pipeline
     
     # Stage operations
     
     def get_stages(self, pipeline_id: UUID) -> List[PipelineStage]:
-        """Get stages for a pipeline."""
+        """Get stages for a pipeline with caching."""
+        cache_key = self._get_stages_cache_key(pipeline_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
         pipeline = self.get_by_id(pipeline_id)
-        return list(pipeline.stages.order_by('order'))
+        stages = list(pipeline.stages.order_by('order'))
+        
+        cache.set(cache_key, stages, PIPELINE_CACHE_TIMEOUT)
+        return stages
     
     @transaction.atomic
     def create_stage(self, pipeline_id: UUID, data: Dict[str, Any]) -> PipelineStage:
         """Create a new stage in a pipeline."""
         pipeline = self.get_by_id(pipeline_id)
+        
+        # Remove pipeline from data if present (we pass it separately)
+        data.pop('pipeline', None)
+        data.pop('pipeline_id', None)
         
         # Auto-set order if not provided
         if 'order' not in data:
@@ -167,19 +241,26 @@ class PipelineService(BaseService[Pipeline]):
             **data
         )
         
+        # Invalidate cache
+        self._invalidate_pipeline_cache(pipeline_id)
+        
         return stage
     
     @transaction.atomic
     def update_stage(self, stage_id: UUID, data: Dict[str, Any]) -> PipelineStage:
         """Update a pipeline stage."""
         try:
-            stage = PipelineStage.objects.get(id=stage_id)
+            stage = PipelineStage.objects.select_related('pipeline').get(id=stage_id)
         except PipelineStage.DoesNotExist:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
         # Verify org ownership
         if stage.pipeline.org_id != self.org_id:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
+        
+        # Remove pipeline from data - can't change pipeline of a stage
+        data.pop('pipeline', None)
+        data.pop('pipeline_id', None)
         
         # Validate terminal stage flags
         if data.get('is_won') and not stage.is_won:
@@ -195,13 +276,17 @@ class PipelineService(BaseService[Pipeline]):
                 setattr(stage, field, value)
         
         stage.save()
+        
+        # Invalidate cache
+        self._invalidate_pipeline_cache(stage.pipeline_id)
+        
         return stage
     
     @transaction.atomic
     def delete_stage(self, stage_id: UUID) -> bool:
         """Delete a pipeline stage."""
         try:
-            stage = PipelineStage.objects.get(id=stage_id)
+            stage = PipelineStage.objects.select_related('pipeline').get(id=stage_id)
         except PipelineStage.DoesNotExist:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
@@ -216,7 +301,12 @@ class PipelineService(BaseService[Pipeline]):
                 'Move deals to another stage first.'
             )
         
+        pipeline_id = stage.pipeline_id
         stage.delete()
+        
+        # Invalidate cache
+        self._invalidate_pipeline_cache(pipeline_id)
+        
         return True
     
     @transaction.atomic
@@ -231,5 +321,8 @@ class PipelineService(BaseService[Pipeline]):
             if stage:
                 stage.order = order
                 stage.save(update_fields=['order', 'updated_at'])
+        
+        # Invalidate cache
+        self._invalidate_pipeline_cache(pipeline_id)
         
         return list(pipeline.stages.order_by('order'))

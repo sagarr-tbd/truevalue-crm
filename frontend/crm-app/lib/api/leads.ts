@@ -194,6 +194,15 @@ export interface LeadStats {
 }
 
 /**
+ * Backend lead statistics (snake_case)
+ */
+interface BackendLeadStats {
+  total: number;
+  by_status?: Record<string, number>;
+  by_source?: Record<string, number>;
+}
+
+/**
  * Paginated response for leads
  */
 export interface PaginatedLeadsResponse {
@@ -444,14 +453,13 @@ export const leadsApi = {
     }
 
     const url = `/crm/api/v1/leads${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-    const response = await apiClient.get<PaginatedResponse<LeadListApiResponse>>(url);
+    const response = await apiClient.get<PaginatedResponse<LeadListApiResponse, BackendLeadStats>>(url);
     
     if (response.error) {
       throw new Error(response.error.message);
     }
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const backendMeta = response.data!.meta as any;
+    const backendMeta = response.data!.meta;
     
     return {
       data: response.data!.data.map(toLeadViewModel),
