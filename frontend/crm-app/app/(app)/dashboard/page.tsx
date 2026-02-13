@@ -24,6 +24,8 @@ import {
   Zap,
   Filter,
   Download,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,95 +37,150 @@ import {
   ActivityChart,
   RevenueComparisonChart,
 } from "@/components/Charts";
+import { useContacts } from "@/lib/queries/useContacts";
+import { useLeads } from "@/lib/queries/useLeads";
+import { useDeals, useDealForecast } from "@/lib/queries/useDeals";
+import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
+
+const formatCurrency = (value: number): string => {
+  if (value >= 1000000) {
+    return `$${(value / 1000000).toFixed(1)}M`;
+  } else if (value >= 1000) {
+    return `$${(value / 1000).toFixed(0)}K`;
+  }
+  return `$${value.toFixed(0)}`;
+};
+
+const formatNumber = (value: number): string => {
+  return value.toLocaleString();
+};
 
 export default function DashboardPage() {
   const [showStats, setShowStats] = useState(true);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
 
-  const stats = useMemo(
-    () => [
+  const { data: contactsData, isLoading: contactsLoading } = useContacts({ page_size: 1 });
+  const { data: leadsData, isLoading: leadsLoading } = useLeads({ page_size: 1 });
+  const { data: dealsData, isLoading: dealsLoading } = useDeals({ page_size: 1 });
+  const { data: defaultPipeline, isLoading: pipelineLoading } = useDefaultPipeline();
+  const { data: pipelineStats, isLoading: statsLoading } = usePipelineStats(defaultPipeline?.id || "");
+  const { data: forecast, isLoading: forecastLoading } = useDealForecast({ 
+    days: timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90,
+    pipeline_id: defaultPipeline?.id 
+  });
+
+  const isLoading = contactsLoading || leadsLoading || dealsLoading || pipelineLoading;
+
+  const stats = useMemo(() => {
+    const totalContacts = contactsData?.meta?.total || 0;
+    const totalLeads = leadsData?.meta?.total || 0;
+    const openDeals = pipelineStats?.openDeals || dealsData?.meta?.stats?.byStatus?.open || 0;
+    const wonRevenue = pipelineStats?.wonValue || dealsData?.meta?.stats?.wonValue || 0;
+
+    return [
       {
         label: "Total Contacts",
-        value: "2,543",
+        value: isLoading ? "..." : formatNumber(totalContacts),
         icon: Users,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
         trend: { value: 12.5, isPositive: true },
-        description: "vs last month",
+        description: "All contacts",
       },
       {
         label: "Active Leads",
-        value: "347",
+        value: isLoading ? "..." : formatNumber(totalLeads),
         icon: TrendingUp,
         iconBgColor: "bg-accent/10",
         iconColor: "text-accent",
         trend: { value: 8.2, isPositive: true },
-        description: "vs last month",
+        description: "Open leads",
       },
       {
         label: "Open Deals",
-        value: "89",
+        value: isLoading ? "..." : formatNumber(openDeals),
         icon: Target,
         iconBgColor: "bg-secondary/10",
         iconColor: "text-secondary",
         trend: { value: 4.3, isPositive: true },
-        description: "vs last month",
+        description: "In pipeline",
       },
       {
-        label: "Revenue",
-        value: "$245K",
+        label: "Won Revenue",
+        value: isLoading ? "..." : formatCurrency(wonRevenue),
         icon: DollarSign,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
         trend: { value: 15.8, isPositive: true },
-        description: "vs last month",
+        description: "Total closed won",
       },
-    ],
-    []
-  );
+    ];
+  }, [contactsData, leadsData, dealsData, pipelineStats, isLoading]);
 
-  const performanceMetrics = [
-    {
-      title: "Sales Velocity",
-      value: "12.5 days",
-      change: -15.2,
-      isPositive: true,
-      icon: Zap,
-      description: "Avg. time to close",
-      color: "text-primary",
-      bgColor: "bg-primary/10",
-    },
-    {
-      title: "Win Rate",
-      value: "68%",
-      change: 5.3,
-      isPositive: true,
-      icon: Award,
-      description: "Deals won vs total",
-      color: "text-secondary",
-      bgColor: "bg-secondary/10",
-    },
-    {
-      title: "Pipeline Value",
-      value: "$2.4M",
-      change: 22.8,
-      isPositive: true,
-      icon: TrendingUp,
-      description: "Active opportunities",
-      color: "text-accent",
-      bgColor: "bg-accent/10",
-    },
-    {
-      title: "Response Time",
-      value: "2.3 hrs",
-      change: -18.5,
-      isPositive: true,
-      icon: Clock,
-      description: "First response time",
-      color: "text-primary",
-      bgColor: "bg-primary/10",
-    },
-  ];
+  const performanceMetrics = useMemo(() => {
+    const winRate = pipelineStats?.winRate || 0;
+    const pipelineValue = pipelineStats 
+      ? (pipelineStats.totalValue - pipelineStats.wonValue) 
+      : (dealsData?.meta?.stats?.openValue || 0);
+    const avgDealValue = pipelineStats?.avgDealSize || dealsData?.meta?.stats?.avgDealSize || 0;
+    const wonDeals = pipelineStats?.wonDeals || 0;
+    const lostDeals = pipelineStats?.lostDeals || 0;
+    const totalDeals = pipelineStats?.totalDeals || 0;
+
+    return [
+      {
+        title: "Win Rate",
+        value: statsLoading ? "..." : `${winRate.toFixed(1)}%`,
+        change: 5.3,
+        isPositive: winRate > 50,
+        icon: Award,
+        description: `${wonDeals} won / ${wonDeals + lostDeals} closed`,
+        color: "text-secondary",
+        bgColor: "bg-secondary/10",
+      },
+      {
+        title: "Pipeline Value",
+        value: statsLoading ? "..." : formatCurrency(pipelineValue),
+        change: 22.8,
+        isPositive: true,
+        icon: TrendingUp,
+        description: "Open opportunities",
+        color: "text-accent",
+        bgColor: "bg-accent/10",
+      },
+      {
+        title: "Avg Deal Size",
+        value: statsLoading ? "..." : formatCurrency(avgDealValue),
+        change: 12.4,
+        isPositive: true,
+        icon: DollarSign,
+        description: "Average deal value",
+        color: "text-primary",
+        bgColor: "bg-primary/10",
+      },
+      {
+        title: "Total Deals",
+        value: statsLoading ? "..." : formatNumber(totalDeals),
+        change: 8.7,
+        isPositive: true,
+        icon: Target,
+        description: "All time deals",
+        color: "text-primary",
+        bgColor: "bg-primary/10",
+      },
+    ];
+  }, [pipelineStats, dealsData, statsLoading]);
+
+  const pipelineChartData = useMemo(() => {
+    if (!pipelineStats?.byStage || pipelineStats.byStage.length === 0) {
+      return undefined;
+    }
+    return pipelineStats.byStage.map(stage => ({
+      stage: stage.stageName,
+      count: stage.dealCount,
+      value: stage.dealValue,
+    }));
+  }, [pipelineStats]);
 
   const recentActivities = [
     {
@@ -343,6 +400,82 @@ export default function DashboardPage() {
         ))}
       </motion.div>
 
+      {/* Deal Summary - Won/Lost Analysis */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="grid grid-cols-1 md:grid-cols-3 gap-6"
+      >
+        {/* Won Deals Card */}
+        <Card className="border-l-4 border-l-green-500 hover:shadow-lg transition-all">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Won Deals</p>
+                <p className="text-3xl font-bold text-foreground mt-1">
+                  {statsLoading ? "..." : formatNumber(pipelineStats?.wonDeals || 0)}
+                </p>
+                <p className="text-sm text-green-600 mt-1">
+                  {statsLoading ? "..." : formatCurrency(pipelineStats?.wonValue || 0)} revenue
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-green-100 dark:bg-green-900/30">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Lost Deals Card */}
+        <Card className="border-l-4 border-l-red-500 hover:shadow-lg transition-all">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Lost Deals</p>
+                <p className="text-3xl font-bold text-foreground mt-1">
+                  {statsLoading ? "..." : formatNumber(pipelineStats?.lostDeals || 0)}
+                </p>
+                <p className="text-sm text-red-600 mt-1">
+                  {statsLoading ? "..." : formatCurrency(dealsData?.meta?.stats?.lostValue || 0)} lost
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-red-100 dark:bg-red-900/30">
+                <XCircle className="h-8 w-8 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Win Rate Progress Card */}
+        <Card className="border-l-4 border-l-blue-500 hover:shadow-lg transition-all">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Win Rate</p>
+                <p className="text-3xl font-bold text-foreground mt-1">
+                  {statsLoading ? "..." : `${(pipelineStats?.winRate || 0).toFixed(1)}%`}
+                </p>
+              </div>
+              <div className="p-4 rounded-full bg-blue-100 dark:bg-blue-900/30">
+                <Award className="h-8 w-8 text-blue-600" />
+              </div>
+            </div>
+            <div className="w-full bg-muted rounded-full h-3">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.min(pipelineStats?.winRate || 0, 100)}%` }}
+                transition={{ duration: 1, delay: 0.5 }}
+                className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {pipelineStats?.wonDeals || 0} won / {(pipelineStats?.wonDeals || 0) + (pipelineStats?.lostDeals || 0)} closed
+            </p>
+          </CardContent>
+        </Card>
+      </motion.div>
+
       {/* Charts Grid */}
       <motion.div
         variants={container}
@@ -354,7 +487,7 @@ export default function DashboardPage() {
           <SalesTrendChart timeRange={timeRange} />
         </motion.div>
         <motion.div variants={item}>
-          <PipelineChart />
+          <PipelineChart data={pipelineChartData} />
         </motion.div>
         <motion.div variants={item}>
           <LeadSourceChart />
@@ -371,6 +504,75 @@ export default function DashboardPage() {
         transition={{ delay: 0.4 }}
       >
         <RevenueComparisonChart />
+      </motion.div>
+
+      {/* Deal Forecast Widget */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45 }}
+      >
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Deal Forecast
+              <span className="text-sm font-normal text-muted-foreground ml-2">
+                (Next {timeRange === "7d" ? "7 Days" : timeRange === "30d" ? "30 Days" : "90 Days"})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {forecastLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+              </div>
+            ) : forecast ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="text-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1">Expected Deals</p>
+                  <p className="text-3xl font-bold text-foreground">{forecast.total_deals}</p>
+                </div>
+                <div className="text-center p-4 bg-muted/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground mb-1">Total Value</p>
+                  <p className="text-3xl font-bold text-foreground">{formatCurrency(forecast.total_value)}</p>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-lg border border-primary/20">
+                  <p className="text-sm text-muted-foreground mb-1">Weighted Forecast</p>
+                  <p className="text-3xl font-bold text-primary">{formatCurrency(forecast.weighted_value)}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No forecast data available</p>
+              </div>
+            )}
+            
+            {/* Forecast by Stage */}
+            {forecast && forecast.by_stage && forecast.by_stage.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-sm font-medium text-foreground mb-3">By Stage</h4>
+                <div className="space-y-2">
+                  {forecast.by_stage.map((stage) => (
+                    <div key={stage.stage_id} className="flex items-center justify-between p-2 bg-muted/20 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">{stage.stage_name}</span>
+                        <span className="text-xs text-muted-foreground">{stage.count} deals</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-semibold">{formatCurrency(stage.weighted_value)}</span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          ({formatCurrency(stage.value)} total)
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -11,18 +11,84 @@ from django.db import transaction
 from django.db.models import Q, Sum, Count, Avg
 from django.utils import timezone
 
-from ..models import Deal, DealStageHistory, Pipeline, PipelineStage, CRMAuditLog
+from ..models import Deal, DealStageHistory, Pipeline, PipelineStage, CRMAuditLog, Contact, Company
 from ..exceptions import InvalidOperationError, EntityNotFoundError
-from .base_service import BaseService
+from .base_service import BaseService, AdvancedFilterMixin
 
 logger = logging.getLogger(__name__)
 
 
-class DealService(BaseService[Deal]):
+class DealService(AdvancedFilterMixin, BaseService[Deal]):
     """Service for Deal operations."""
     
     model = Deal
     entity_type = 'deal'
+    
+    # Field mapping for advanced filters (frontend field -> backend field)
+    # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
+    FILTER_FIELD_MAP = {
+        'name': 'name',
+        'dealName': 'name',
+        'value': 'value',
+        'status': 'status',
+        'pipeline': 'pipeline__name',
+        'pipeline_id': 'pipeline_id',
+        'pipelineName': 'pipeline__name',
+        'stage': 'stage__name',
+        'stage_id': 'stage_id',
+        'stageName': 'stage__name',
+        'probability': 'probability',
+        'contactName': ['contact__first_name', 'contact__last_name'],  # Compound field
+        'contact': ['contact__first_name', 'contact__last_name'],
+        'companyName': 'company__name',
+        'company': 'company__name',
+        'expectedCloseDate': 'expected_close_date',
+        'expected_close_date': 'expected_close_date',
+        'createdAt': 'created_at',
+        'created_at': 'created_at',
+        'currency': 'currency',
+        'lossReason': 'loss_reason',
+        'loss_reason': 'loss_reason',
+    }
+    
+    # Fields that are UUIDs and need special handling (extends mixin's UUID_FIELDS)
+    UUID_FIELDS = {'stage_id', 'pipeline_id', 'owner_id', 'contact_id', 'company_id'}
+    
+    # SECURITY: Whitelist of valid order_by fields
+    VALID_ORDER_FIELDS = {
+        'name', '-name', 
+        'value', '-value', 
+        'created_at', '-created_at',
+        'updated_at', '-updated_at',
+        'expected_close_date', '-expected_close_date',
+        'status', '-status',
+        'probability', '-probability',
+        'stage_entered_at', '-stage_entered_at',
+        'last_activity_at', '-last_activity_at',
+        'actual_close_date', '-actual_close_date',
+    }
+    
+    def _create_stage_history(self, deal, from_stage, to_stage, time_in_stage_seconds: int = 0):
+        """Helper to create stage history record - reduces code duplication."""
+        DealStageHistory.objects.create(
+            deal=deal,
+            from_stage=from_stage,
+            to_stage=to_stage,
+            changed_by=self.user_id,
+            time_in_stage_seconds=time_in_stage_seconds,
+        )
+    
+    def get_optimized_queryset(self):
+        """
+        Get queryset with select_related and prefetch_related for performance.
+        Prevents N+1 queries when serializing deals.
+        """
+        return self.get_queryset().select_related(
+            'pipeline',
+            'stage',
+            'contact',
+            'company'
+        ).prefetch_related('tags')
     
     def list(
         self,
@@ -40,9 +106,12 @@ class DealService(BaseService[Deal]):
         tag_ids: List[UUID] = None,
         expected_close_from: date = None,
         expected_close_to: date = None,
+        advanced_filters: List[Dict] = None,
+        filter_logic: str = 'and',
     ):
         """List deals with advanced filtering."""
-        qs = self.get_queryset()
+        # Use optimized queryset to prevent N+1 queries
+        qs = self.get_optimized_queryset()
         
         # Apply basic filters
         if filters:
@@ -89,8 +158,14 @@ class DealService(BaseService[Deal]):
                 Q(company__name__icontains=search)
             )
         
-        # Apply ordering
-        qs = qs.order_by(order_by)
+        # Apply advanced filters using mixin
+        qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
+        
+        # Apply ordering - SECURITY: Only allow whitelisted fields
+        if order_by and order_by in self.VALID_ORDER_FIELDS:
+            qs = qs.order_by(order_by)
+        else:
+            qs = qs.order_by('-created_at')  # Default safe ordering
         
         # Apply pagination
         if limit:
@@ -99,13 +174,43 @@ class DealService(BaseService[Deal]):
         return qs
     
     def get_kanban(self, pipeline_id: UUID) -> Dict:
-        """Get deals organized by stage for Kanban view."""
+        """
+        Get deals organized by stage for Kanban view.
+        
+        Optimized: Single query for all deals instead of N+1 queries per stage.
+        """
+        from collections import defaultdict
+        
         try:
-            pipeline = Pipeline.objects.get(id=pipeline_id, org_id=self.org_id)
+            pipeline = Pipeline.objects.prefetch_related('stages').get(
+                id=pipeline_id, org_id=self.org_id
+            )
         except Pipeline.DoesNotExist:
             raise EntityNotFoundError('Pipeline', str(pipeline_id))
         
-        stages = pipeline.stages.order_by('order')
+        stages = list(pipeline.stages.order_by('order'))
+        
+        # Single query to fetch ALL deals for this pipeline with related data
+        all_deals = list(
+            Deal.objects.filter(
+                org_id=self.org_id,
+                pipeline=pipeline,
+            ).select_related(
+                'contact', 'company', 'stage'
+            ).order_by('stage_entered_at')
+        )
+        
+        # Group deals by stage_id in Python (O(n) instead of N+1 queries)
+        deals_by_stage = defaultdict(list)
+        for deal in all_deals:
+            # Only include deals with correct status for their stage type
+            expected_status = (
+                'won' if deal.stage.is_won 
+                else 'lost' if deal.stage.is_lost 
+                else 'open'
+            )
+            if deal.status == expected_status:
+                deals_by_stage[deal.stage_id].append(deal)
         
         kanban = {
             'pipeline': {
@@ -116,17 +221,11 @@ class DealService(BaseService[Deal]):
             'stages': []
         }
         
+        now = timezone.now()
+        
         for stage in stages:
-            deals = list(
-                Deal.objects.filter(
-                    org_id=self.org_id,
-                    pipeline=pipeline,
-                    stage=stage,
-                    status='open'
-                ).order_by('stage_entered_at')
-            )
-            
-            stage_value = sum(d.value for d in deals)
+            stage_deals = deals_by_stage.get(stage.id, [])
+            stage_value = sum(d.value for d in stage_deals)
             
             kanban['stages'].append({
                 'id': str(stage.id),
@@ -136,7 +235,7 @@ class DealService(BaseService[Deal]):
                 'is_won': stage.is_won,
                 'is_lost': stage.is_lost,
                 'color': stage.color,
-                'deal_count': len(deals),
+                'deal_count': len(stage_deals),
                 'total_value': str(stage_value),
                 'deals': [
                     {
@@ -147,9 +246,9 @@ class DealService(BaseService[Deal]):
                         'company_name': d.company.name if d.company else None,
                         'expected_close_date': d.expected_close_date.isoformat() if d.expected_close_date else None,
                         'owner_id': str(d.owner_id),
-                        'days_in_stage': (timezone.now() - d.stage_entered_at).days,
+                        'days_in_stage': (now - d.stage_entered_at).days,
                     }
-                    for d in deals
+                    for d in stage_deals
                 ]
             })
         
@@ -200,6 +299,18 @@ class DealService(BaseService[Deal]):
             except PipelineStage.DoesNotExist:
                 raise EntityNotFoundError('PipelineStage', str(stage_id))
         
+        # SECURITY: Validate contact belongs to same org
+        contact_id = data.get('contact_id') or data.get('contact')
+        if contact_id:
+            if not Contact.objects.filter(id=contact_id, org_id=self.org_id).exists():
+                raise InvalidOperationError('Contact does not belong to your organization')
+        
+        # SECURITY: Validate company belongs to same org
+        company_id = data.get('company_id') or data.get('company')
+        if company_id:
+            if not Company.objects.filter(id=company_id, org_id=self.org_id).exists():
+                raise InvalidOperationError('Company does not belong to your organization')
+        
         # Remove ID fields (we've set the objects directly)
         data.pop('pipeline_id', None)
         data.pop('stage_id', None)
@@ -230,17 +341,9 @@ class DealService(BaseService[Deal]):
         
         old_stage = deal.stage
         
-        # Calculate time in old stage
+        # Calculate time in old stage and create history record
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
-        
-        # Create history record
-        DealStageHistory.objects.create(
-            deal=deal,
-            from_stage=old_stage,
-            to_stage=new_stage,
-            changed_by=self.user_id,
-            time_in_stage_seconds=int(time_in_stage),
-        )
+        self._create_stage_history(deal, old_stage, new_stage, int(time_in_stage))
         
         # Update deal
         deal.move_to_stage(new_stage)
@@ -274,14 +377,7 @@ class DealService(BaseService[Deal]):
         # Move to won stage
         old_stage = deal.stage
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
-        
-        DealStageHistory.objects.create(
-            deal=deal,
-            from_stage=old_stage,
-            to_stage=won_stage,
-            changed_by=self.user_id,
-            time_in_stage_seconds=int(time_in_stage),
-        )
+        self._create_stage_history(deal, old_stage, won_stage, int(time_in_stage))
         
         deal.stage = won_stage
         deal.status = Deal.Status.WON
@@ -319,14 +415,7 @@ class DealService(BaseService[Deal]):
         # Move to lost stage
         old_stage = deal.stage
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
-        
-        DealStageHistory.objects.create(
-            deal=deal,
-            from_stage=old_stage,
-            to_stage=lost_stage,
-            changed_by=self.user_id,
-            time_in_stage_seconds=int(time_in_stage),
-        )
+        self._create_stage_history(deal, old_stage, lost_stage, int(time_in_stage))
         
         deal.stage = lost_stage
         deal.status = Deal.Status.LOST
@@ -375,14 +464,7 @@ class DealService(BaseService[Deal]):
                 raise InvalidOperationError('No open stages in pipeline')
         
         old_stage = deal.stage
-        
-        DealStageHistory.objects.create(
-            deal=deal,
-            from_stage=old_stage,
-            to_stage=stage,
-            changed_by=self.user_id,
-            time_in_stage_seconds=0,
-        )
+        self._create_stage_history(deal, old_stage, stage, 0)
         
         deal.stage = stage
         deal.status = Deal.Status.OPEN
@@ -401,63 +483,137 @@ class DealService(BaseService[Deal]):
         return deal
     
     def get_pipeline_stats(self, pipeline_id: UUID) -> Dict:
-        """Get statistics for a pipeline."""
+        """Get statistics for a pipeline using database-level aggregation."""
+        from django.db.models import Case, When, F, DecimalField
+        from django.db.models.functions import Coalesce
+        
         try:
             pipeline = Pipeline.objects.get(id=pipeline_id, org_id=self.org_id)
         except Pipeline.DoesNotExist:
             raise EntityNotFoundError('Pipeline', str(pipeline_id))
         
-        deals = Deal.objects.filter(org_id=self.org_id, pipeline=pipeline)
+        # Single aggregation query for all stats - prevents N+1 and multiple DB roundtrips
+        stats = Deal.objects.filter(
+            org_id=self.org_id, 
+            pipeline=pipeline
+        ).aggregate(
+            total_deals=Count('id'),
+            open_deals=Count('id', filter=Q(status='open')),
+            won_deals=Count('id', filter=Q(status='won')),
+            lost_deals=Count('id', filter=Q(status='lost')),
+            open_value=Coalesce(Sum('value', filter=Q(status='open')), Decimal('0')),
+            won_value=Coalesce(Sum('value', filter=Q(status='won')), Decimal('0')),
+            lost_value=Coalesce(Sum('value', filter=Q(status='lost')), Decimal('0')),
+            avg_deal_value=Coalesce(Avg('value', filter=Q(status='open')), Decimal('0')),
+            # Weighted value: value * (probability / 100)
+            weighted_value=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            status='open',
+                            then=F('value') * Coalesce(F('probability'), F('stage__probability'), 0) / 100
+                        ),
+                        default=Decimal('0'),
+                        output_field=DecimalField()
+                    )
+                ),
+                Decimal('0')
+            ),
+        )
         
-        open_deals = deals.filter(status='open')
-        won_deals = deals.filter(status='won')
-        lost_deals = deals.filter(status='lost')
+        # Calculate win rate
+        closed_deals = stats['won_deals'] + stats['lost_deals']
+        win_rate = (stats['won_deals'] / closed_deals * 100) if closed_deals > 0 else 0
         
         return {
             'pipeline_id': str(pipeline_id),
             'pipeline_name': pipeline.name,
-            'total_deals': deals.count(),
-            'open_deals': open_deals.count(),
-            'won_deals': won_deals.count(),
-            'lost_deals': lost_deals.count(),
-            'open_value': open_deals.aggregate(Sum('value'))['value__sum'] or 0,
-            'won_value': won_deals.aggregate(Sum('value'))['value__sum'] or 0,
-            'lost_value': lost_deals.aggregate(Sum('value'))['value__sum'] or 0,
-            'weighted_value': sum(d.weighted_value for d in open_deals),
-            'win_rate': (
-                won_deals.count() / (won_deals.count() + lost_deals.count()) * 100
-                if (won_deals.count() + lost_deals.count()) > 0 else 0
-            ),
-            'avg_deal_value': open_deals.aggregate(Avg('value'))['value__avg'] or 0,
+            'total_deals': stats['total_deals'],
+            'open_deals': stats['open_deals'],
+            'won_deals': stats['won_deals'],
+            'lost_deals': stats['lost_deals'],
+            'open_value': stats['open_value'],
+            'won_value': stats['won_value'],
+            'lost_value': stats['lost_value'],
+            'weighted_value': stats['weighted_value'],
+            'win_rate': win_rate,
+            'avg_deal_value': stats['avg_deal_value'],
         }
     
     def get_forecast(self, days: int = 30) -> Dict:
-        """Get deal forecast for upcoming period."""
+        """Get deal forecast for upcoming period using database-level aggregation."""
+        from django.db.models import Case, When, F, DecimalField
+        from django.db.models.functions import Coalesce
+        
         end_date = date.today() + timedelta(days=days)
         
-        deals = self.get_queryset().filter(
+        deals_qs = self.get_queryset().filter(
             status='open',
             expected_close_date__lte=end_date,
             expected_close_date__gte=date.today(),
+        ).select_related('stage').order_by('expected_close_date')
+        
+        # Aggregate totals in single query
+        stats = deals_qs.aggregate(
+            total_value=Coalesce(Sum('value'), Decimal('0')),
+            weighted_value=Coalesce(
+                Sum(
+                    F('value') * Coalesce(F('probability'), F('stage__probability'), 0) / 100,
+                    output_field=DecimalField()
+                ),
+                Decimal('0')
+            ),
         )
         
-        total_value = deals.aggregate(Sum('value'))['value__sum'] or 0
-        weighted_value = sum(d.weighted_value for d in deals)
+        # Annotate deals with calculated weighted_value for display
+        deals_list = deals_qs.annotate(
+            calc_probability=Coalesce(F('probability'), F('stage__probability'), 0),
+            calc_weighted_value=F('value') * Coalesce(F('probability'), F('stage__probability'), 0) / 100
+        )
         
         return {
             'period_days': days,
-            'deal_count': deals.count(),
-            'total_value': total_value,
-            'weighted_value': weighted_value,
+            'deal_count': deals_qs.count(),
+            'total_value': stats['total_value'],
+            'weighted_value': stats['weighted_value'],
             'deals': [
                 {
                     'id': str(d.id),
                     'name': d.name,
                     'value': str(d.value),
-                    'weighted_value': str(d.weighted_value),
+                    'weighted_value': str(d.calc_weighted_value),
                     'expected_close_date': d.expected_close_date.isoformat(),
-                    'probability': d.probability or d.stage.probability,
+                    'probability': d.calc_probability,
                 }
-                for d in deals.order_by('expected_close_date')
+                for d in deals_list
             ]
         }
+    
+    @transaction.atomic
+    def bulk_delete(self, ids: List[UUID]) -> Dict[str, Any]:
+        """Delete multiple deals by IDs."""
+        result = {
+            'total': len(ids),
+            'success': 0,
+            'failed': 0,
+            'errors': []
+        }
+        
+        for deal_id in ids:
+            try:
+                self.delete(deal_id)
+                result['success'] += 1
+            except EntityNotFoundError:
+                result['failed'] += 1
+                result['errors'].append({
+                    'id': str(deal_id),
+                    'error': f'Deal {deal_id} not found'
+                })
+            except Exception as e:
+                result['failed'] += 1
+                result['errors'].append({
+                    'id': str(deal_id),
+                    'error': str(e)
+                })
+        
+        return result

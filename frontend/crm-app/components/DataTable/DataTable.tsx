@@ -73,6 +73,7 @@ export default function DataTable<T extends Record<string, any>>({
         key={colIndex}
         className={`px-4 py-4 text-${column.align || "left"} ${column.className || ""}`}
         style={{ width: column.width }}
+        role="gridcell"
       >
         <div className="truncate">{content}</div>
       </td>
@@ -81,38 +82,60 @@ export default function DataTable<T extends Record<string, any>>({
 
   return (
     <Card className={`${bordered ? "border border-gray-200" : "border-transparent"} ${className}`}>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse" style={{ minWidth: '100%' }}>
+      <div className="overflow-x-auto" role="region" aria-label="Data table">
+        <table 
+          className="w-full border-collapse" 
+          style={{ minWidth: '100%' }}
+          role="grid"
+          aria-rowcount={data.length}
+        >
           <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
+            <tr role="row">
               {showSelection && onSelectAll && (
-                <th className="px-4 py-3 text-left w-12">
+                <th className="px-4 py-3 text-left w-12" scope="col">
                   <input
                     type="checkbox"
                     checked={isAllSelected}
                     onChange={onSelectAll}
                     className="rounded border-gray-300"
+                    aria-label={isAllSelected ? "Deselect all rows" : "Select all rows"}
                   />
                 </th>
               )}
               {visibleColumns.map((column) => {
                 const isSorted = sortColumn === column.key;
+                const sortDirectionAria = isSorted 
+                  ? (sortDirection === "asc" ? "ascending" : "descending") 
+                  : undefined;
                 return (
                   <th
                     key={String(column.key)}
+                    scope="col"
                     className={`px-4 py-3 text-${column.align || "left"} text-xs font-semibold text-gray-600 uppercase tracking-wider ${
                       isSorted ? "bg-gray-100" : ""
                     } ${column.sortable ? "cursor-pointer hover:bg-gray-100" : ""} ${column.className || ""}`}
                     style={{ width: column.width }}
                     onClick={() => column.sortable && handleSort(column.key)}
+                    onKeyDown={(e) => {
+                      if (column.sortable && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        handleSort(column.key);
+                      }
+                    }}
+                    tabIndex={column.sortable ? 0 : undefined}
+                    aria-sort={sortDirectionAria}
+                    role={column.sortable ? "columnheader button" : "columnheader"}
                   >
                     <div className="flex items-center gap-2">
                       <span className="truncate">{column.label}</span>
                       {column.sortable && (
-                        <ArrowUpDown className={`h-3 w-3 ${isSorted ? "text-primary" : ""}`} />
+                        <ArrowUpDown 
+                          className={`h-3 w-3 ${isSorted ? "text-primary" : ""}`} 
+                          aria-hidden="true"
+                        />
                       )}
                       {isSorted && (
-                        <span className="text-primary text-[10px]">
+                        <span className="text-primary text-[10px]" aria-hidden="true">
                           {sortDirection === "asc" ? "↑" : "↓"}
                         </span>
                       )}
@@ -121,7 +144,10 @@ export default function DataTable<T extends Record<string, any>>({
                 );
               })}
               {renderActions && (
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider border-l border-gray-200 w-20">
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider border-l border-gray-200 w-20"
+                  scope="col"
+                >
                   ACTIONS
                 </th>
               )}
@@ -157,6 +183,10 @@ export default function DataTable<T extends Record<string, any>>({
               data.map((row, rowIndex) => {
                 const rowId = getRowId(row);
                 const isSelected = selectedIds.includes(rowId);
+                // Get a display name for the row for accessibility (use first visible column value)
+                const rowDisplayName = visibleColumns.length > 0 
+                  ? String(row[visibleColumns[0].key as keyof T] || `Row ${rowIndex + 1}`)
+                  : `Row ${rowIndex + 1}`;
 
                 return (
                   <motion.tr
@@ -166,15 +196,26 @@ export default function DataTable<T extends Record<string, any>>({
                     transition={{ delay: rowIndex * 0.02 }}
                     className={`${hoverable ? "hover:bg-gray-50" : ""} ${onRowClick ? "cursor-pointer" : ""} ${striped && rowIndex % 2 === 1 ? "bg-gray-25" : ""}`}
                     onClick={() => onRowClick && onRowClick(row)}
+                    role="row"
+                    aria-rowindex={rowIndex + 2} // +2 because header is row 1
+                    aria-selected={showSelection ? isSelected : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onKeyDown={(e) => {
+                      if (onRowClick && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
+                    }}
                   >
                     {showSelection && onSelectRow && (
-                      <td className="px-4 py-4">
+                      <td className="px-4 py-4" role="gridcell">
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => onSelectRow(rowId)}
                           onClick={(e) => e.stopPropagation()}
                           className="rounded border-gray-300"
+                          aria-label={`Select ${rowDisplayName}`}
                         />
                       </td>
                     )}
@@ -182,8 +223,10 @@ export default function DataTable<T extends Record<string, any>>({
                       renderCell(column, row, rowIndex, colIndex)
                     )}
                     {renderActions && (
-                      <td className="px-4 py-4 border-l border-gray-100">
-                        <div onClick={(e) => e.stopPropagation()}>{renderActions(row, rowIndex)}</div>
+                      <td className="px-4 py-4 border-l border-gray-100" role="gridcell">
+                        <div onClick={(e) => e.stopPropagation()} role="group" aria-label="Row actions">
+                          {renderActions(row, rowIndex)}
+                        </div>
                       </td>
                     )}
                   </motion.tr>

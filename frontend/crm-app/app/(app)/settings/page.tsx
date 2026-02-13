@@ -9,6 +9,7 @@ import {
   Shield,
   Users,
   Zap,
+  GitBranch,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import PageHeader from "@/components/PageHeader";
@@ -18,9 +19,16 @@ import {
   IntegrationsSettings,
   TeamManagementSettings,
   DataManagementSettings,
+  PipelinesSettings,
 } from "@/components/Settings";
 
 const settingsSections = [
+  {
+    id: "pipelines",
+    label: "Sales Pipelines",
+    icon: GitBranch,
+    color: "from-brand-teal to-brand-purple",
+  },
   {
     id: "notifications",
     label: "Notifications",
@@ -54,10 +62,12 @@ const settingsSections = [
 ];
 
 export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState("notifications");
+  const [activeSection, setActiveSection] = useState("pipelines");
 
   const renderContent = () => {
     switch (activeSection) {
+      case "pipelines":
+        return <PipelinesSettings />;
       case "notifications":
         return <NotificationsSettings />;
       case "security":

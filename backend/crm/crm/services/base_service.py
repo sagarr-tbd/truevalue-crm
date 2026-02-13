@@ -52,6 +52,212 @@ def serialize_for_json(data: Any) -> Any:
 T = TypeVar('T', bound=models.Model)
 
 
+class AdvancedFilterMixin:
+    """
+    Mixin for advanced filtering capabilities.
+    
+    Provides a reusable implementation of advanced filter logic
+    that can be customized per-entity via class attributes.
+    
+    Usage:
+        class MyService(AdvancedFilterMixin, BaseService[MyModel]):
+            FILTER_FIELD_MAP = {'name': 'name', ...}
+    """
+    
+    # Override these in subclasses
+    FILTER_FIELD_MAP: Dict[str, Any] = {}
+    
+    # Standard operator mapping (shared across all services)
+    FILTER_OPERATOR_MAP = {
+        # camelCase operators (from frontend)
+        'equals': '__iexact',
+        'notEquals': '__iexact',  # handled with exclude
+        'contains': '__icontains',
+        'notContains': '__icontains',  # handled with exclude
+        'startsWith': '__istartswith',
+        'endsWith': '__iendswith',
+        'isEmpty': '__isnull',
+        'isNotEmpty': '__isnull',
+        'greaterThan': '__gt',
+        'lessThan': '__lt',
+        'greaterThanOrEqual': '__gte',
+        'lessThanOrEqual': '__lte',
+        'in': '__in',
+        'notIn': '__in',  # handled with exclude
+        # snake_case operators (legacy support)
+        'not_equals': '__iexact',
+        'not_contains': '__icontains',
+        'starts_with': '__istartswith',
+        'ends_with': '__iendswith',
+        'is_empty': '__isnull',
+        'is_not_empty': '__isnull',
+        'greater_than': '__gt',
+        'less_than': '__lt',
+        'greater_than_or_equal': '__gte',
+        'less_than_or_equal': '__lte',
+    }
+    
+    # Operators that should use exclude() instead of filter()
+    EXCLUDE_OPERATORS = {'notEquals', 'not_equals', 'notContains', 'not_contains', 'notIn'}
+    
+    # Fields that are UUIDs and need special handling
+    UUID_FIELDS: set = set()
+    
+    def _build_advanced_filter_q(
+        self, 
+        conditions: List[Dict], 
+        logic: str = 'and'
+    ) -> tuple:
+        """
+        Build Q objects from advanced filter conditions.
+        
+        Args:
+            conditions: List of filter conditions with field, operator, value
+            logic: 'and' or 'or' to combine conditions
+            
+        Returns:
+            Tuple of (combined_q_object, list_of_exclude_q_objects)
+        """
+        if not conditions:
+            return Q(), []
+        
+        q_objects = []
+        exclude_objects = []
+        
+        for condition in conditions:
+            field = condition.get('field')
+            operator = condition.get('operator', 'contains')
+            value = condition.get('value', '')
+            
+            # Get backend field name - SECURITY: Only allow mapped fields
+            backend_field = self.FILTER_FIELD_MAP.get(field)
+            if backend_field is None:
+                # Unknown field, skip to prevent SQL injection
+                continue
+            
+            # Handle compound name fields (searches multiple fields with OR)
+            if isinstance(backend_field, list):
+                self._add_compound_field_filter(
+                    backend_field, operator, value, q_objects, exclude_objects
+                )
+                continue
+            
+            # Handle UUID fields specially
+            if field in self.UUID_FIELDS or backend_field in self.UUID_FIELDS:
+                self._add_uuid_field_filter(
+                    backend_field, operator, value, q_objects, exclude_objects
+                )
+                continue
+            
+            # Build the lookup for standard fields
+            django_op = self.FILTER_OPERATOR_MAP.get(operator, '__icontains')
+            
+            # Handle special operators (isEmpty/isNotEmpty)
+            if operator in ('isEmpty', 'is_empty'):
+                q = Q(**{f'{backend_field}__isnull': True}) | Q(**{f'{backend_field}': ''})
+                q_objects.append(q)
+            elif operator in ('isNotEmpty', 'is_not_empty'):
+                q = Q(**{f'{backend_field}__isnull': False}) & ~Q(**{f'{backend_field}': ''})
+                q_objects.append(q)
+            elif operator in self.EXCLUDE_OPERATORS:
+                exclude_objects.append(Q(**{f'{backend_field}{django_op}': value}))
+            else:
+                q_objects.append(Q(**{f'{backend_field}{django_op}': value}))
+        
+        # Combine Q objects based on logic
+        combined = Q()
+        if logic == 'or':
+            for q in q_objects:
+                combined |= q
+        else:  # 'and'
+            for q in q_objects:
+                combined &= q
+        
+        return combined, exclude_objects
+    
+    def _add_compound_field_filter(
+        self,
+        fields: List[str],
+        operator: str,
+        value: str,
+        q_objects: list,
+        exclude_objects: list
+    ):
+        """Add filter for compound fields (e.g., name -> first_name OR last_name)."""
+        django_op = self.FILTER_OPERATOR_MAP.get(operator, '__icontains')
+        
+        if operator in self.EXCLUDE_OPERATORS:
+            # Build OR of excludes
+            compound_q = Q()
+            for f in fields:
+                compound_q |= Q(**{f'{f}{django_op}': value})
+            exclude_objects.append(compound_q)
+        else:
+            # Build OR of filters
+            compound_q = Q()
+            for f in fields:
+                compound_q |= Q(**{f'{f}{django_op}': value})
+            q_objects.append(compound_q)
+    
+    def _add_uuid_field_filter(
+        self,
+        backend_field: str,
+        operator: str,
+        value: str,
+        q_objects: list,
+        exclude_objects: list
+    ):
+        """Add filter for UUID fields with proper validation."""
+        from uuid import UUID as UUIDType
+        
+        try:
+            uuid_value = UUIDType(value) if value else None
+            
+            if operator == 'equals':
+                q_objects.append(Q(**{backend_field: uuid_value}))
+            elif operator in ('notEquals', 'not_equals'):
+                exclude_objects.append(Q(**{backend_field: uuid_value}))
+            elif operator in ('isEmpty', 'is_empty'):
+                q_objects.append(Q(**{f'{backend_field}__isnull': True}))
+            elif operator in ('isNotEmpty', 'is_not_empty'):
+                q_objects.append(Q(**{f'{backend_field}__isnull': False}))
+        except (ValueError, TypeError):
+            # Invalid UUID, skip this condition
+            pass
+    
+    def apply_advanced_filters(
+        self, 
+        queryset, 
+        advanced_filters: List[Dict], 
+        filter_logic: str = 'and'
+    ):
+        """
+        Apply advanced filters to a queryset.
+        
+        Args:
+            queryset: Django QuerySet to filter
+            advanced_filters: List of filter conditions
+            filter_logic: 'and' or 'or'
+            
+        Returns:
+            Filtered QuerySet
+        """
+        if not advanced_filters:
+            return queryset
+        
+        filter_q, exclude_list = self._build_advanced_filter_q(
+            advanced_filters, filter_logic
+        )
+        
+        if filter_q:
+            queryset = queryset.filter(filter_q)
+        
+        for exclude_q in exclude_list:
+            queryset = queryset.exclude(exclude_q)
+        
+        return queryset
+
+
 class BaseService(Generic[T]):
     """
     Base service class with common CRUD operations.
@@ -196,8 +402,17 @@ class BaseService(Generic[T]):
         return entity
     
     @transaction.atomic
-    def delete(self, entity_id: UUID, **kwargs) -> bool:
-        """Delete an entity."""
+    def delete(self, entity_id: UUID, hard: bool = False, **kwargs) -> bool:
+        """
+        Delete an entity (soft delete by default).
+        
+        Args:
+            entity_id: UUID of entity to delete
+            hard: If True, permanently delete. If False (default), soft delete.
+            
+        Returns:
+            True if deletion successful
+        """
         entity = self.get_by_id(entity_id)
         entity_name = str(entity)
         
@@ -205,11 +420,54 @@ class BaseService(Generic[T]):
         self._log_action(
             action=CRMAuditLog.Action.DELETE,
             entity=entity,
-            changes={'deleted': True}
+            changes={'deleted': True, 'hard_delete': hard}
         )
         
-        entity.delete()
+        if hard:
+            # Permanent deletion
+            if hasattr(entity, 'hard_delete'):
+                entity.hard_delete()
+            else:
+                entity.delete()
+        else:
+            # Soft delete
+            if hasattr(entity, 'soft_delete'):
+                entity.soft_delete(deleted_by=self.user_id)
+            else:
+                entity.delete()
+        
         return True
+    
+    @transaction.atomic
+    def restore(self, entity_id: UUID) -> T:
+        """
+        Restore a soft-deleted entity.
+        
+        Args:
+            entity_id: UUID of entity to restore
+            
+        Returns:
+            The restored entity
+        """
+        # Use all_objects to find deleted records
+        try:
+            entity = self.model.all_objects.get(id=entity_id, org_id=self.org_id)
+        except self.model.DoesNotExist:
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+        
+        if not hasattr(entity, 'restore'):
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+        
+        entity.restore()
+        
+        # Log restoration
+        self._log_action(
+            action=CRMAuditLog.Action.UPDATE,
+            entity=entity,
+            changes={'restored': True}
+        )
+        
+        return entity
     
     def _set_tags(self, entity: T, tag_ids: List[UUID]):
         """Set tags for an entity."""

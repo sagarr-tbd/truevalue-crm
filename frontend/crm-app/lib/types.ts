@@ -44,13 +44,25 @@ export type Contact = z.infer<typeof contactSchema> & {
 };
 
 export type Deal = z.infer<typeof dealSchema> & {
-  id?: number;
+  id?: string;
   createdAt?: string;
   updatedAt?: string;
-  company?: string;
+  // Computed/expanded fields from API
+  pipelineName?: string;
+  stageName?: string;
+  companyName?: string;
   contactName?: string;
-  owner?: string;
-  initials?: string;
+  contactEmail?: string;
+  ownerName?: string;
+  weightedValue?: number;
+  status?: string;
+  actualCloseDate?: string;
+  lossReason?: string;
+  lossNotes?: string;
+  stageEnteredAt?: string;
+  lastActivityAt?: string;
+  daysInPipeline?: number;
+  convertedFromLeadId?: string;
 };
 
 export type Forecast = z.infer<typeof forecastSchema> & {
@@ -112,7 +124,9 @@ export type LeadStatus = "new" | "contacted" | "qualified" | "unqualified" | "co
 // LeadRating is deprecated - use score (0-100) instead
 export type LeadRating = "Hot" | "Warm" | "Cold"; // Keep for backwards compatibility
 export type AccountType = "Customer" | "Partner" | "Prospect" | "Vendor" | "Other";
-export type DealStage = "Prospecting" | "Qualification" | "Proposal" | "Negotiation" | "Closed Won" | "Closed Lost";
+// Note: Deal stages are now dynamic and fetched from the API per pipeline
+// This type is kept for backward compatibility but stages should be fetched dynamically
+export type DealStage = string;
 export type ForecastStatus = "Planning" | "On Track" | "At Risk" | "Achieved" | "Missed";
 export type CampaignType = "Email" | "Social Media" | "LinkedIn" | "Webinar" | "Event" | "Referral" | "Content" | "Other";
 export type CampaignStatus = "Planned" | "Active" | "Paused" | "Completed" | "Cancelled";

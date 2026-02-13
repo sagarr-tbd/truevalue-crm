@@ -203,11 +203,19 @@ export interface PaginatedContactsResponse {
 }
 
 /**
- * Contact statistics
+ * Contact statistics (frontend format)
  */
 export interface ContactStats {
   total: number;
   byStatus: Record<string, number>;
+}
+
+/**
+ * Backend contact statistics (snake_case)
+ */
+interface BackendContactStats {
+  total: number;
+  by_status?: Record<string, number>;
 }
 
 /**
@@ -387,6 +395,18 @@ function getInitials(firstName: string, lastName: string): string {
 }
 
 // ============================================================================
+// CONTACT OPTIONS TYPE
+// ============================================================================
+
+/**
+ * Contact option for dropdown select fields
+ */
+export interface ContactOption {
+  value: string;
+  label: string;
+}
+
+// ============================================================================
 // CONTACTS API
 // ============================================================================
 
@@ -411,13 +431,13 @@ export const contactsApi = {
     }
 
     const url = `/crm/api/v1/contacts${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-    const response = await apiClient.get<PaginatedResponse<ContactListApiResponse>>(url);
+    const response = await apiClient.get<PaginatedResponse<ContactListApiResponse, BackendContactStats>>(url);
     
     if (response.error) {
       throw new Error(response.error.message);
     }
     
-    const backendMeta = response.data!.meta as any;
+    const backendMeta = response.data!.meta;
     
     // Transform snake_case stats to camelCase
     const stats: ContactStats | undefined = backendMeta.stats ? {
@@ -666,6 +686,18 @@ export const contactsApi = {
     }
 
     return response.data!;
+  },
+
+  /**
+   * Get contacts as dropdown options
+   * Used for select fields in forms
+   */
+  getAsOptions: async (): Promise<ContactOption[]> => {
+    const response = await contactsApi.getAll({ page_size: 100 });
+    return response.data.map(contact => ({
+      value: contact.id,
+      label: contact.name || contact.email,
+    }));
   },
 };
 

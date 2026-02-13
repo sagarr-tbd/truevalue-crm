@@ -2,9 +2,8 @@
 import { useState, useEffect, useCallback} from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Check, Loader2, Sparkles } from "lucide-react";
+import { X, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "./FormField";
 import { TagsSelector } from "./TagsSelector";
@@ -130,26 +129,19 @@ export function FormDrawer<T = any>({
   });
 
   // Submit handler
+  // Note: Toast notifications are handled by the mutation hooks, not here
   const onSubmitForm = useCallback(
     async (data: any) => {
-      try {
-        const formDataWithExtras = {
-          ...data,
-          tagIds: selectedTags, // Use tagIds to match form field name and backend expectation
-          profilePicture: profilePicture ? await convertFileToBase64(profilePicture) : undefined,
-        };
-        await onSubmit(formDataWithExtras);
-        toast.success(
-          mode === "edit" ? `${config.entity} updated successfully` : `${config.entity} created successfully`,
-          { icon: <Sparkles className="h-4 w-4 text-secondary" /> }
-        );
-        reset();
-        onClose();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Failed to save ${config.entity.toLowerCase()}`);
-      }
+      const formDataWithExtras = {
+        ...data,
+        tagIds: selectedTags, // Use tagIds to match form field name and backend expectation
+        profilePicture: profilePicture ? await convertFileToBase64(profilePicture) : undefined,
+      };
+      await onSubmit(formDataWithExtras);
+      reset();
+      onClose();
     },
-    [onSubmit, mode, reset, onClose, selectedTags, profilePicture, config.entity]
+    [onSubmit, reset, onClose, selectedTags, profilePicture]
   );
 
   // Helper to convert file to base64

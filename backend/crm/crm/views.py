@@ -4,6 +4,7 @@ CRM Service API Views.
 REST API endpoints for CRM entities.
 """
 import logging
+from typing import Optional
 from uuid import UUID
 
 from rest_framework import status
@@ -22,7 +23,7 @@ from .serializers import (
     CompanySerializer, CompanyListSerializer,
     LeadSerializer, LeadListSerializer, LeadConvertSerializer,
     DealSerializer, DealListSerializer,
-    PipelineSerializer, PipelineListSerializer, PipelineStageSerializer,
+    PipelineSerializer, PipelineListSerializer, PipelineStageSerializer, PipelineStageWriteSerializer,
     ActivitySerializer, ActivityListSerializer,
     TagSerializer,
     CustomFieldDefinitionSerializer,
@@ -34,6 +35,7 @@ from .services import (
     ContactService, CompanyService, LeadService, DealService,
     PipelineService, ActivityService, TagService,
 )
+from .exceptions import CRMException
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,62 @@ class BaseAPIView(APIView):
             org_id=self.get_org_id(),
             user_id=self.get_user_id()
         )
+    
+    def get_int_param(
+        self, 
+        param_name: str, 
+        default: int = None, 
+        min_value: int = None, 
+        max_value: int = None
+    ) -> int:
+        """
+        Safely get and validate an integer query parameter.
+        
+        Args:
+            param_name: Name of the query parameter
+            default: Default value if not provided or invalid
+            min_value: Minimum allowed value (clamp if lower)
+            max_value: Maximum allowed value (clamp if higher)
+            
+        Returns:
+            Validated integer value
+        """
+        value = self.request.query_params.get(param_name)
+        
+        if value is None:
+            return default
+        
+        try:
+            int_value = int(value)
+        except (ValueError, TypeError):
+            return default
+        
+        if min_value is not None and int_value < min_value:
+            return min_value
+        if max_value is not None and int_value > max_value:
+            return max_value
+        
+        return int_value
+    
+    def get_uuid_param(self, param_name: str) -> Optional[UUID]:
+        """
+        Safely get and validate a UUID query parameter.
+        
+        Args:
+            param_name: Name of the query parameter
+            
+        Returns:
+            UUID object or None if not provided or invalid
+        """
+        value = self.request.query_params.get(param_name)
+        
+        if not value:
+            return None
+        
+        try:
+            return UUID(value)
+        except (ValueError, TypeError):
+            return None
 
 
 # =============================================================================
@@ -72,11 +130,11 @@ class ContactListView(BaseAPIView):
         
         service = self.get_service(ContactService)
         
-        # Parse query params
+        # Parse query params using safe helpers
         filters = {}
-        owner_id = request.query_params.get('owner_id')
+        owner_id = self.get_uuid_param('owner_id')
         status_param = request.query_params.get('status')
-        company_id = request.query_params.get('company_id')
+        company_id = self.get_uuid_param('company_id')
         search = request.query_params.get('search')
         order_by = request.query_params.get('order_by', '-created_at')
         
@@ -92,9 +150,9 @@ class ContactListView(BaseAPIView):
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
         
-        # Pagination
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 10))
+        # Pagination with safe int parsing and bounds
+        page = self.get_int_param('page', default=1, min_value=1)
+        page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
         
         # Get filtered queryset (without pagination) for count
@@ -267,11 +325,16 @@ class ContactMergeView(BaseAPIView):
             }
             
             return Response(ContactMergeResultSerializer(result).data)
+        except CRMException:
+            # Let the custom exception handler deal with CRM errors
+            raise
         except Exception as e:
+            # Log the full exception for debugging, return generic message
+            logger.exception(f"Contact merge failed: {e}")
             return Response({
                 'success': False,
-                'message': str(e)
-            }, status=400)
+                'message': 'Contact merge failed. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # =============================================================================
@@ -555,35 +618,109 @@ class DealListView(BaseAPIView):
     """List and create deals."""
     
     def get(self, request):
-        """List deals."""
+        """List deals with filtering, pagination, and search."""
+        import json
+        
         service = self.get_service(DealService)
         
+        # Parse query parameters
         search = request.query_params.get('search')
         status_param = request.query_params.get('status')
         pipeline_id = request.query_params.get('pipeline_id')
         stage_id = request.query_params.get('stage_id')
+        owner_id = request.query_params.get('owner_id')
+        contact_id = request.query_params.get('contact_id')
+        company_id = request.query_params.get('company_id')
         order_by = request.query_params.get('order_by', '-created_at')
+        
+        # Parse advanced filters (JSON string)
+        advanced_filters = None
+        filter_logic = 'and'
+        filters_param = request.query_params.get('filters')
+        if filters_param:
+            try:
+                filter_data = json.loads(filters_param)
+                advanced_filters = filter_data.get('conditions', [])
+                filter_logic = filter_data.get('logic', 'and')
+            except (json.JSONDecodeError, TypeError):
+                pass  # Invalid JSON, ignore
         
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
         offset = (page - 1) * page_size
         
+        # Build filter kwargs
+        filter_kwargs = {
+            'search': search,
+            'status': status_param,
+            'pipeline_id': UUID(pipeline_id) if pipeline_id else None,
+            'stage_id': UUID(stage_id) if stage_id else None,
+            'owner_id': UUID(owner_id) if owner_id else None,
+            'contact_id': UUID(contact_id) if contact_id else None,
+            'company_id': UUID(company_id) if company_id else None,
+            'order_by': order_by,
+            'advanced_filters': advanced_filters,
+            'filter_logic': filter_logic,
+        }
+        
+        # Get paginated deals
         deals = service.list(
-            search=search,
-            status=status_param,
-            pipeline_id=UUID(pipeline_id) if pipeline_id else None,
-            stage_id=UUID(stage_id) if stage_id else None,
-            order_by=order_by,
+            **filter_kwargs,
             limit=page_size,
             offset=offset,
         )
         
-        total = service.count()
+        # Get total count with same filters (no limit/offset for count)
+        # Use .count() for efficiency instead of loading all objects
+        total = service.list(**filter_kwargs).count()
+        
+        # Calculate stats from all deals (not filtered) using aggregation
+        from django.db.models import Sum, Count, Q
+        from .models import Deal
+        stats_aggregation = Deal.objects.filter(
+            org_id=service.org_id
+        ).aggregate(
+            total_count=Count('id'),
+            total_value=Sum('value'),
+            won_count=Count('id', filter=Q(status='won')),
+            won_value=Sum('value', filter=Q(status='won')),
+            lost_count=Count('id', filter=Q(status='lost')),
+            lost_value=Sum('value', filter=Q(status='lost')),
+            open_count=Count('id', filter=Q(status='open')),
+            open_value=Sum('value', filter=Q(status='open')),
+        )
+        total_count = stats_aggregation['total_count'] or 0
+        total_value = float(stats_aggregation['total_value'] or 0)
+        won_value = float(stats_aggregation['won_value'] or 0)
+        lost_value = float(stats_aggregation['lost_value'] or 0)
+        open_value = float(stats_aggregation['open_value'] or 0)
+        
+        # Build stats using aggregation results (no Python loop needed)
+        by_status = {
+            'open': stats_aggregation['open_count'] or 0,
+            'won': stats_aggregation['won_count'] or 0,
+            'lost': stats_aggregation['lost_count'] or 0,
+        }
+        
+        stats = {
+            'total': total_count,
+            'by_status': by_status,
+            'total_value': total_value,
+            'open_value': open_value,
+            'won_value': won_value,
+            'lost_value': lost_value,
+            'avg_deal_size': total_value / total_count if total_count > 0 else 0,
+        }
         
         serializer = DealListSerializer(deals, many=True)
         return Response({
             'data': serializer.data,
-            'meta': {'page': page, 'page_size': page_size, 'total': total}
+            'meta': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'stats': stats,
+            }
         })
     
     def post(self, request):
@@ -654,8 +791,16 @@ class DealMoveStageView(BaseAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        try:
+            stage_uuid = UUID(stage_id)
+        except (ValueError, TypeError):
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': 'Invalid stage_id format'}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         service = self.get_service(DealService)
-        deal = service.move_stage(deal_id, UUID(stage_id))
+        deal = service.move_stage(deal_id, stage_uuid)
         
         return Response(DealSerializer(deal).data)
 
@@ -690,9 +835,19 @@ class DealReopenView(BaseAPIView):
     def post(self, request, deal_id):
         """Reopen deal."""
         stage_id = request.data.get('stage_id')
+        stage_uuid = None
+        
+        if stage_id:
+            try:
+                stage_uuid = UUID(stage_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': {'code': 'VALIDATION_ERROR', 'message': 'Invalid stage_id format'}},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
         service = self.get_service(DealService)
-        deal = service.reopen(deal_id, UUID(stage_id) if stage_id else None)
+        deal = service.reopen(deal_id, stage_uuid)
         
         return Response(DealSerializer(deal).data)
 
@@ -702,12 +857,38 @@ class DealForecastView(BaseAPIView):
     
     def get(self, request):
         """Get forecast."""
-        days = int(request.query_params.get('days', 30))
+        try:
+            days = int(request.query_params.get('days', 30))
+            # Validate days is within reasonable range
+            if days < 1 or days > 365:
+                return Response(
+                    {'error': {'code': 'VALIDATION_ERROR', 'message': 'days must be between 1 and 365'}},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': 'Invalid days parameter'}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         service = self.get_service(DealService)
         forecast = service.get_forecast(days)
         
         return Response(forecast)
+
+
+class DealBulkDeleteView(BaseAPIView):
+    """Bulk delete deals."""
+    
+    def post(self, request):
+        """Delete multiple deals by IDs."""
+        serializer = BulkDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        service = self.get_service(DealService)
+        result = service.bulk_delete(serializer.validated_data['ids'])
+        
+        return Response(BulkResultSerializer(result).data)
 
 
 # =============================================================================
@@ -793,12 +974,14 @@ class PipelineStageListView(BaseAPIView):
     
     def post(self, request, pipeline_id):
         """Create a new stage."""
-        serializer = PipelineStageSerializer(data=request.data)
+        # Use write serializer for input validation (pipeline_id comes from URL, not body)
+        serializer = PipelineStageWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         service = self.get_service(PipelineService)
         stage = service.create_stage(pipeline_id, serializer.validated_data)
         
+        # Return with read serializer
         return Response(
             PipelineStageSerializer(stage).data,
             status=status.HTTP_201_CREATED
@@ -810,12 +993,14 @@ class PipelineStageDetailView(BaseAPIView):
     
     def patch(self, request, pipeline_id, stage_id):
         """Update a stage."""
-        serializer = PipelineStageSerializer(data=request.data, partial=True)
+        # Use write serializer for input validation with partial=True for PATCH
+        serializer = PipelineStageWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         
         service = self.get_service(PipelineService)
         stage = service.update_stage(stage_id, serializer.validated_data)
         
+        # Return with read serializer
         return Response(PipelineStageSerializer(stage).data)
     
     def delete(self, request, pipeline_id, stage_id):

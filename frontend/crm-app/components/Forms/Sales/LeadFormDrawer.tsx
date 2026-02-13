@@ -7,7 +7,8 @@ import { useLeadSources } from "@/lib/queries/useLeads";
 import { useTagOptions } from "@/lib/queries/useTags";
 import { useMemberOptions } from "@/lib/queries/useMembers";
 import { useAuth } from "@/contexts/AuthContext";
-import type { FormDrawerConfig, FormSection, FormFieldConfig } from "@/components/Forms/FormDrawer/types";
+import type { FormDrawerConfig } from "@/components/Forms/FormDrawer/types";
+import { cloneFormConfig, batchUpdateFieldOptions } from "@/lib/utils/formConfig";
 
 export interface LeadFormDrawerProps {
   isOpen: boolean;
@@ -83,71 +84,20 @@ export function LeadFormDrawer(props: LeadFormDrawerProps) {
 
   // Build dynamic config with fetched options
   const dynamicConfig = useMemo<FormDrawerConfig>(() => {
-    // Deep clone the base config
-    const config: FormDrawerConfig = JSON.parse(JSON.stringify(leadFormConfig));
-
-    // Re-add icons (they can't be cloned via JSON)
-    config.entityIcon = leadFormConfig.entityIcon;
-    config.schema = leadFormConfig.schema;
-
-    // Update detailed sections with dynamic options
-    config.detailedSections = config.detailedSections.map((section: FormSection) => {
-      // Re-add section icon
-      const originalSection = leadFormConfig.detailedSections.find(
-        (s: FormSection) => s.id === section.id
-      );
-      if (originalSection) {
-        section.icon = originalSection.icon;
-      }
-
-      // Update fields with dynamic options
-      section.fields = section.fields.map((field: FormFieldConfig) => {
-        // Re-add field icon
-        const originalField = originalSection?.fields.find(
-          (f: FormFieldConfig) => f.name === field.name
-        );
-        if (originalField?.icon) {
-          field.icon = originalField.icon;
-        }
-
-        // Inject dynamic options based on field name
-        switch (field.name) {
-          case "source":
-            field.options = sourceOptions.length > 0
-              ? sourceOptions
-              : (loadingSources ? [{ value: "", label: "Loading..." }] : DEFAULT_SOURCE_OPTIONS);
-            break;
-          case "ownerId":
-            field.options = memberOptions.length > 0
-              ? memberOptions
-              : [{ value: "", label: loadingMembers ? "Loading..." : "No members found" }];
-            break;
-          case "status":
-            field.options = STATUS_OPTIONS;
-            break;
-          case "tagIds":
-            field.options = tagOptions.length > 0
-              ? tagOptions
-              : (loadingTags ? [] : []);
-            break;
-        }
-
-        return field;
-      });
-
-      return section;
+    // Clone the config properly (preserves React elements and schema)
+    const config = cloneFormConfig(leadFormConfig);
+    
+    // Batch update field options
+    batchUpdateFieldOptions(config, {
+      source: sourceOptions.length > 0
+        ? sourceOptions
+        : (loadingSources ? [{ value: "", label: "Loading..." }] : DEFAULT_SOURCE_OPTIONS),
+      ownerId: memberOptions.length > 0
+        ? memberOptions
+        : [{ value: "", label: loadingMembers ? "Loading..." : "No members found" }],
+      status: STATUS_OPTIONS,
+      tagIds: tagOptions.length > 0 ? tagOptions : (loadingTags ? [] : []),
     });
-
-    // Update quick form sections icons
-    if (config.quickFormSections) {
-      config.quickFormSections = config.quickFormSections.map((section, index: number) => {
-        const originalSection = leadFormConfig.quickFormSections?.[index];
-        if (originalSection) {
-          section.icon = originalSection.icon;
-        }
-        return section;
-      });
-    }
 
     return config;
   }, [sourceOptions, tagOptions, memberOptions, loadingSources, loadingTags, loadingMembers]);

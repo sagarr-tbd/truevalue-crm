@@ -76,7 +76,9 @@ const formatActivityTime = (dateString: string) => {
   });
 };
 
-// Mock data for deals and notes (to be replaced with real API)
+// TODO: Replace with real API call to fetch contact's associated deals
+// API endpoint: GET /api/deals/?contact_id={contactId}
+// Use useDeals hook with contact_id filter once the hook supports it
 const mockDeals = [
   {
     id: 1,
@@ -122,21 +124,24 @@ export default function ContactDetailPage() {
   const checkDuplicates = useCheckDuplicates();
   const mergeContacts = useMergeContacts();
 
-  // Fetch all contacts to find related ones from same company
-  const { data: allContactsResponse } = useContacts({ page_size: 100 });
+  // Fetch related contacts from same company (only when contact has a company)
+  const { data: relatedContactsResponse } = useContacts(
+    {
+      company_id: contact?.primaryCompanyId,
+      page_size: 10,
+    },
+    { enabled: !!contact?.primaryCompanyId }
+  );
   
   // Fetch contact timeline (activities)
   const { data: activities = [], isLoading: isLoadingActivities } = useContactTimeline(id);
   const createActivity = useCreateActivity();
 
-  // Find related contacts from same company
+  // Filter out current contact from related contacts
   const relatedContacts = useMemo(() => {
-    if (!contact) return [];
-    const allContacts = allContactsResponse?.data ?? [];
-    return allContacts.filter(
-      (c) => c.company === contact.company && c.id !== contact.id
-    );
-  }, [contact, allContactsResponse?.data]);
+    if (!contact || !relatedContactsResponse?.data) return [];
+    return relatedContactsResponse.data.filter((c) => c.id !== contact.id);
+  }, [contact, relatedContactsResponse?.data]);
 
   // Calculate communication stats from real activities
   const communicationStats = useMemo(() => {

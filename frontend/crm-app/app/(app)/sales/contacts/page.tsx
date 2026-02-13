@@ -11,11 +11,8 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Edit,
-  Trash2,
   Mail,
   Phone,
-  FileText,
   UserCheck,
   UserPlus,
   TrendingUp,
@@ -36,6 +33,8 @@ import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
+import { toSnakeCaseOperator, getStatusColor } from "@/lib/utils";
+import { getContactActionMenuItems } from "@/lib/utils/actionMenus";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
@@ -108,8 +107,6 @@ export default function ContactsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   
   // Bulk operations state
@@ -131,25 +128,6 @@ export default function ContactsPage() {
   
   // Debounced search for API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // Convert camelCase operator to snake_case for API
-  const toSnakeCaseOperator = (op: string): string => {
-    const operatorMap: Record<string, string> = {
-      'equals': 'equals',
-      'notEquals': 'not_equals',
-      'contains': 'contains',
-      'notContains': 'not_contains',
-      'startsWith': 'starts_with',
-      'endsWith': 'ends_with',
-      'isEmpty': 'is_empty',
-      'isNotEmpty': 'is_not_empty',
-      'greaterThan': 'greater_than',
-      'lessThan': 'less_than',
-      'greaterThanOrEqual': 'greater_than_or_equal',
-      'lessThanOrEqual': 'less_than_or_equal',
-    };
-    return operatorMap[op] || op;
-  };
   
   // Build query params for server-side pagination (including advanced filters)
   const queryParams: ContactQueryParams = useMemo(() => {
@@ -175,7 +153,7 @@ export default function ContactsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
   
-  // React Query (server/mock data) - now with pagination
+  // React Query - fetch contacts with server-side pagination
   const { data: contactsResponse, isLoading } = useContacts(queryParams);
   const contacts = useMemo(() => contactsResponse?.data ?? [], [contactsResponse?.data]);
   const totalItems = contactsResponse?.meta?.total ?? 0;
@@ -271,33 +249,6 @@ export default function ContactsPage() {
       type: 'text',
     },
   ], []);
-
-  // Sort logic (advanced filtering now handled server-side)
-  const filteredContacts = useMemo(() => {
-    let filtered = contacts;
-
-    // Sorting (client-side, applies to current page)
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [contacts, sortColumn, sortDirection]);
-
-  // Pagination is now server-side - use data directly
-  const paginatedContacts = filteredContacts;
 
   // Stats from API response (includes all contacts, not just current page)
   const apiStats = contactsResponse?.meta?.stats;
@@ -399,20 +350,11 @@ export default function ContactsPage() {
   ], [apiStats]);
 
   // Handlers
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
   const handleSelectAll = () => {
-    if (selectedContacts.length === paginatedContacts.length) {
+    if (selectedContacts.length === contacts.length) {
       setSelectedContacts([]);
     } else {
-      setSelectedContacts(paginatedContacts.map((c) => c.id));
+      setSelectedContacts(contacts.map((c) => c.id));
     }
   };
 
@@ -562,6 +504,14 @@ export default function ContactsPage() {
     tagIds: data.tagIds,
   });
 
+  // Contact action menu handlers
+  const contactActionHandlers = useMemo(() => ({
+    onView: (id: string) => router.push(`/sales/contacts/${id}`),
+    onEdit: handleEditContact,
+    onSendEmail: (email: string) => { if (email) window.location.href = `mailto:${email}`; },
+    onDelete: handleDeleteClick,
+  }), [router, handleEditContact, handleDeleteClick]);
+
   // Proceed with actual contact creation (after duplicate check)
   const proceedWithCreate = async (contactData: ContactFormData, skipDuplicateCheck = false) => {
     await createContact.mutateAsync({ data: contactData, skipDuplicateCheck });
@@ -631,7 +581,7 @@ export default function ContactsPage() {
 
   // Bulk operation handlers
   const handleSelectAllContacts = () => {
-    setSelectedContacts(filteredContacts.map(c => c.id));
+    setSelectedContacts(contacts.map(c => c.id));
   };
 
   const handleDeselectAll = () => {
@@ -667,7 +617,7 @@ export default function ContactsPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredContacts.filter(contact => selectedContacts.includes(contact.id));
+    const selectedData = contacts.filter(contact => selectedContacts.includes(contact.id));
     
     if (selectedData.length === 0) {
       toast.error("No contacts selected for export");
@@ -690,6 +640,19 @@ export default function ContactsPage() {
   };
 
   // Filter chips data
+  // Helper to get display value for filter conditions
+  const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
+    if (!field || !value) return value;
+    
+    // For select fields, look up the label from options
+    if (field.type === 'select' && field.options) {
+      const option = field.options.find(opt => opt.value === value);
+      if (option) return option.label;
+    }
+    
+    return value;
+  };
+
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
     
@@ -705,10 +668,11 @@ export default function ContactsPage() {
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
+        const displayValue = getFilterDisplayValue(field, condition.value);
         chips.push({
           id: `advanced-filter-${index}`,
           label: field?.label || condition.field,
-          value: `${condition.operator}: ${condition.value}`,
+          value: `${condition.operator}: ${displayValue}`,
           color: 'secondary',
         });
       });
@@ -741,19 +705,6 @@ export default function ContactsPage() {
     setSearchQuery('');
     setFilterGroup(null);
     clearModuleFilters('contacts');
-  };
-
-  // Get status color helper
-  const getStatusColor = (status: string) => {
-    const normalizedStatus = status?.toLowerCase() || '';
-    const colors: Record<string, string> = {
-      active: "bg-green-100 text-green-700",
-      inactive: "bg-gray-100 text-gray-600",
-      bounced: "bg-red-100 text-red-700",
-      unsubscribed: "bg-yellow-100 text-yellow-700",
-      archived: "bg-purple-100 text-purple-700",
-    };
-    return colors[normalizedStatus] || "bg-muted text-muted-foreground";
   };
 
   // Keyboard shortcuts
@@ -825,12 +776,11 @@ export default function ContactsPage() {
     }
   };
 
-  // Table columns
-  const columns = [
+  // Table columns - memoized to prevent unnecessary re-renders
+  const columns = useMemo(() => [
     {
       key: "name",
       label: "Contact",
-      sortable: true,
       render: (_value: unknown, row: typeof contacts[0]) => (
         <div 
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -849,7 +799,6 @@ export default function ContactsPage() {
     {
       key: "email",
       label: "Email",
-      sortable: true,
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Mail className="h-4 w-4 text-muted-foreground" />
@@ -870,7 +819,6 @@ export default function ContactsPage() {
     {
       key: "company",
       label: "Company",
-      sortable: true,
       render: (value: string) => (
         <span className="text-sm text-foreground">{value}</span>
       ),
@@ -878,9 +826,8 @@ export default function ContactsPage() {
     {
       key: "status",
       label: "Status",
-      sortable: true,
       render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value, 'contact')}`}>
           {value ? value.charAt(0).toUpperCase() + value.slice(1) : ''}
         </span>
       ),
@@ -888,12 +835,11 @@ export default function ContactsPage() {
     {
       key: "created",
       label: "Created On",
-      sortable: true,
       render: (value: string) => (
         <span className="text-sm text-muted-foreground">{value}</span>
       ),
     },
-  ];
+  ], [router]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -1017,7 +963,7 @@ export default function ContactsPage() {
               Import
             </Button>
             <ExportButton
-              data={filteredContacts}
+              data={contacts}
               columns={exportColumns}
               filename="contacts-export"
               title="Contacts Export"
@@ -1068,51 +1014,23 @@ export default function ContactsPage() {
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedContacts}
+          data={contacts}
           columns={columns}
           selectedIds={selectedContacts}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
-          onSort={handleSort}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
           showSelection={true}
           loading={isLoading}
           emptyMessage="No contacts found"
           emptyDescription="Try adjusting your search or filters, or add a new contact"
           renderActions={(row) => (
-            <ActionMenu
-              items={[
-                {
-                  label: "View Details",
-                  icon: FileText,
-                  onClick: () => router.push(`/sales/contacts/${row.id}`),
-                },
-                {
-                  label: "Edit Contact",
-                  icon: Edit,
-                  onClick: () => handleEditContact(row),
-                },
-                {
-                  label: "Send Email",
-                  icon: Mail,
-                  onClick: () => window.location.href = `mailto:${row.email}`,
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
-              ]}
-            />
+            <ActionMenu items={getContactActionMenuItems(row, contactActionHandlers)} />
           )}
         />
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedContacts.map((contact, index) => (
+          {contacts.map((contact, index) => (
             <motion.div
               key={contact.id}
               initial={{ opacity: 0, y: 20 }}
@@ -1135,32 +1053,7 @@ export default function ContactsPage() {
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu
-                      items={[
-                        {
-                          label: "View Details",
-                          icon: FileText,
-                          onClick: () => router.push(`/sales/contacts/${contact.id}`),
-                        },
-                        {
-                          label: "Edit Contact",
-                          icon: Edit,
-                          onClick: () => handleEditContact(contact),
-                        },
-                        {
-                          label: "Send Email",
-                          icon: Mail,
-                          onClick: () => window.location.href = `mailto:${contact.email}`,
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(contact),
-                        },
-                      ]}
-                    />
+                    <ActionMenu items={getContactActionMenuItems(contact, contactActionHandlers)} />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1178,7 +1071,7 @@ export default function ContactsPage() {
                   </div>
                 </div>
                 <div className="mt-4 flex items-center justify-between">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(contact.status)}`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(contact.status, 'contact')}`}>
                     {contact.status ? contact.status.charAt(0).toUpperCase() + contact.status.slice(1) : ''}
                   </span>
                   <span className="text-xs text-muted-foreground">

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -21,163 +22,32 @@ import {
   Activity,
   Users,
   Target,
+  Loader2,
+  Trophy,
+  XCircle,
+  RefreshCw,
+  Building2,
+  ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { Textarea } from "@/components/ui/textarea";
 import { DealFormDrawer, type Deal as DealType } from "@/components/Forms/Sales";
+import { 
+  useDeal, 
+  useUpdateDeal, 
+  useDeleteDeal,
+  useWinDeal,
+  useLoseDeal,
+  useReopenDeal,
+  DealFormData,
+} from "@/lib/queries/useDeals";
+import { toast } from "sonner";
 
-// Deal data structure (matching deals list page)
-type Deal = {
-  id: number;
-  dealName: string;
-  company: string;
-  contactName: string;
-  amount: number;
-  stage: string;
-  probability: number;
-  closeDate: string;
-  owner: string;
-  created: string;
-  initials: string;
-};
-
-// Mock deals data (same structure as deals list page)
-const deals: Deal[] = [
-  {
-    id: 1,
-    dealName: "Enterprise CRM Package",
-    company: "Acme Corporation",
-    contactName: "Sarah Williams",
-    amount: 125000,
-    stage: "Negotiation",
-    probability: 80,
-    closeDate: "Feb 15, 2026",
-    owner: "John Smith",
-    created: "Dec 10, 2025",
-    initials: "AC",
-  },
-  {
-    id: 2,
-    dealName: "Marketing Automation Suite",
-    company: "CloudNine Solutions",
-    contactName: "Robert Chen",
-    amount: 85000,
-    stage: "Proposal",
-    probability: 60,
-    closeDate: "Feb 28, 2026",
-    owner: "Jane Doe",
-    created: "Dec 15, 2025",
-    initials: "CS",
-  },
-  {
-    id: 3,
-    dealName: "Sales Analytics Platform",
-    company: "TechStart Inc",
-    contactName: "Jessica Lee",
-    amount: 45000,
-    stage: "Qualification",
-    probability: 40,
-    closeDate: "Mar 10, 2026",
-    owner: "Mike Johnson",
-    created: "Dec 18, 2025",
-    initials: "TS",
-  },
-  {
-    id: 4,
-    dealName: "Customer Support System",
-    company: "GlobalTech Systems",
-    contactName: "Emma Johnson",
-    amount: 95000,
-    stage: "Prospecting",
-    probability: 20,
-    closeDate: "Mar 25, 2026",
-    owner: "Sarah Brown",
-    created: "Dec 20, 2025",
-    initials: "GT",
-  },
-  {
-    id: 5,
-    dealName: "API Integration Package",
-    company: "Innovate Labs",
-    contactName: "Michael Chen",
-    amount: 35000,
-    stage: "Closed Won",
-    probability: 100,
-    closeDate: "Jan 15, 2026",
-    owner: "John Smith",
-    created: "Nov 28, 2025",
-    initials: "IL",
-  },
-  {
-    id: 6,
-    dealName: "Mobile App Development",
-    company: "Nexus Solutions",
-    contactName: "Sophie Martinez",
-    amount: 150000,
-    stage: "Negotiation",
-    probability: 75,
-    closeDate: "Feb 20, 2026",
-    owner: "Jane Doe",
-    created: "Dec 5, 2025",
-    initials: "NS",
-  },
-  {
-    id: 7,
-    dealName: "Data Warehouse Solution",
-    company: "Zenith Corp",
-    contactName: "James Wilson",
-    amount: 200000,
-    stage: "Proposal",
-    probability: 55,
-    closeDate: "Mar 5, 2026",
-    owner: "Mike Johnson",
-    created: "Dec 12, 2025",
-    initials: "ZC",
-  },
-  {
-    id: 8,
-    dealName: "Security Audit Service",
-    company: "DataFlow Inc",
-    contactName: "Lisa Anderson",
-    amount: 25000,
-    stage: "Closed Lost",
-    probability: 0,
-    closeDate: "Jan 10, 2026",
-    owner: "Sarah Brown",
-    created: "Nov 15, 2025",
-    initials: "DF",
-  },
-  {
-    id: 9,
-    dealName: "Training & Onboarding",
-    company: "Swift Solutions",
-    contactName: "David Park",
-    amount: 15000,
-    stage: "Closed Won",
-    probability: 100,
-    closeDate: "Jan 20, 2026",
-    owner: "John Smith",
-    created: "Dec 1, 2025",
-    initials: "SS",
-  },
-  {
-    id: 10,
-    dealName: "Cloud Infrastructure Setup",
-    company: "FutureTech Co",
-    contactName: "Rachel Green",
-    amount: 180000,
-    stage: "Qualification",
-    probability: 45,
-    closeDate: "Mar 15, 2026",
-    owner: "Jane Doe",
-    created: "Dec 22, 2025",
-    initials: "FT",
-  },
-];
-
-// Mock activity data
+// TODO: Replace with real API call to fetch deal activities
+// API endpoint: GET /api/activities/?deal_id={dealId}
+// Create useActivities hook in lib/queries/useActivities.ts
 const mockActivities = [
   {
     id: 1,
@@ -225,7 +95,9 @@ const mockActivities = [
   },
 ];
 
-// Mock related contacts
+// TODO: Replace with real API call to fetch deal's related contacts
+// Use deal.contactId to show primary contact, and consider adding
+// a contacts_list field to the deal model for multiple contacts
 const mockContacts = [
   {
     id: 1,
@@ -271,33 +143,76 @@ export default function DealDetailPage() {
   const id = params.id as string;
   const [activeTab, setActiveTab] = useState<TabType>("details");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [newNote, setNewNote] = useState("");
+  const [showLossModal, setShowLossModal] = useState(false);
+  const [lossReason, setLossReason] = useState("");
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Partial<DealType> | null>(null);
 
-  // Find deal by ID
-  const deal = useMemo(() => {
-    const dealId = parseInt(id);
-    return deals.find((d) => d.id === dealId);
-  }, [id]);
+  // API hooks
+  const { data: deal, isLoading: isDealLoading, isError } = useDeal(id);
+  const updateDeal = useUpdateDeal();
+  const deleteDealMutation = useDeleteDeal();
+  const winDeal = useWinDeal();
+  const loseDeal = useLoseDeal();
+  const reopenDeal = useReopenDeal();
+
+  // Calculate effective probability (use stage probability as fallback)
+  const effectiveProbability = useMemo(() => {
+    if (!deal) return 0;
+    return deal.probability ?? deal.stage?.probability ?? 0;
+  }, [deal]);
 
   // Calculate expected revenue (amount * probability / 100)
   const expectedRevenue = useMemo(() => {
     if (!deal) return 0;
-    return Math.round((deal.amount * deal.probability) / 100);
-  }, [deal]);
+    return Math.round((deal.value * effectiveProbability) / 100);
+  }, [deal, effectiveProbability]);
 
   // Calculate days in pipeline
   const daysInPipeline = useMemo(() => {
     if (!deal) return 0;
-    const createdDate = new Date(deal.created);
+    const createdDate = new Date(deal.createdAt);
     const today = new Date();
     const diffTime = Math.abs(today.getTime() - createdDate.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }, [deal]);
+
+  // Days in current stage
+  const daysInStage = useMemo(() => {
+    if (!deal?.stageEnteredAt) return 0;
+    const stageDate = new Date(deal.stageEnteredAt);
+    const today = new Date();
+    const diffTime = Math.abs(today.getTime() - stageDate.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, [deal]);
+
+  // Check deal status
+  const isWon = deal?.status === 'won';
+  const isLost = deal?.status === 'lost';
+  const isOpen = deal?.status === 'open';
+
+  // Format currency helper
+  const formatCurrency = (value: number, currency?: string) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || deal?.currency || 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  // Format date helper
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
 
   // Handle delete
   const handleDeleteClick = () => {
@@ -307,17 +222,12 @@ export default function DealDetailPage() {
   const handleDeleteConfirm = async () => {
     if (!deal) return;
 
-    setIsDeleting(true);
-
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      console.log("Successfully deleted deal:", deal.dealName);
+      await deleteDealMutation.mutateAsync(deal.id);
       router.push("/sales/deals");
     } catch (error) {
       console.error("Error deleting deal:", error);
     } finally {
-      setIsDeleting(false);
       setIsDeleteModalOpen(false);
     }
   };
@@ -326,10 +236,47 @@ export default function DealDetailPage() {
     setIsDeleteModalOpen(false);
   };
 
+  // Win/Lose/Reopen handlers
+  const handleWinDeal = async () => {
+    if (!deal) return;
+    try {
+      await winDeal.mutateAsync({ id: deal.id });
+    } catch (error) {
+      console.error("Error marking deal as won:", error);
+    }
+  };
+
+  const handleLoseDeal = async () => {
+    if (!deal || !lossReason.trim()) {
+      toast.error("Please provide a reason for losing the deal");
+      return;
+    }
+    try {
+      await loseDeal.mutateAsync({ 
+        id: deal.id, 
+        params: { loss_reason: lossReason } 
+      });
+      setShowLossModal(false);
+      setLossReason("");
+    } catch (error) {
+      console.error("Error marking deal as lost:", error);
+    }
+  };
+
+  const handleReopenDeal = async () => {
+    if (!deal) return;
+    try {
+      await reopenDeal.mutateAsync({ id: deal.id });
+    } catch (error) {
+      console.error("Error reopening deal:", error);
+    }
+  };
+
   const handleAddNote = () => {
     if (!newNote.trim()) return;
-    // In a real app, this would make an API call
+    // TODO: Integrate with activities API
     console.log("Adding note:", newNote);
+    toast.success("Note added (mock)");
     setNewNote("");
   };
 
@@ -338,57 +285,86 @@ export default function DealDetailPage() {
     if (!deal) return;
     
     setEditingDeal({
-      dealName: deal.dealName,
-      amount: deal.amount,
-      stage: deal.stage as any,
+      name: deal.name,
+      pipelineId: deal.pipelineId,
+      stageId: deal.stageId,
+      value: deal.value,
+      currency: deal.currency,
       probability: deal.probability,
-      closeDate: deal.closeDate,
-      accountId: deal.company,
-      contactId: deal.contactName,
-      assignedTo: deal.owner,
+      expectedCloseDate: deal.expectedCloseDate,
+      companyId: deal.companyId,
+      contactId: deal.contactId,
+      ownerId: deal.ownerId,
+      description: deal.description,
+      tagIds: deal.tagIds || [],
     });
     setFormDrawerOpen(true);
   };
 
   const handleFormSubmit = async (data: Partial<DealType>) => {
+    if (!deal) return;
+    
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      console.log("Updating deal:", data);
-      // Toast is shown by FormDrawer component
+      const formData: DealFormData = {
+        name: data.name || deal.name,
+        pipelineId: data.pipelineId || deal.pipelineId,
+        stageId: data.stageId || deal.stageId,
+        value: data.value ?? deal.value,
+        currency: data.currency || deal.currency,
+        probability: data.probability ?? deal.probability,
+        expectedCloseDate: data.expectedCloseDate || deal.expectedCloseDate,
+        contactId: data.contactId || deal.contactId,
+        companyId: data.companyId || deal.companyId,
+        ownerId: data.ownerId || deal.ownerId,
+        description: data.description ?? deal.description,
+        tagIds: data.tagIds,
+      };
+      
+      await updateDeal.mutateAsync({ id: deal.id, data: formData });
 
       setFormDrawerOpen(false);
       setEditingDeal(null);
     } catch (error) {
       console.error("Error updating deal:", error);
-      throw error; // Let FormDrawer handle the error toast
+      throw error;
     }
   };
 
-  // Stage badge colors (matching deals list page)
-  const getStageColors = (stage: string) => {
-    const colors = {
-      Prospecting: "bg-muted text-muted-foreground",
-      Qualification: "bg-secondary/10 text-secondary",
-      Proposal: "bg-accent/10 text-accent",
-      Negotiation: "bg-primary/10 text-primary",
-      "Closed Won": "bg-primary/20 text-primary",
-      "Closed Lost": "bg-destructive/10 text-destructive",
-    };
-    return colors[stage as keyof typeof colors] || "bg-muted text-muted-foreground";
-  };
-
   // Deal score based on probability
-  const dealScore = deal?.probability || 0;
+  const dealScore = effectiveProbability;
 
-  // If deal not found
+  // Error state
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <AlertCircle className="h-16 w-16 text-destructive" />
+        <h2 className="text-2xl font-semibold text-foreground">Error Loading Deal</h2>
+        <p className="text-muted-foreground">There was an error loading this deal.</p>
+        <Button onClick={() => router.push("/sales/deals")}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Deals
+        </Button>
+      </div>
+    );
+  }
+
+  // Show loading state while fetching
+  if (isDealLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+        <p className="text-muted-foreground">Loading deal...</p>
+      </div>
+    );
+  }
+
+  // If deal not found (only show after loading is complete)
   if (!deal) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <AlertCircle className="h-16 w-16 text-gray-400" />
-        <h2 className="text-2xl font-semibold text-gray-900">Deal Not Found</h2>
-        <p className="text-gray-600">The deal you&apos;re looking for doesn&apos;t exist.</p>
+        <AlertCircle className="h-16 w-16 text-muted-foreground" />
+        <h2 className="text-2xl font-semibold text-foreground">Deal Not Found</h2>
+        <p className="text-muted-foreground">The deal you&apos;re looking for doesn&apos;t exist.</p>
         <Button onClick={() => router.push("/sales/deals")}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Deals
@@ -432,27 +408,78 @@ export default function DealDetailPage() {
                 {deal.initials}
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-foreground mb-2">{deal.dealName}</h1>
+                <h1 className="text-3xl font-bold text-foreground mb-2">{deal.name}</h1>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-lg text-muted-foreground">{deal.company}</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColors(
-                    deal.stage
-                  )}`}>
-                    {deal.stage}
+                  {deal.companyName && (
+                    <Link href={`/sales/companies/${deal.companyId}`} className="text-lg text-muted-foreground hover:text-primary flex items-center gap-1">
+                      <Building2 className="h-4 w-4" />
+                      {deal.companyName}
+                    </Link>
+                  )}
+                  <span 
+                    className="px-3 py-1 rounded-full text-xs font-medium"
+                    style={{ 
+                      backgroundColor: deal.stage?.color ? `${deal.stage.color}20` : 'var(--muted)',
+                      color: deal.stage?.color || 'var(--muted-foreground)',
+                    }}
+                  >
+                    {deal.stageName}
+                  </span>
+                  {/* Status Badge */}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
+                    isWon ? 'bg-green-100 text-green-700' :
+                    isLost ? 'bg-red-100 text-red-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {deal.status}
                   </span>
                   <span className="text-lg font-semibold text-foreground font-tabular">
-                    ${deal.amount.toLocaleString()}
+                    {formatCurrency(deal.value)}
                   </span>
-                  <span className="text-sm text-muted-foreground">Created {deal.created}</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleEditDeal}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {isOpen && (
+                <>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={handleEditDeal}>
+                    <Edit className="h-4 w-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-green-600 hover:text-green-700"
+                    onClick={handleWinDeal}
+                    disabled={winDeal.isPending}
+                  >
+                    <Trophy className="h-4 w-4" />
+                    {winDeal.isPending ? 'Winning...' : 'Won'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-orange-600 hover:text-orange-700"
+                    onClick={() => setShowLossModal(true)}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Lost
+                  </Button>
+                </>
+              )}
+              {(isWon || isLost) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleReopenDeal}
+                  disabled={reopenDeal.isPending}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {reopenDeal.isPending ? 'Reopening...' : 'Reopen'}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -466,6 +493,47 @@ export default function DealDetailPage() {
           </div>
         </motion.div>
 
+        {/* Won/Lost Status Banner */}
+        {isWon && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg"
+          >
+            <div className="flex items-center gap-2 text-green-700">
+              <Trophy className="h-5 w-5" />
+              <span className="font-medium">
+                This deal was won on {formatDate(deal.actualCloseDate || deal.updatedAt)}
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {isLost && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+          >
+            <div className="flex items-center gap-2 text-red-700">
+              <XCircle className="h-5 w-5" />
+              <span className="font-medium">
+                This deal was lost on {formatDate(deal.actualCloseDate || deal.updatedAt)}
+              </span>
+            </div>
+            {deal.lossReason && (
+              <p className="text-sm text-red-600 mt-1">
+                Reason: {deal.lossReason}
+              </p>
+            )}
+            {deal.lossNotes && (
+              <p className="text-sm text-red-600 mt-1">
+                Notes: {deal.lossNotes}
+              </p>
+            )}
+          </motion.div>
+        )}
+
         {/* Overview Cards */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -477,16 +545,16 @@ export default function DealDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                Expected Revenue
+                Deal Value
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div>
                 <p className="text-2xl font-bold text-foreground font-tabular">
-                  ${expectedRevenue.toLocaleString()}
+                  {formatCurrency(deal.value)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {deal.probability}% of ${deal.amount.toLocaleString()}
+                  Weighted: {formatCurrency(deal.weightedValue || expectedRevenue)}
                 </p>
               </div>
             </CardContent>
@@ -502,16 +570,19 @@ export default function DealDetailPage() {
             <CardContent className="space-y-2">
               <div>
                 <p className="text-2xl font-bold text-foreground font-tabular">
-                  {deal.probability}%
+                  {effectiveProbability}%
                 </p>
                 <div className="mt-2 bg-muted rounded-full h-2 overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${deal.probability}%` }}
+                    animate={{ width: `${effectiveProbability}%` }}
                     transition={{ duration: 1, delay: 0.3 }}
                     className="h-full bg-gradient-to-r from-brand-teal to-brand-purple rounded-full"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {deal.probability !== deal.stage?.probability ? 'Custom' : `From stage: ${deal.stageName}`}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -520,15 +591,17 @@ export default function DealDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                Close Date
+                Expected Close Date
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div>
-                <p className="text-sm font-medium">{deal.closeDate}</p>
-                <p className="text-xs text-muted-foreground">
-                  {daysInPipeline} days in pipeline
-                </p>
+                <p className="text-lg font-semibold">{formatDate(deal.expectedCloseDate)}</p>
+                {deal.actualCloseDate && (
+                  <p className="text-xs text-muted-foreground">
+                    Actual: {formatDate(deal.actualCloseDate)}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -537,16 +610,19 @@ export default function DealDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Clock className="h-4 w-4" />
-                Days in Pipeline
+                Timeline
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div>
-                <p className="text-2xl font-bold text-foreground font-tabular">
-                  {daysInPipeline}
+                <p className="text-lg font-semibold font-tabular">
+                  {daysInPipeline} <span className="text-sm font-normal text-muted-foreground">days</span>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Created {deal.created}
+                  {daysInStage} days in {deal.stageName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Created {formatDate(deal.createdAt)}
                 </p>
               </div>
             </CardContent>
@@ -592,63 +668,234 @@ export default function DealDetailPage() {
                         transition={{ duration: 0.2 }}
                         className="space-y-6"
                       >
+                        {/* Main Grid - Deal Value & Pipeline Info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div>
-                            <h3 className="text-lg font-semibold mb-4">Deal Information</h3>
-                            <div className="space-y-4">
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Deal Name</p>
-                                <p className="text-base font-medium">{deal.dealName}</p>
+                          {/* Deal Value Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-green-500/10 rounded-lg">
+                                <DollarSign className="h-4 w-4 text-green-500" />
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Company</p>
-                                <p className="text-base font-medium">{deal.company}</p>
+                              <h3 className="text-base font-semibold">Deal Value</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Deal Name</span>
+                                <span className="text-sm font-medium text-right max-w-[60%]">{deal.name}</span>
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Contact Name</p>
-                                <p className="text-base font-medium">{deal.contactName}</p>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Value</span>
+                                <span className="text-sm font-medium font-tabular">{formatCurrency(deal.value)}</span>
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Deal Value</p>
-                                <p className="text-base font-medium font-tabular">
-                                  ${deal.amount.toLocaleString()}
-                                </p>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Weighted Value</span>
+                                <span className="text-sm font-medium font-tabular">
+                                  {formatCurrency(deal.weightedValue || expectedRevenue)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Currency</span>
+                                <span className="text-sm font-medium">{deal.currency}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Status</span>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                                  isWon ? 'bg-green-100 text-green-700' :
+                                  isLost ? 'bg-red-100 text-red-700' :
+                                  'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {deal.status}
+                                </span>
                               </div>
                             </div>
                           </div>
 
-                          <div>
-                            <h3 className="text-lg font-semibold mb-4">Pipeline Details</h3>
-                            <div className="space-y-4">
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Stage</p>
-                                <span
-                                  className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColors(
-                                    deal.stage
-                                  )}`}
-                                >
-                                  {deal.stage}
-                                </span>
+                          {/* Pipeline Details Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-purple-500/10 rounded-lg">
+                                <TrendingUp className="h-4 w-4 text-purple-500" />
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Probability</p>
-                                <p className="text-base font-medium">{deal.probability}%</p>
+                              <h3 className="text-base font-semibold">Pipeline Details</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Pipeline</span>
+                                <span className="text-sm font-medium">{deal.pipelineName}</span>
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Close Date</p>
-                                <p className="text-base font-medium">{deal.closeDate}</p>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Stage</span>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                    style={{ 
+                                      backgroundColor: deal.stage?.color ? `${deal.stage.color}20` : 'var(--muted)',
+                                      color: deal.stage?.color || 'var(--muted-foreground)',
+                                    }}
+                                  >
+                                    {deal.stageName}
+                                  </span>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Owner</p>
-                                <p className="text-base font-medium">{deal.owner}</p>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Probability</span>
+                                <span className="text-sm font-medium">{effectiveProbability}%</span>
                               </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-1">Created</p>
-                                <p className="text-base font-medium">{deal.created}</p>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Days in Stage</span>
+                                <span className="text-sm font-medium">{daysInStage} days</span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Days in Pipeline</span>
+                                <span className="text-sm font-medium">{daysInPipeline} days</span>
                               </div>
                             </div>
                           </div>
                         </div>
+
+                        {/* Contact & Company Row */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Contact Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-primary/10 rounded-lg">
+                                <User className="h-4 w-4 text-primary" />
+                              </div>
+                              <h3 className="text-base font-semibold">Contact</h3>
+                            </div>
+                            {deal.contactId ? (
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
+                                    {deal.contactName?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'C'}
+                                  </div>
+                                  <div>
+                                    <Link href={`/sales/contacts/${deal.contactId}`} className="text-sm font-medium text-primary hover:underline">
+                                      {deal.contactName}
+                                    </Link>
+                                    {deal.contactEmail && (
+                                      <p className="text-xs text-muted-foreground">{deal.contactEmail}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                {deal.contactEmail && (
+                                  <div className="flex justify-between items-start gap-4">
+                                    <span className="text-sm text-muted-foreground shrink-0">Email</span>
+                                    <a href={`mailto:${deal.contactEmail}`} className="text-sm font-medium text-primary hover:underline text-right break-all">
+                                      {deal.contactEmail}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No contact linked to this deal</p>
+                            )}
+                          </div>
+
+                          {/* Company Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-orange-500/10 rounded-lg">
+                                <Building2 className="h-4 w-4 text-orange-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Company</h3>
+                            </div>
+                            {deal.companyId ? (
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                                  </div>
+                                  <Link href={`/sales/companies/${deal.companyId}`} className="text-sm font-medium text-primary hover:underline">
+                                    {deal.companyName}
+                                  </Link>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No company linked to this deal</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Dates & Activity Row */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Important Dates Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-blue-500/10 rounded-lg">
+                                <Calendar className="h-4 w-4 text-blue-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Important Dates</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Expected Close</span>
+                                <span className="text-sm font-medium">{formatDate(deal.expectedCloseDate)}</span>
+                              </div>
+                              {deal.actualCloseDate && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Actual Close</span>
+                                  <span className="text-sm font-medium">{formatDate(deal.actualCloseDate)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Stage Entered</span>
+                                <span className="text-sm font-medium">{formatDate(deal.stageEnteredAt)}</span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Created</span>
+                                <span className="text-sm font-medium">{formatDate(deal.createdAt)}</span>
+                              </div>
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Last Updated</span>
+                                <span className="text-sm font-medium">{formatDate(deal.updatedAt)}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Activity & Source Card */}
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-teal-500/10 rounded-lg">
+                                <Activity className="h-4 w-4 text-teal-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Activity & Source</h3>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-start">
+                                <span className="text-sm text-muted-foreground">Activity Count</span>
+                                <span className="text-sm font-medium">{deal.activityCount ?? 0}</span>
+                              </div>
+                              {deal.lastActivityAt && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Last Activity</span>
+                                  <span className="text-sm font-medium">{formatDate(deal.lastActivityAt)}</span>
+                                </div>
+                              )}
+                              {deal.convertedFromLeadId && (
+                                <div className="flex justify-between items-start">
+                                  <span className="text-sm text-muted-foreground">Converted From</span>
+                                  <Link href={`/sales/leads/${deal.convertedFromLeadId}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                                    View Lead <ExternalLink className="h-3 w-3" />
+                                  </Link>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Description (if exists) */}
+                        {deal.description && (
+                          <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                            <div className="flex items-center gap-2 mb-4">
+                              <div className="p-2 bg-gray-500/10 rounded-lg">
+                                <FileText className="h-4 w-4 text-gray-500" />
+                              </div>
+                              <h3 className="text-base font-semibold">Description</h3>
+                            </div>
+                            <p className="text-sm text-foreground whitespace-pre-wrap">{deal.description}</p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
 
@@ -798,23 +1045,94 @@ export default function DealDetailPage() {
 
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
+            {/* Deal Status Actions */}
+            {isOpen && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Deal Actions</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Button
+                    className="w-full justify-start gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                    variant="outline"
+                    onClick={handleWinDeal}
+                    disabled={winDeal.isPending}
+                  >
+                    <Trophy className="h-4 w-4" />
+                    {winDeal.isPending ? 'Marking as Won...' : 'Mark as Won'}
+                  </Button>
+                  <Button
+                    className="w-full justify-start gap-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    variant="outline"
+                    onClick={() => setShowLossModal(true)}
+                    disabled={loseDeal.isPending}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    {loseDeal.isPending ? 'Marking as Lost...' : 'Mark as Lost'}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {(isWon || isLost) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Deal Status</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className={`p-3 rounded-lg ${isWon ? 'bg-green-50' : 'bg-red-50'}`}>
+                    <div className={`flex items-center gap-2 ${isWon ? 'text-green-700' : 'text-red-700'}`}>
+                      {isWon ? <Trophy className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+                      <span className="font-medium capitalize">{deal.status}</span>
+                    </div>
+                    {deal.actualCloseDate && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Closed on {formatDate(deal.actualCloseDate)}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    className="w-full justify-start gap-2"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleReopenDeal}
+                    disabled={reopenDeal.isPending}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    {reopenDeal.isPending ? 'Reopening...' : 'Reopen Deal'}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Quick Actions */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => console.log("Send email")}>
-                  <Mail className="h-4 w-4" />
-                  Send Email
-                </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => console.log("Log call")}>
+                {deal.contactEmail && (
+                  <Button
+                    className="w-full justify-start gap-2"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.location.href = `mailto:${deal.contactEmail}`}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Send Email
+                  </Button>
+                )}
+                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
                   <Phone className="h-4 w-4" />
                   Log Call
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => console.log("Schedule meeting")}>
+                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
                   <Calendar className="h-4 w-4" />
                   Schedule Meeting
+                </Button>
+                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
+                  <FileText className="h-4 w-4" />
+                  Add Note
                 </Button>
               </CardContent>
             </Card>
@@ -851,39 +1169,48 @@ export default function DealDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Next Steps */}
+            {/* Deal Summary */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Next Steps</CardTitle>
+                <CardTitle className="text-base">Deal Summary</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Review contract terms</p>
-                      <p className="text-xs text-muted-foreground mt-1">Due: Feb 8, 2026</p>
-                    </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Pipeline</span>
+                    <span className="text-sm font-medium">{deal.pipelineName}</span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">Finalize pricing agreement</p>
-                      <p className="text-xs text-muted-foreground mt-1">Due: Feb 12, 2026</p>
-                    </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Stage</span>
+                    <span
+                      className="px-2 py-0.5 rounded-full text-xs font-medium"
+                      style={{
+                        backgroundColor: deal.stage?.color ? `${deal.stage.color}20` : 'var(--muted)',
+                        color: deal.stage?.color || 'var(--muted-foreground)',
+                      }}
+                    >
+                      {deal.stageName}
+                    </span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Close deal</p>
-                      <p className="text-xs text-muted-foreground mt-1">Target: {deal.closeDate}</p>
-                    </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Value</span>
+                    <span className="text-sm font-medium font-tabular">{formatCurrency(deal.value)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Probability</span>
+                    <span className="text-sm font-medium">{effectiveProbability}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Close Date</span>
+                    <span className="text-sm font-medium">{formatDate(deal.expectedCloseDate)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Days in Pipeline</span>
+                    <span className="text-sm font-medium">{daysInPipeline} days</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Activity Count</span>
+                    <span className="text-sm font-medium">{deal.activityCount ?? 0}</span>
                   </div>
                 </div>
               </CardContent>
@@ -899,11 +1226,79 @@ export default function DealDetailPage() {
         onConfirm={handleDeleteConfirm}
         title="Delete Deal"
         description="Are you sure you want to delete this deal? This will permanently remove it from your CRM and cannot be undone."
-        itemName={deal.dealName}
+        itemName={deal.name}
         itemType="Deal"
         icon={DollarSign}
-        isDeleting={isDeleting}
+        isDeleting={deleteDealMutation.isPending}
       />
+
+      {/* Loss Reason Modal */}
+      <AnimatePresence>
+        {showLossModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50"
+              onClick={() => {
+                setShowLossModal(false);
+                setLossReason("");
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-background rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
+            >
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-orange-500" />
+                Mark Deal as Lost
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Please provide a reason for marking this deal as lost. This helps track deal performance and identify areas for improvement.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Loss Reason *</label>
+                  <Textarea
+                    value={lossReason}
+                    onChange={(e) => setLossReason(e.target.value)}
+                    placeholder="e.g., Price too high, Lost to competitor, Budget constraints..."
+                    className="min-h-[100px] resize-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowLossModal(false);
+                      setLossReason("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleLoseDeal}
+                    disabled={!lossReason.trim() || loseDeal.isPending}
+                    className="bg-orange-500 hover:bg-orange-600 text-white"
+                  >
+                    {loseDeal.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Marking...
+                      </>
+                    ) : (
+                      'Mark as Lost'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Deal Form Drawer */}
       <DealFormDrawer

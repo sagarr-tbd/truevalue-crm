@@ -27,6 +27,7 @@ export interface FormFieldConfig {
   icon?: ReactNode;
   helperText?: string;
   disabled?: boolean;
+  onChange?: (value: string) => void; // Custom change handler for dependent fields
 }
 
 export interface FieldGroup {
