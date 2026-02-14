@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 from ..models import Pipeline, PipelineStage, Deal
-from ..exceptions import InvalidOperationError, LimitExceededError, EntityNotFoundError
+from ..exceptions import InvalidOperationError, EntityNotFoundError
 from .base_service import BaseService
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class PipelineService(BaseService[Pipeline]):
     
     model = Pipeline
     entity_type = 'pipeline'
+    billing_feature_code = 'pipelines'
     
     def _get_pipeline_list_cache_key(self, is_active: bool = None) -> str:
         """Generate cache key for pipeline list."""
@@ -87,15 +88,11 @@ class PipelineService(BaseService[Pipeline]):
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Pipeline:
         """Create a new pipeline with default stages."""
-        # Check plan limits
-        current_count = self.count()
-        limits = settings.CRM_SETTINGS.get('PIPELINE_LIMITS', {})
-        limit = limits.get('free', 1)  # TODO: Get actual plan
-        
-        if limit > 0 and current_count >= limit:
-            raise LimitExceededError('pipeline', limit, current_count)
+        # Check plan limits via billing service
+        self.check_plan_limit('pipelines')
         
         # Check if this is the first pipeline (make it default)
+        current_count = self.count()
         if current_count == 0:
             data['is_default'] = True
         
@@ -124,6 +121,9 @@ class PipelineService(BaseService[Pipeline]):
         
         # Invalidate cache
         self._invalidate_pipeline_cache(pipeline.id)
+        
+        # Sync usage to billing
+        self.sync_usage_to_billing('pipelines')
         
         return pipeline
     
@@ -174,6 +174,8 @@ class PipelineService(BaseService[Pipeline]):
         
         # Invalidate cache
         self._invalidate_pipeline_cache(entity_id)
+        
+        # Usage sync handled by BaseService.delete via billing_feature_code
         
         return result
     

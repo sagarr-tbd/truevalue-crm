@@ -22,6 +22,7 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
     
     model = Contact
     entity_type = 'contact'
+    billing_feature_code = 'contacts'
     
     # Field mapping for advanced filters (frontend field -> backend field)
     # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
@@ -134,8 +135,8 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             if email and self.get_queryset().filter(email=email).exists():
                 raise DuplicateEntityError('Contact', 'email', email)
         
-        # Check plan limits
-        self.check_plan_limit('CONTACT_LIMITS')
+        # Check plan limits via billing service
+        self.check_plan_limit('contacts')
         
         # Handle primary company
         primary_company_id = data.pop('primary_company_id', None)
@@ -159,6 +160,9 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                 )
             except Company.DoesNotExist:
                 pass
+        
+        # Sync usage to billing
+        self.sync_usage_to_billing('contacts')
         
         return contact
     

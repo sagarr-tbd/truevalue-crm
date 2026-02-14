@@ -22,6 +22,7 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     
     model = Lead
     entity_type = 'lead'
+    billing_feature_code = 'leads'
     
     # Field mapping for advanced filters (frontend field -> backend field)
     # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
@@ -112,12 +113,20 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Lead:
         """Create a new lead."""
+        # Check plan limits via billing service
+        self.check_plan_limit('leads')
+        
         # Check for duplicates
         email = data.get('email')
         if email and self.get_queryset().filter(email=email).exists():
             raise DuplicateEntityError('Lead', 'email', email)
         
-        return super().create(data, **kwargs)
+        lead = super().create(data, **kwargs)
+        
+        # Sync usage to billing
+        self.sync_usage_to_billing('leads')
+        
+        return lead
     
     @transaction.atomic
     def convert(
