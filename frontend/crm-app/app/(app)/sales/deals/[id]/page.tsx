@@ -43,97 +43,19 @@ import {
   useReopenDeal,
   DealFormData,
 } from "@/lib/queries/useDeals";
+import { useActivities, useCreateActivity } from "@/lib/queries/useActivities";
+import { useContact } from "@/lib/queries/useContacts";
 import { toast } from "sonner";
+import { THEME_COLORS, getStatusColor } from "@/lib/utils";
 
-// TODO: Replace with real API call to fetch deal activities
-// API endpoint: GET /api/activities/?deal_id={dealId}
-// Create useActivities hook in lib/queries/useActivities.ts
-const mockActivities = [
-  {
-    id: 1,
-    type: "email",
-    title: "Proposal sent to client",
-    description: "Sent detailed proposal document for Enterprise CRM Package",
-    date: "Jan 28, 2026",
-    time: "2:30 PM",
-    icon: Mail,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100",
-  },
-  {
-    id: 2,
-    type: "call",
-    title: "Negotiation call completed",
-    description: "Discussed pricing and contract terms. Client requested minor adjustments.",
-    date: "Jan 25, 2026",
-    time: "10:15 AM",
-    icon: Phone,
-    color: "text-green-600",
-    bgColor: "bg-green-100",
-  },
-  {
-    id: 3,
-    type: "meeting",
-    title: "Product demo scheduled",
-    description: "Scheduled for Feb 5, 2026 at 3:00 PM with technical team",
-    date: "Jan 24, 2026",
-    time: "4:45 PM",
-    icon: Calendar,
-    color: "text-purple-600",
-    bgColor: "bg-purple-100",
-  },
-  {
-    id: 4,
-    type: "note",
-    title: "Internal note added",
-    description: "Client showed strong interest. Budget approved. Decision expected by Feb 10.",
-    date: "Jan 22, 2026",
-    time: "11:20 AM",
-    icon: FileText,
-    color: "text-orange-600",
-    bgColor: "bg-orange-100",
-  },
-];
-
-// TODO: Replace with real API call to fetch deal's related contacts
-// Use deal.contactId to show primary contact, and consider adding
-// a contacts_list field to the deal model for multiple contacts
-const mockContacts = [
-  {
-    id: 1,
-    name: "Sarah Williams",
-    email: "sarah.williams@acme.com",
-    phone: "+1-555-100-1001",
-    jobTitle: "VP Sales",
-    initials: "SW",
-  },
-  {
-    id: 2,
-    name: "David Brown",
-    email: "david.brown@acme.com",
-    phone: "+1-555-100-1002",
-    jobTitle: "Sales Manager",
-    initials: "DB",
-  },
-];
-
-// Mock notes
-const mockNotes = [
-  {
-    id: 1,
-    content: "Deal is progressing well. Client has approved budget and is reviewing contract terms. Expected to close by Feb 15.",
-    author: "John Smith",
-    date: "Jan 28, 2026",
-    time: "2:30 PM",
-  },
-  {
-    id: 2,
-    content: "Discussed implementation timeline and support options. Client requested additional training sessions included in the package.",
-    author: "John Smith",
-    date: "Jan 25, 2026",
-    time: "10:15 AM",
-  },
-];
+// Activity type icon/color mapping
+const ACTIVITY_TYPE_MAP: Record<string, { icon: typeof Mail; color: string; bgColor: string }> = {
+  email: { icon: Mail, color: THEME_COLORS.info.text, bgColor: THEME_COLORS.info.bg },
+  call: { icon: Phone, color: THEME_COLORS.success.text, bgColor: THEME_COLORS.success.bg },
+  meeting: { icon: Calendar, color: "text-purple-600", bgColor: "bg-purple-100" },
+  note: { icon: FileText, color: "text-orange-600", bgColor: "bg-orange-100" },
+  task: { icon: Activity, color: "text-teal-600", bgColor: "bg-teal-100" },
+};
 
 type TabType = "details" | "activity" | "contacts" | "notes";
 
@@ -158,6 +80,25 @@ export default function DealDetailPage() {
   const winDeal = useWinDeal();
   const loseDeal = useLoseDeal();
   const reopenDeal = useReopenDeal();
+
+  // Activities for this deal (all types)
+  const { data: dealActivitiesData, isLoading: activitiesLoading } = useActivities({
+    deal_id: id,
+    page_size: 50,
+  });
+
+  // Notes for this deal (activity_type = note)
+  const { data: dealNotesData, isLoading: notesLoading } = useActivities({
+    deal_id: id,
+    activity_type: 'note',
+    page_size: 50,
+  });
+
+  // Create activity mutation (for adding notes)
+  const createActivity = useCreateActivity();
+
+  // Primary contact for this deal
+  const { data: primaryContact, isLoading: contactLoading } = useContact(deal?.contactId || '');
 
   // Calculate effective probability (use stage probability as fallback)
   const effectiveProbability = useMemo(() => {
@@ -272,12 +213,22 @@ export default function DealDetailPage() {
     }
   };
 
-  const handleAddNote = () => {
-    if (!newNote.trim()) return;
-    // TODO: Integrate with activities API
-    console.log("Adding note:", newNote);
-    toast.success("Note added (mock)");
-    setNewNote("");
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !deal) return;
+    try {
+      await createActivity.mutateAsync({
+        activityType: 'note',
+        subject: newNote.trim().slice(0, 100),
+        description: newNote.trim(),
+        dealId: deal.id,
+        contactId: deal.contactId,
+        companyId: deal.companyId,
+      });
+      toast.success("Note added");
+      setNewNote("");
+    } catch (error) {
+      toast.error("Failed to add note");
+    }
   };
 
   // Form handlers
@@ -426,11 +377,7 @@ export default function DealDetailPage() {
                     {deal.stageName}
                   </span>
                   {/* Status Badge */}
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
-                    isWon ? 'bg-green-100 text-green-700' :
-                    isLost ? 'bg-red-100 text-red-700' :
-                    'bg-blue-100 text-blue-700'
-                  }`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(deal.status, 'deal')}`}>
                     {deal.status}
                   </span>
                   <span className="text-lg font-semibold text-foreground font-tabular">
@@ -450,7 +397,7 @@ export default function DealDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2 text-green-600 hover:text-green-700"
+                    className={`gap-2 ${THEME_COLORS.success.text} hover:opacity-80`}
                     onClick={handleWinDeal}
                     disabled={winDeal.isPending}
                   >
@@ -498,9 +445,9 @@ export default function DealDetailPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg"
+            className={`mb-6 p-4 ${THEME_COLORS.success.bg} border border-primary/20 rounded-lg`}
           >
-            <div className="flex items-center gap-2 text-green-700">
+            <div className={`flex items-center gap-2 ${THEME_COLORS.success.text}`}>
               <Trophy className="h-5 w-5" />
               <span className="font-medium">
                 This deal was won on {formatDate(deal.actualCloseDate || deal.updatedAt)}
@@ -513,21 +460,21 @@ export default function DealDetailPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+            className={`mb-6 p-4 ${THEME_COLORS.error.bg} border border-destructive/20 rounded-lg`}
           >
-            <div className="flex items-center gap-2 text-red-700">
+            <div className={`flex items-center gap-2 ${THEME_COLORS.error.text}`}>
               <XCircle className="h-5 w-5" />
               <span className="font-medium">
                 This deal was lost on {formatDate(deal.actualCloseDate || deal.updatedAt)}
               </span>
             </div>
             {deal.lossReason && (
-              <p className="text-sm text-red-600 mt-1">
+              <p className={`text-sm ${THEME_COLORS.error.text} mt-1`}>
                 Reason: {deal.lossReason}
               </p>
             )}
             {deal.lossNotes && (
-              <p className="text-sm text-red-600 mt-1">
+              <p className={`text-sm ${THEME_COLORS.error.text} mt-1`}>
                 Notes: {deal.lossNotes}
               </p>
             )}
@@ -673,8 +620,8 @@ export default function DealDetailPage() {
                           {/* Deal Value Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-green-500/10 rounded-lg">
-                                <DollarSign className="h-4 w-4 text-green-500" />
+                              <div className={`p-2 ${THEME_COLORS.success.bg} rounded-lg`}>
+                                <DollarSign className={`h-4 w-4 ${THEME_COLORS.success.text}`} />
                               </div>
                               <h3 className="text-base font-semibold">Deal Value</h3>
                             </div>
@@ -699,11 +646,7 @@ export default function DealDetailPage() {
                               </div>
                               <div className="flex justify-between items-center">
                                 <span className="text-sm text-muted-foreground">Status</span>
-                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                                  isWon ? 'bg-green-100 text-green-700' :
-                                  isLost ? 'bg-red-100 text-red-700' :
-                                  'bg-blue-100 text-blue-700'
-                                }`}>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(deal.status, 'deal')}`}>
                                   {deal.status}
                                 </span>
                               </div>
@@ -713,8 +656,8 @@ export default function DealDetailPage() {
                           {/* Pipeline Details Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-purple-500/10 rounded-lg">
-                                <TrendingUp className="h-4 w-4 text-purple-500" />
+                              <div className="p-2 bg-brand-purple/10 rounded-lg">
+                                <TrendingUp className="h-4 w-4 text-brand-purple" />
                               </div>
                               <h3 className="text-base font-semibold">Pipeline Details</h3>
                             </div>
@@ -822,8 +765,8 @@ export default function DealDetailPage() {
                           {/* Important Dates Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-blue-500/10 rounded-lg">
-                                <Calendar className="h-4 w-4 text-blue-500" />
+                              <div className={`p-2 ${THEME_COLORS.info.bg} rounded-lg`}>
+                                <Calendar className={`h-4 w-4 ${THEME_COLORS.info.text}`} />
                               </div>
                               <h3 className="text-base font-semibold">Important Dates</h3>
                             </div>
@@ -908,29 +851,61 @@ export default function DealDetailPage() {
                         transition={{ duration: 0.2 }}
                         className="space-y-4"
                       >
-                        {mockActivities.map((activity, index) => {
-                          const Icon = activity.icon;
-                          return (
-                            <div key={activity.id} className="flex gap-4">
-                              <div className="flex flex-col items-center">
-                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                  <Icon className="h-5 w-5 text-primary" />
+                        {activitiesLoading ? (
+                          <div className="space-y-4">
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="flex gap-4 animate-pulse">
+                                <div className="w-10 h-10 rounded-full bg-muted" />
+                                <div className="flex-1 space-y-2">
+                                  <div className="h-4 w-3/4 rounded bg-muted" />
+                                  <div className="h-3 w-1/2 rounded bg-muted" />
                                 </div>
-                                {index < mockActivities.length - 1 && (
-                                  <div className="w-0.5 h-full bg-border mt-2" />
-                                )}
                               </div>
-                              <div className="flex-1 pb-4">
-                                <div className="flex items-start justify-between mb-1">
-                                  <p className="font-medium">{activity.title}</p>
-                                  <span className="text-sm text-muted-foreground">{activity.date}</span>
+                            ))}
+                          </div>
+                        ) : (dealActivitiesData?.data?.length || 0) > 0 ? (
+                          dealActivitiesData!.data.map((activity, index) => {
+                            const mapping = ACTIVITY_TYPE_MAP[activity.type] || ACTIVITY_TYPE_MAP.task;
+                            const Icon = mapping.icon;
+                            return (
+                              <div key={activity.id} className="flex gap-4">
+                                <div className="flex flex-col items-center">
+                                  <div className={`w-10 h-10 rounded-full ${mapping.bgColor} flex items-center justify-center`}>
+                                    <Icon className={`h-5 w-5 ${mapping.color}`} />
+                                  </div>
+                                  {index < dealActivitiesData!.data.length - 1 && (
+                                    <div className="w-0.5 h-full bg-border mt-2" />
+                                  )}
                                 </div>
-                                <p className="text-sm text-muted-foreground mb-2">{activity.description}</p>
-                                <p className="text-xs text-muted-foreground">{activity.time}</p>
+                                <div className="flex-1 pb-4">
+                                  <div className="flex items-start justify-between mb-1">
+                                    <p className="font-medium">{activity.subject}</p>
+                                    <span className="text-sm text-muted-foreground">
+                                      {formatDate(activity.createdAt)}
+                                    </span>
+                                  </div>
+                                  {activity.description && (
+                                    <p className="text-sm text-muted-foreground mb-2">{activity.description}</p>
+                                  )}
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-xs text-muted-foreground capitalize">{activity.type}</span>
+                                    {activity.contact && (
+                                      <Link href={`/sales/contacts/${activity.contact.id}`} className="text-xs text-primary hover:underline">
+                                        {activity.contact.name}
+                                      </Link>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Activity className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p>No activities recorded for this deal</p>
+                            <p className="text-sm mt-1">Log a call, email, or meeting to see it here</p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
 
@@ -943,50 +918,64 @@ export default function DealDetailPage() {
                         transition={{ duration: 0.2 }}
                         className="space-y-4"
                       >
-                        {mockContacts.length > 0 ? (
-                          mockContacts.map((contact) => (
-                            <Card key={contact.id} className="border border-border">
-                              <CardContent className="p-4">
-                                <div className="flex items-start justify-between">
-                                  <div className="flex items-center gap-3 flex-1">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
-                                      {contact.initials}
-                                    </div>
-                                    <div className="flex-1">
-                                      <h4 className="text-sm font-semibold text-gray-900">
-                                        {contact.name}
-                                      </h4>
-                                      <div className="mt-2 space-y-1">
+                        {contactLoading ? (
+                          <div className="animate-pulse space-y-4">
+                            <div className="flex items-center gap-3 p-4">
+                              <div className="w-10 h-10 rounded-full bg-muted" />
+                              <div className="flex-1 space-y-2">
+                                <div className="h-4 w-1/3 rounded bg-muted" />
+                                <div className="h-3 w-1/2 rounded bg-muted" />
+                              </div>
+                            </div>
+                          </div>
+                        ) : primaryContact ? (
+                          <Card className="border border-border">
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-3 flex-1">
+                                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
+                                    {primaryContact.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'C'}
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="text-sm font-semibold text-foreground">
+                                      {primaryContact.name}
+                                    </h4>
+                                    {primaryContact.jobTitle && (
+                                      <p className="text-xs text-muted-foreground">{primaryContact.jobTitle}</p>
+                                    )}
+                                    <div className="mt-2 space-y-1">
+                                      {primaryContact.email && (
                                         <div className="flex items-center gap-2 text-sm">
-                                          <Mail className="h-4 w-4 text-gray-400" />
-                                          <span className="text-gray-900">{contact.email}</span>
+                                          <Mail className="h-4 w-4 text-muted-foreground" />
+                                          <a href={`mailto:${primaryContact.email}`} className="text-primary hover:underline">
+                                            {primaryContact.email}
+                                          </a>
                                         </div>
+                                      )}
+                                      {primaryContact.phone && (
                                         <div className="flex items-center gap-2 text-sm">
-                                          <Phone className="h-4 w-4 text-gray-400" />
-                                          <span className="text-gray-600">{contact.phone}</span>
+                                          <Phone className="h-4 w-4 text-muted-foreground" />
+                                          <span className="text-foreground">{primaryContact.phone}</span>
                                         </div>
-                                        <div className="flex items-center gap-2 text-sm">
-                                          <User className="h-4 w-4 text-gray-400" />
-                                          <span className="text-gray-600">{contact.jobTitle}</span>
-                                        </div>
-                                      </div>
+                                      )}
                                     </div>
                                   </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => router.push(`/sales/contacts/${contact.id}`)}
-                                  >
-                                    View
-                                  </Button>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          ))
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => router.push(`/sales/contacts/${primaryContact.id}`)}
+                                >
+                                  View
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
                         ) : (
-                          <div className="text-center py-8 text-gray-500">
-                            <Users className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                            <p>No related contacts found</p>
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Users className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p>No contact linked to this deal</p>
+                            <p className="text-sm mt-1">Edit the deal to associate a contact</p>
                           </div>
                         )}
                       </motion.div>
@@ -1002,7 +991,7 @@ export default function DealDetailPage() {
                         className="space-y-4"
                       >
                         {/* Add Note Form */}
-                        <div className="border border-border rounded-lg p-4 bg-gray-50">
+                        <div className="border border-border rounded-lg p-4 bg-muted/30">
                           <Textarea
                             value={newNote}
                             onChange={(e) => setNewNote(e.target.value)}
@@ -1010,31 +999,66 @@ export default function DealDetailPage() {
                             className="min-h-[100px] resize-none"
                           />
                           <div className="flex justify-end mt-3">
-                            <Button onClick={handleAddNote} size="sm" disabled={!newNote.trim()}>
-                              <Plus className="h-4 w-4 mr-2" />
-                              Add Note
+                            <Button
+                              onClick={handleAddNote}
+                              size="sm"
+                              disabled={!newNote.trim() || createActivity.isPending}
+                            >
+                              {createActivity.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Adding...
+                                </>
+                              ) : (
+                                <>
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Add Note
+                                </>
+                              )}
                             </Button>
                           </div>
                         </div>
 
                         {/* Notes List */}
-                        <div className="space-y-4">
-                          {mockNotes.map((note) => (
-                            <Card key={note.id} className="border border-border">
-                              <CardContent className="p-4">
-                                <p className="text-sm text-gray-900 whitespace-pre-wrap">
-                                  {note.content}
-                                </p>
-                                <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                                  <span className="text-xs text-gray-500">{note.author}</span>
-                                  <span className="text-xs text-gray-400">
-                                    {note.date} at {note.time}
-                                  </span>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
+                        {notesLoading ? (
+                          <div className="space-y-4">
+                            {[1, 2].map((i) => (
+                              <Card key={i} className="border border-border">
+                                <CardContent className="p-4 animate-pulse space-y-2">
+                                  <div className="h-4 w-full rounded bg-muted" />
+                                  <div className="h-4 w-3/4 rounded bg-muted" />
+                                  <div className="h-3 w-1/4 rounded bg-muted mt-3" />
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        ) : (dealNotesData?.data?.length || 0) > 0 ? (
+                          <div className="space-y-4">
+                            {dealNotesData!.data.map((note) => (
+                              <Card key={note.id} className="border border-border">
+                                <CardContent className="p-4">
+                                  <p className="text-sm text-foreground whitespace-pre-wrap">
+                                    {note.description || note.subject}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                                    <span className="text-xs text-muted-foreground">
+                                      {note.contact?.name || 'System'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {formatDate(note.createdAt)}
+                                    </span>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p>No notes yet</p>
+                            <p className="text-sm mt-1">Add a note above to get started</p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1053,7 +1077,7 @@ export default function DealDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <Button
-                    className="w-full justify-start gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                    className={`w-full justify-start gap-2 ${THEME_COLORS.success.text} hover:opacity-80 hover:${THEME_COLORS.success.bg}`}
                     variant="outline"
                     onClick={handleWinDeal}
                     disabled={winDeal.isPending}
@@ -1062,7 +1086,7 @@ export default function DealDetailPage() {
                     {winDeal.isPending ? 'Marking as Won...' : 'Mark as Won'}
                   </Button>
                   <Button
-                    className="w-full justify-start gap-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                    className={`w-full justify-start gap-2 ${THEME_COLORS.warning.text} hover:opacity-80 hover:${THEME_COLORS.warning.bg}`}
                     variant="outline"
                     onClick={() => setShowLossModal(true)}
                     disabled={loseDeal.isPending}
@@ -1080,8 +1104,8 @@ export default function DealDetailPage() {
                   <CardTitle className="text-base">Deal Status</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className={`p-3 rounded-lg ${isWon ? 'bg-green-50' : 'bg-red-50'}`}>
-                    <div className={`flex items-center gap-2 ${isWon ? 'text-green-700' : 'text-red-700'}`}>
+                  <div className={`p-3 rounded-lg ${isWon ? THEME_COLORS.success.bg : THEME_COLORS.error.bg}`}>
+                    <div className={`flex items-center gap-2 ${isWon ? THEME_COLORS.success.text : THEME_COLORS.error.text}`}>
                       {isWon ? <Trophy className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
                       <span className="font-medium capitalize">{deal.status}</span>
                     </div>

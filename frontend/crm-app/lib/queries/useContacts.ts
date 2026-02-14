@@ -210,5 +210,52 @@ export function useMergeContacts() {
   });
 }
 
+// ============================================================================
+// CONTACT-COMPANY ASSOCIATION HOOKS
+// ============================================================================
+
+/**
+ * Add a company association to a contact
+ */
+export function useAddContactCompany() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ contactId, data }: {
+      contactId: string;
+      data: { companyId: string; title?: string; department?: string; isPrimary?: boolean };
+    }) => contactsApi.addCompany(contactId, data),
+    onSuccess: (_, { contactId }) => {
+      queryClient.invalidateQueries({ queryKey: contactKeys.detail(contactId) });
+      queryClient.invalidateQueries({ queryKey: contactKeys.lists() });
+      toast.success('Company linked successfully!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to link company');
+    },
+  });
+}
+
+/**
+ * Remove a company association from a contact
+ */
+export function useRemoveContactCompany() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ contactId, companyId }: { contactId: string; companyId: string }) =>
+      contactsApi.removeCompany(contactId, companyId),
+    onSuccess: (_, { contactId }) => {
+      queryClient.invalidateQueries({ queryKey: contactKeys.detail(contactId) });
+      queryClient.invalidateQueries({ queryKey: contactKeys.lists() });
+      toast.success('Company unlinked successfully!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to unlink company');
+    },
+  });
+}
+
 // Re-export types
 export type { DuplicateCheckResult, MergeContactResult, MergeStrategy } from '@/lib/api/contacts';
+export type { CompanyAssociation } from '@/lib/api/contacts';

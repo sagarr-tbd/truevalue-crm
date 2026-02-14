@@ -434,7 +434,7 @@ export const pipelinesApi = {
       winRate: data.win_rate,
       avgDealSize: parseFloat(String(data.avg_deal_size)) || 0,
       avgTimeToClose: data.avg_time_to_close,
-      byStage: data.by_stage.map(s => ({
+      byStage: (data.by_stage || []).map(s => ({
         stageId: s.stage_id,
         stageName: s.stage_name,
         dealCount: s.deal_count,

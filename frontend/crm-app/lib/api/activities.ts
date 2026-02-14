@@ -331,6 +331,29 @@ export const activitiesApi = {
   },
 
   /**
+   * Get activity trend (daily counts by type for charts)
+   */
+  getActivityTrend: async (days: number = 30): Promise<Array<{
+    date: string;
+    calls: number;
+    meetings: number;
+    emails: number;
+  }>> => {
+    const response = await apiClient.get<{ data: Array<{
+      date: string;
+      calls: number;
+      meetings: number;
+      emails: number;
+    }> }>(`/crm/api/v1/activities/trend?days=${days}`);
+
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+
+    return response.data!.data;
+  },
+
+  /**
    * Create a new activity
    */
   create: async (data: ActivityFormData): Promise<ActivityViewModel> => {

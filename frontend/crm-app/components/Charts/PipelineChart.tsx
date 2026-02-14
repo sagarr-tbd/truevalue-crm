@@ -27,14 +27,15 @@ export function PipelineChart({ data }: PipelineChartProps) {
   const chartData = useMemo(() => {
     if (data) return data;
 
-    // Mock pipeline data
-    return [
-      { stage: "Prospecting", count: 45, value: 450000 },
-      { stage: "Qualified", count: 32, value: 720000 },
-      { stage: "Proposal", count: 18, value: 540000 },
-      { stage: "Negotiation", count: 12, value: 480000 },
-      { stage: "Closed Won", count: 8, value: 320000 },
-    ];
+    // // Mock pipeline data
+    // return [
+    //   { stage: "Prospecting", count: 45, value: 450000 },
+    //   { stage: "Qualified", count: 32, value: 720000 },
+    //   { stage: "Proposal", count: 18, value: 540000 },
+    //   { stage: "Negotiation", count: 12, value: 480000 },
+    //   { stage: "Closed Won", count: 8, value: 320000 },
+    // ];
+    return [];
   }, [data]);
 
   const COLORS = [

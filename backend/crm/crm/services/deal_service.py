@@ -525,6 +525,32 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         closed_deals = stats['won_deals'] + stats['lost_deals']
         win_rate = (stats['won_deals'] / closed_deals * 100) if closed_deals > 0 else 0
         
+        # Total value across all statuses
+        total_value = stats['open_value'] + stats['won_value'] + stats['lost_value']
+        avg_deal_size = (total_value / stats['total_deals']) if stats['total_deals'] > 0 else Decimal('0')
+        
+        # By-stage breakdown: include all stages even if 0 deals
+        stages = PipelineStage.objects.filter(pipeline=pipeline).order_by('order')
+        stage_stats = (
+            Deal.objects.filter(org_id=self.org_id, pipeline=pipeline)
+            .values('stage_id')
+            .annotate(
+                deal_count=Count('id'),
+                deal_value=Coalesce(Sum('value'), Decimal('0')),
+            )
+        )
+        stage_map = {str(s['stage_id']): s for s in stage_stats}
+        
+        by_stage = []
+        for stage in stages:
+            s = stage_map.get(str(stage.id), {})
+            by_stage.append({
+                'stage_id': str(stage.id),
+                'stage_name': stage.name,
+                'deal_count': s.get('deal_count', 0),
+                'deal_value': s.get('deal_value', Decimal('0')),
+            })
+        
         return {
             'pipeline_id': str(pipeline_id),
             'pipeline_name': pipeline.name,
@@ -532,12 +558,16 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             'open_deals': stats['open_deals'],
             'won_deals': stats['won_deals'],
             'lost_deals': stats['lost_deals'],
+            'total_value': total_value,
             'open_value': stats['open_value'],
             'won_value': stats['won_value'],
             'lost_value': stats['lost_value'],
             'weighted_value': stats['weighted_value'],
             'win_rate': win_rate,
+            'avg_deal_size': avg_deal_size,
             'avg_deal_value': stats['avg_deal_value'],
+            'avg_time_to_close': 0,
+            'by_stage': by_stage,
         }
     
     def get_forecast(self, days: int = 30) -> Dict:

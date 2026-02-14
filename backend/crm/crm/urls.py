@@ -18,6 +18,8 @@ urlpatterns = [
     path('contacts/merge', views.ContactMergeView.as_view(), name='contact-merge'),
     path('contacts/<uuid:contact_id>', views.ContactDetailView.as_view(), name='contact-detail'),
     path('contacts/<uuid:contact_id>/timeline', views.ContactTimelineView.as_view(), name='contact-timeline'),
+    path('contacts/<uuid:contact_id>/companies', views.ContactCompaniesView.as_view(), name='contact-companies'),
+    path('contacts/<uuid:contact_id>/companies/<uuid:company_id>', views.ContactCompanyDetailView.as_view(), name='contact-company-detail'),
     
     # ==========================================================================
     # COMPANIES
@@ -25,6 +27,7 @@ urlpatterns = [
     path('companies', views.CompanyListView.as_view(), name='company-list'),
     path('companies/<uuid:company_id>', views.CompanyDetailView.as_view(), name='company-detail'),
     path('companies/<uuid:company_id>/contacts', views.CompanyContactsView.as_view(), name='company-contacts'),
+    path('companies/<uuid:company_id>/contacts/<uuid:contact_id>', views.CompanyContactDetailView.as_view(), name='company-contact-detail'),
     path('companies/<uuid:company_id>/stats', views.CompanyStatsView.as_view(), name='company-stats'),
     
     # ==========================================================================
@@ -70,6 +73,7 @@ urlpatterns = [
     path('activities/upcoming', views.ActivityUpcomingView.as_view(), name='activity-upcoming'),
     path('activities/overdue', views.ActivityOverdueView.as_view(), name='activity-overdue'),
     path('activities/stats', views.ActivityStatsView.as_view(), name='activity-stats'),
+    path('activities/trend', views.ActivityTrendView.as_view(), name='activity-trend'),
     path('activities/<uuid:activity_id>', views.ActivityDetailView.as_view(), name='activity-detail'),
     path('activities/<uuid:activity_id>/complete', views.ActivityCompleteView.as_view(), name='activity-complete'),
     

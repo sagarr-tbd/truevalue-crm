@@ -22,16 +22,20 @@ import {
   Target,
   Merge,
   Search,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { ContactFormDrawer, type Contact as ContactType } from "@/components/Forms/Sales";
-import { useContact, useDeleteContact, useUpdateContact, useContacts, useCheckDuplicates, useMergeContacts, type ContactFormData } from "@/lib/queries/useContacts";
+import { useContact, useDeleteContact, useUpdateContact, useContacts, useCheckDuplicates, useMergeContacts, useRemoveContactCompany, type ContactFormData } from "@/lib/queries/useContacts";
+import { useDeals } from "@/lib/queries/useDeals";
 import { MergeContactModal } from "@/components/MergeContactModal";
 import { useContactTimeline, useCreateActivity } from "@/lib/queries/useActivities";
+import LinkCompanyModal from "@/components/LinkCompanyModal/LinkCompanyModal";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
+import { THEME_COLORS, getStatusColor, getDealStageColor } from "@/lib/utils";
 
 // Activity type icon mapping
 const getActivityIcon = (type: string) => {
@@ -47,11 +51,11 @@ const getActivityIcon = (type: string) => {
 
 const getActivityColor = (type: string) => {
   switch (type) {
-    case 'email': return { color: 'text-blue-600', bg: 'bg-blue-100' };
-    case 'call': return { color: 'text-green-600', bg: 'bg-green-100' };
-    case 'meeting': return { color: 'text-purple-600', bg: 'bg-purple-100' };
-    case 'task': return { color: 'text-orange-600', bg: 'bg-orange-100' };
-    case 'note': return { color: 'text-gray-600', bg: 'bg-gray-100' };
+    case 'email': return { color: THEME_COLORS.info.text, bg: THEME_COLORS.info.bg };
+    case 'call': return { color: THEME_COLORS.success.text, bg: THEME_COLORS.success.bg };
+    case 'meeting': return { color: 'text-brand-purple', bg: 'bg-brand-purple/10' };
+    case 'task': return { color: THEME_COLORS.warning.text, bg: THEME_COLORS.warning.bg };
+    case 'note': return { color: THEME_COLORS.neutral.text, bg: THEME_COLORS.neutral.bg };
     default: return { color: 'text-primary', bg: 'bg-primary/10' };
   }
 };
@@ -76,27 +80,7 @@ const formatActivityTime = (dateString: string) => {
   });
 };
 
-// TODO: Replace with real API call to fetch contact's associated deals
-// API endpoint: GET /api/deals/?contact_id={contactId}
-// Use useDeals hook with contact_id filter once the hook supports it
-const mockDeals = [
-  {
-    id: 1,
-    name: "Enterprise Partnership Q1",
-    value: "$125,000",
-    stage: "Proposal",
-    probability: 75,
-    closeDate: "Feb 15, 2026",
-  },
-  {
-    id: 2,
-    name: "Annual License Renewal",
-    value: "$45,000",
-    stage: "Negotiation",
-    probability: 60,
-    closeDate: "Mar 1, 2026",
-  },
-];
+// Deals are fetched via useDeals hook with contact_id filter
 
 type TabType = "details" | "activity" | "deals" | "notes";
 
@@ -117,12 +101,16 @@ export default function ContactDetailPage() {
   const [duplicatesToMerge, setDuplicatesToMerge] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedDuplicateId, setSelectedDuplicateId] = useState<string | null>(null);
 
+  // Link company state
+  const [showLinkCompanyModal, setShowLinkCompanyModal] = useState(false);
+
   // Fetch contact from API
   const { data: contact, isLoading, error } = useContact(id);
   const deleteContactMutation = useDeleteContact();
   const updateContactMutation = useUpdateContact();
   const checkDuplicates = useCheckDuplicates();
   const mergeContacts = useMergeContacts();
+  const removeCompany = useRemoveContactCompany();
 
   // Fetch related contacts from same company (only when contact has a company)
   const { data: relatedContactsResponse } = useContacts(
@@ -136,6 +124,13 @@ export default function ContactDetailPage() {
   // Fetch contact timeline (activities)
   const { data: activities = [], isLoading: isLoadingActivities } = useContactTimeline(id);
   const createActivity = useCreateActivity();
+
+  // Fetch deals linked to this contact
+  const { data: linkedDealsResponse } = useDeals({
+    contact_id: id,
+    page_size: 50,
+  });
+  const linkedDeals = linkedDealsResponse?.data ?? [];
 
   // Filter out current contact from related contacts
   const relatedContacts = useMemo(() => {
@@ -336,22 +331,8 @@ export default function ContactDetailPage() {
     }
   };
 
-  // Status badge colors
-  const getStatusColors = (status: string) => {
-    const normalizedStatus = status?.toLowerCase() || '';
-    const colors: Record<string, string> = {
-      active: "bg-green-100 text-green-700",
-      inactive: "bg-gray-100 text-gray-600",
-      bounced: "bg-red-100 text-red-700",
-      unsubscribed: "bg-yellow-100 text-yellow-700",
-      archived: "bg-purple-100 text-purple-700",
-      // Legacy values
-      prospect: "bg-secondary/10 text-secondary",
-      lead: "bg-accent/10 text-accent",
-      customer: "bg-primary/10 text-primary",
-    };
-    return colors[normalizedStatus] || "bg-gray-100 text-gray-600";
-  };
+  // Status badge colors - use centralized utility
+  const getStatusColors = (status: string) => getStatusColor(status, 'contact');
 
   // Score percentage for visualization (currently not provided by backend)
   const scorePercentage = 0;
@@ -394,7 +375,7 @@ export default function ContactDetailPage() {
   const tabs = [
     { id: "details" as TabType, label: "Details", icon: FileText },
     { id: "activity" as TabType, label: "Activity", icon: Activity },
-    { id: "deals" as TabType, label: "Related Deals", icon: DollarSign },
+    { id: "deals" as TabType, label: `Deals (${linkedDeals.length})`, icon: DollarSign },
     { id: "notes" as TabType, label: "Notes", icon: MessageSquare },
   ];
 
@@ -457,12 +438,12 @@ export default function ContactDetailPage() {
                     </span>
                   )}
                   {contact.doNotCall && (
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${THEME_COLORS.error.badge}`}>
                       Do Not Call
                     </span>
                   )}
                   {contact.doNotEmail && (
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${THEME_COLORS.error.badge}`}>
                       Do Not Email
                     </span>
                   )}
@@ -546,24 +527,76 @@ export default function ContactDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Building2 className="h-4 w-4" />
-                Company Details
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Companies
+                  {contact.companies && contact.companies.length > 0 && (
+                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
+                      {contact.companies.length}
+                    </span>
+                  )}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => setShowLinkCompanyModal(true)}
+                  title="Link company"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div>
-                <p className="text-xs text-muted-foreground">Company</p>
-                <p className="text-sm font-medium">{contact.company || "-"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Job Title</p>
-                <p className="text-sm font-medium">{contact.jobTitle || "-"}</p>
-              </div>
-              {contact.department && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Department</p>
-                  <p className="text-sm font-medium">{contact.department}</p>
+              {contact.companies && contact.companies.length > 0 ? (
+                contact.companies.map((assoc) => (
+                  <div
+                    key={assoc.id}
+                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors group"
+                  >
+                    <Link
+                      href={`/sales/accounts/${assoc.companyId}`}
+                      className="flex items-center gap-2 flex-1 min-w-0"
+                    >
+                      <div className="w-7 h-7 rounded-md bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-xs font-semibold">
+                        {assoc.companyName.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate hover:text-primary transition-colors">
+                          {assoc.companyName}
+                          {assoc.isPrimary && (
+                            <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400">Primary</span>
+                          )}
+                        </p>
+                        {(assoc.title || assoc.department) && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {[assoc.title, assoc.department].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                    <button
+                      onClick={() => removeCompany.mutate({ contactId: contact.id, companyId: assoc.companyId })}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1 rounded"
+                      title="Unlink company"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-2">
+                  <p className="text-xs text-muted-foreground">No companies linked</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 text-xs h-7"
+                    onClick={() => setShowLinkCompanyModal(true)}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Link Company
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -740,8 +773,8 @@ export default function ContactDetailPage() {
                       {(contact.addressLine1 || contact.city || contact.country) && (
                         <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                           <div className="flex items-center gap-2 mb-4">
-                            <div className="p-2 bg-green-500/10 rounded-lg">
-                              <svg className="h-4 w-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className={`p-2 ${THEME_COLORS.success.bg} rounded-lg`}>
+                              <svg className={`h-4 w-4 ${THEME_COLORS.success.text}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                               </svg>
@@ -763,8 +796,8 @@ export default function ContactDetailPage() {
                       {(contact.source || contact.sourceDetail) && (
                         <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                           <div className="flex items-center gap-2 mb-4">
-                            <div className="p-2 bg-orange-500/10 rounded-lg">
-                              <Target className="h-4 w-4 text-orange-500" />
+                            <div className={`p-2 ${THEME_COLORS.warning.bg} rounded-lg`}>
+                              <Target className={`h-4 w-4 ${THEME_COLORS.warning.text}`} />
                             </div>
                             <h3 className="text-base font-semibold">Source Information</h3>
                           </div>
@@ -790,8 +823,8 @@ export default function ContactDetailPage() {
                       {(contact.linkedinUrl || contact.twitterUrl) && (
                         <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                           <div className="flex items-center gap-2 mb-4">
-                            <div className="p-2 bg-blue-500/10 rounded-lg">
-                              <Users className="h-4 w-4 text-blue-500" />
+                            <div className={`p-2 ${THEME_COLORS.info.bg} rounded-lg`}>
+                              <Users className={`h-4 w-4 ${THEME_COLORS.info.text}`} />
                             </div>
                             <h3 className="text-base font-semibold">Social Profiles</h3>
                           </div>
@@ -829,21 +862,21 @@ export default function ContactDetailPage() {
                       {/* Communication Preferences Card */}
                       <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                         <div className="flex items-center gap-2 mb-4">
-                          <div className="p-2 bg-red-500/10 rounded-lg">
-                            <Phone className="h-4 w-4 text-red-500" />
+                          <div className={`p-2 ${THEME_COLORS.error.bg} rounded-lg`}>
+                            <Phone className={`h-4 w-4 ${THEME_COLORS.error.text}`} />
                           </div>
                           <h3 className="text-base font-semibold">Communication Preferences</h3>
                         </div>
                         {(contact.doNotCall || contact.doNotEmail) ? (
                           <div className="flex flex-wrap gap-2">
                             {contact.doNotCall && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-sm font-medium">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${THEME_COLORS.error.badge} text-sm font-medium`}>
                                 <Phone className="h-3.5 w-3.5" />
                                 Do Not Call
                               </span>
                             )}
                             {contact.doNotEmail && (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-sm font-medium">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${THEME_COLORS.error.badge} text-sm font-medium`}>
                                 <Mail className="h-3.5 w-3.5" />
                                 Do Not Email
                               </span>
@@ -929,17 +962,17 @@ export default function ContactDetailPage() {
                       {(contact.dealCount !== undefined || contact.activityCount !== undefined) && (
                         <div className="flex gap-4 text-sm">
                           {contact.dealCount !== undefined && (
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg">
+                            <div className={`flex items-center gap-1.5 px-3 py-1.5 ${THEME_COLORS.success.bg} ${THEME_COLORS.success.text} rounded-lg`}>
                               <DollarSign className="h-4 w-4" />
                               <span className="font-medium">{contact.dealCount}</span>
-                              <span className="text-green-600">Deals</span>
+                              <span>Deals</span>
                             </div>
                           )}
                           {contact.activityCount !== undefined && (
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg">
+                            <div className={`flex items-center gap-1.5 px-3 py-1.5 ${THEME_COLORS.info.bg} ${THEME_COLORS.info.text} rounded-lg`}>
                               <Activity className="h-4 w-4" />
                               <span className="font-medium">{contact.activityCount}</span>
-                              <span className="text-blue-600">Activities</span>
+                              <span>Activities</span>
                             </div>
                           )}
                         </div>
@@ -993,11 +1026,7 @@ export default function ContactDetailPage() {
                               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                 <span>{formatActivityTime(activity.createdAt)}</span>
                                 {activity.status && (
-                                  <span className={`px-2 py-0.5 rounded-full capitalize ${
-                                    activity.status === 'completed' ? 'bg-green-100 text-green-700' :
-                                    activity.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                    'bg-gray-100 text-gray-600'
-                                  }`}>
+                                  <span className={`px-2 py-0.5 rounded-full capitalize ${getStatusColor(activity.status, 'generic')}`}>
                                     {activity.status}
                                   </span>
                                 )}
@@ -1028,53 +1057,55 @@ export default function ContactDetailPage() {
                     transition={{ duration: 0.2 }}
                     className="space-y-4"
                   >
-                    {mockDeals.length > 0 ? (
-                      mockDeals.map((deal) => (
-                        <Card key={deal.id} className="border border-border">
+                    {linkedDeals.length > 0 ? (
+                      linkedDeals.map((deal) => (
+                        <Card 
+                          key={deal.id} 
+                          className="border border-border cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => router.push(`/sales/deals/${deal.id}`)}
+                        >
                           <CardContent className="p-4">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
-                                <h4 className="text-sm font-semibold text-gray-900">
-                                  {deal.name}
-                                </h4>
-                                <div className="mt-2 space-y-1">
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <DollarSign className="h-4 w-4 text-gray-400" />
-                                    <span className="text-gray-900">{deal.value}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <Target className="h-4 w-4 text-gray-400" />
-                                    <span className="text-gray-600">{deal.stage}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <TrendingUp className="h-4 w-4 text-gray-400" />
-                                    <span className="text-gray-600">
-                                      {deal.probability}% probability
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <Calendar className="h-4 w-4 text-gray-400" />
-                                    <span className="text-gray-600">
-                                      Close: {deal.closeDate}
-                                    </span>
-                                  </div>
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h4 className="text-sm font-semibold text-foreground">
+                                    {deal.name}
+                                  </h4>
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getDealStageColor(deal.stageName, deal.status)}`}>
+                                    {deal.stageName}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                  <span className="font-medium text-foreground">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: deal.currency || 'USD' }).format(deal.value || 0)}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{deal.probability}% probability</span>
+                                  {deal.expectedCloseDate && (
+                                    <>
+                                      <span>•</span>
+                                      <span>Close: {new Date(deal.expectedCloseDate).toLocaleDateString()}</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => router.push(`/sales/deals/${deal.id}`)}
-                              >
-                                View
-                              </Button>
                             </div>
                           </CardContent>
                         </Card>
                       ))
                     ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        <DollarSign className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <div className="text-center py-8 text-muted-foreground">
+                        <DollarSign className="h-12 w-12 mx-auto mb-3" />
                         <p>No related deals found</p>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="mt-4"
+                          onClick={() => router.push('/sales/deals')}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Create Deal
+                        </Button>
                       </div>
                     )}
                   </motion.div>
@@ -1282,6 +1313,15 @@ export default function ContactDetailPage() {
           }}
         />
       )}
+
+      {/* Link Company Modal */}
+      <LinkCompanyModal
+        isOpen={showLinkCompanyModal}
+        onClose={() => setShowLinkCompanyModal(false)}
+        contactId={id}
+        contactName={contact.name}
+        existingCompanyIds={contact.companies?.map((c) => c.companyId) ?? []}
+      />
     </div>
   );
 }
