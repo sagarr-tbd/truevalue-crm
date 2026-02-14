@@ -43,5 +43,16 @@ export function useContactTagOptions() {
   });
 }
 
+/**
+ * Hook to fetch company/account-specific tags
+ */
+export function useCompanyTagOptions() {
+  return useQuery({
+    queryKey: tagKeys.options('company'),
+    queryFn: () => tagsApi.getCompanyTags(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 // Re-export types
 export type { Tag, TagOption };

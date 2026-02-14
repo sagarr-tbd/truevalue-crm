@@ -126,6 +126,7 @@ export const leadSchema = z.object({
 
 // Account validation schema
 export const accountSchema = z.object({
+  // Basic info
   accountName: z.string().min(1, "Account name is required"),
   website: z
     .string()
@@ -144,9 +145,22 @@ export const accountSchema = z.object({
   industry: z.string().optional(),
   type: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Customer", "Partner", "Prospect", "Vendor", "Other"]).optional()
+    z.enum(["1", "2-10", "11-50", "51-200", "201-500", "501-1000", "1000+"]).optional()
   ),
-  employees: z.string().optional(),
+  employees: z.preprocess(
+    (val) => {
+      if (!val || val === "" || val === null || val === undefined) return undefined;
+      if (typeof val === "string") {
+        const num = parseInt(val, 10);
+        return isNaN(num) ? undefined : num;
+      }
+      if (typeof val === "number") {
+        return isNaN(val) ? undefined : val;
+      }
+      return undefined;
+    },
+    z.number().int().positive("Must be a positive number").optional()
+  ),
   annualRevenue: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
@@ -161,17 +175,36 @@ export const accountSchema = z.object({
     },
     z.number().positive("Must be a positive number").optional()
   ),
-  parentAccount: z.string().optional(),
-  assignedTo: z.string().optional(),
-  address: z.string().optional(),
+  // Address fields (matching backend API snake_case names)
+  addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
-  zipCode: z.string().optional(),
+  postalCode: z.string().optional(),
   country: z.string().optional(),
+  // Business info
   description: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  profilePicture: z.string().optional(),
+  // Social URLs
+  linkedinUrl: z
+    .string()
+    .optional()
+    .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
+      message: "Invalid URL format",
+    }),
+  twitterUrl: z
+    .string()
+    .optional()
+    .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
+      message: "Invalid URL format",
+    }),
+  facebookUrl: z
+    .string()
+    .optional()
+    .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
+      message: "Invalid URL format",
+    }),
+  // Tags (array of tag UUIDs)
+  tagIds: z.array(z.string()).optional(),
 });
 
 // Contact validation schema - aligned with backend API (ALL fields)

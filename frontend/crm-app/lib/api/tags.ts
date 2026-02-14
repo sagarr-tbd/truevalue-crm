@@ -71,4 +71,11 @@ export const tagsApi = {
   getContactTags: async (): Promise<TagOption[]> => {
     return tagsApi.getAsOptions('contact');
   },
+
+  /**
+   * Get tags for companies/accounts
+   */
+  getCompanyTags: async (): Promise<TagOption[]> => {
+    return tagsApi.getAsOptions('company');
+  },
 };

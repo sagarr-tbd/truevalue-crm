@@ -7,8 +7,9 @@ import {
   DollarSign,
   MapPin,
   FileText,
-  Image as ImageIcon,
-  User,
+  Linkedin,
+  Twitter,
+  Facebook,
 } from "lucide-react";
 import { accountSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
@@ -27,15 +28,17 @@ export const accountFormConfig: FormDrawerConfig = {
     type: undefined,
     employees: "",
     annualRevenue: undefined,
-    parentAccount: "",
-    assignedTo: "",
-    address: "",
+    addressLine1: "",
     addressLine2: "",
     city: "",
     state: "",
-    zipCode: "",
+    postalCode: "",
     country: "",
     description: "",
+    linkedinUrl: "",
+    twitterUrl: "",
+    facebookUrl: "",
+    tagIds: [],
   },
 
   quickFormSections: [
@@ -50,9 +53,9 @@ export const accountFormConfig: FormDrawerConfig = {
       fields: ["industry", "type", "employees", "annualRevenue"],
     },
     {
-      label: "Management",
-      icon: <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["parentAccount", "assignedTo"],
+      label: "Location",
+      icon: <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
+      fields: ["city", "country"],
     },
   ],
 
@@ -109,16 +112,24 @@ export const accountFormConfig: FormDrawerConfig = {
         },
         {
           name: "type",
-          label: "Account Type",
+          label: "Company Size",
           type: "select",
-          options: ["Customer", "Partner", "Prospect", "Vendor", "Other"],
-          placeholder: "Select type...",
+          options: [
+            { value: "1", label: "1 (Solo)" },
+            { value: "2-10", label: "2-10 (Micro)" },
+            { value: "11-50", label: "11-50 (Small)" },
+            { value: "51-200", label: "51-200 (Medium)" },
+            { value: "201-500", label: "201-500 (Large)" },
+            { value: "501-1000", label: "501-1000 (Enterprise)" },
+            { value: "1000+", label: "1000+ (Corporate)" },
+          ],
+          placeholder: "Select company size...",
         },
         {
           name: "employees",
           label: "Number of Employees",
-          type: "text",
-          placeholder: "50-100",
+          type: "number",
+          placeholder: "150",
           icon: <Users className="h-4 w-4" />,
         },
         {
@@ -128,33 +139,6 @@ export const accountFormConfig: FormDrawerConfig = {
           placeholder: "1000000",
           helperText: "Enter amount in USD",
           icon: <DollarSign className="h-4 w-4" />,
-        },
-        {
-          name: "parentAccount",
-          label: "Parent Account",
-          type: "select",
-          options: [
-            "TechVision Inc",
-            "Global Solutions Ltd",
-            "Innovate Labs",
-            "Strategic Partners",
-            "NextGen Systems",
-          ],
-          placeholder: "Select parent account...",
-        },
-        {
-          name: "assignedTo",
-          label: "Account Owner",
-          type: "select",
-          options: [
-            "John Smith",
-            "Sarah Johnson",
-            "Mike Brown",
-            "Emily Davis",
-            "Robert Wilson",
-          ],
-          placeholder: "Select account owner...",
-          icon: <User className="h-4 w-4" />,
         },
       ],
       layout: [
@@ -184,15 +168,8 @@ export const accountFormConfig: FormDrawerConfig = {
           ],
         },
         {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "annualRevenue" },
-            { name: "parentAccount" },
-          ],
-        },
-        {
           gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "assignedTo" }],
+          fields: [{ name: "annualRevenue" }],
         },
       ],
     },
@@ -202,7 +179,7 @@ export const accountFormConfig: FormDrawerConfig = {
       icon: <MapPin className="h-4 w-4" />,
       fields: [
         {
-          name: "address",
+          name: "addressLine1",
           label: "Street Address",
           type: "text",
           placeholder: "123 Business Ave",
@@ -232,7 +209,7 @@ export const accountFormConfig: FormDrawerConfig = {
           placeholder: "United States",
         },
         {
-          name: "zipCode",
+          name: "postalCode",
           label: "Postal / ZIP Code",
           type: "text",
           placeholder: "94105",
@@ -241,7 +218,7 @@ export const accountFormConfig: FormDrawerConfig = {
       layout: [
         {
           gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "address" }],
+          fields: [{ name: "addressLine1" }],
         },
         {
           gridClass: "grid-cols-1 gap-4",
@@ -258,8 +235,50 @@ export const accountFormConfig: FormDrawerConfig = {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
             { name: "country" },
-            { name: "zipCode" },
+            { name: "postalCode" },
           ],
+        },
+      ],
+    },
+    {
+      id: "social",
+      label: "Social Links",
+      icon: <Globe className="h-4 w-4" />,
+      fields: [
+        {
+          name: "linkedinUrl",
+          label: "LinkedIn URL",
+          type: "text",
+          placeholder: "https://linkedin.com/company/...",
+          icon: <Linkedin className="h-4 w-4" />,
+        },
+        {
+          name: "twitterUrl",
+          label: "Twitter URL",
+          type: "text",
+          placeholder: "https://twitter.com/...",
+          icon: <Twitter className="h-4 w-4" />,
+        },
+        {
+          name: "facebookUrl",
+          label: "Facebook URL",
+          type: "text",
+          placeholder: "https://facebook.com/...",
+          icon: <Facebook className="h-4 w-4" />,
+        },
+      ],
+      layout: [
+        {
+          gridClass: "grid-cols-1 gap-4",
+          fields: [{ name: "linkedinUrl" }],
+        },
+        {
+          gridClass: "grid-cols-1 gap-4",
+          fields: [{ name: "twitterUrl" }],
+        },
+        {
+          gridClass: "grid-cols-1 gap-4",
+          fields: [{ name: "facebookUrl" }],
         },
       ],
     },
@@ -275,32 +294,10 @@ export const accountFormConfig: FormDrawerConfig = {
           placeholder: "Add any relevant notes about this account...",
         },
         {
-          name: "tags",
+          name: "tagIds",
           label: "Tags",
           type: "tags",
-          options: [
-            "VIP",
-            "Enterprise",
-            "SMB",
-            "Startup",
-            "Growth",
-            "Strategic",
-            "Key Account",
-            "High Value",
-            "Long-term",
-          ],
-        },
-      ],
-    },
-    {
-      id: "profile",
-      label: "Company Logo",
-      icon: <ImageIcon className="h-4 w-4" />,
-      fields: [
-        {
-          name: "profilePicture",
-          label: "Company Logo",
-          type: "profile",
+          options: [], // Dynamic - populated from API
         },
       ],
     },
