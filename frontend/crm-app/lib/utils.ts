@@ -30,35 +30,71 @@ export const toSnakeCaseOperator = (op: string): string => {
 /**
  * Status color mapping for badges
  * Returns Tailwind CSS classes for status badges
+ * Uses theme colors: primary, secondary, accent, destructive, muted
  */
 export type StatusColorType = 'contact' | 'lead' | 'deal' | 'generic';
 
+// Semantic color classes using theme variables
+export const THEME_COLORS = {
+  // Success states (won, active, completed)
+  success: {
+    badge: "bg-primary/10 text-primary dark:bg-primary/20",
+    text: "text-primary",
+    bg: "bg-primary/10 dark:bg-primary/20",
+  },
+  // Warning/Pending states
+  warning: {
+    badge: "bg-accent/10 text-accent dark:bg-accent/20",
+    text: "text-accent",
+    bg: "bg-accent/10 dark:bg-accent/20",
+  },
+  // Error/Lost states
+  error: {
+    badge: "bg-destructive/10 text-destructive dark:bg-destructive/20",
+    text: "text-destructive",
+    bg: "bg-destructive/10 dark:bg-destructive/20",
+  },
+  // Info/Open states
+  info: {
+    badge: "bg-secondary/10 text-secondary dark:bg-secondary/20",
+    text: "text-secondary",
+    bg: "bg-secondary/10 dark:bg-secondary/20",
+  },
+  // Neutral/Inactive states
+  neutral: {
+    badge: "bg-muted text-muted-foreground",
+    text: "text-muted-foreground",
+    bg: "bg-muted",
+  },
+} as const;
+
 const STATUS_COLORS: Record<StatusColorType, Record<string, string>> = {
   contact: {
-    active: "bg-green-100 text-green-700",
-    inactive: "bg-gray-100 text-gray-600",
-    bounced: "bg-red-100 text-red-700",
-    unsubscribed: "bg-yellow-100 text-yellow-700",
-    archived: "bg-purple-100 text-purple-700",
+    active: THEME_COLORS.success.badge,
+    inactive: THEME_COLORS.neutral.badge,
+    bounced: THEME_COLORS.error.badge,
+    unsubscribed: THEME_COLORS.warning.badge,
+    archived: "bg-brand-purple/10 text-brand-purple",
   },
   lead: {
-    new: "bg-secondary/10 text-secondary",
-    contacted: "bg-accent/10 text-accent",
-    qualified: "bg-primary/10 text-primary",
-    unqualified: "bg-muted text-muted-foreground",
-    converted: "bg-green-100 text-green-700",
+    new: THEME_COLORS.info.badge,
+    contacted: THEME_COLORS.warning.badge,
+    qualified: THEME_COLORS.success.badge,
+    unqualified: THEME_COLORS.neutral.badge,
+    converted: THEME_COLORS.success.badge,
   },
   deal: {
-    open: "bg-blue-100 text-blue-700",
-    won: "bg-green-100 text-green-700",
-    lost: "bg-red-100 text-red-700",
+    open: THEME_COLORS.info.badge,
+    won: THEME_COLORS.success.badge,
+    lost: THEME_COLORS.error.badge,
+    abandoned: THEME_COLORS.neutral.badge,
   },
   generic: {
-    active: "bg-green-100 text-green-700",
-    inactive: "bg-gray-100 text-gray-600",
-    pending: "bg-yellow-100 text-yellow-700",
-    completed: "bg-green-100 text-green-700",
-    cancelled: "bg-red-100 text-red-700",
+    active: THEME_COLORS.success.badge,
+    inactive: THEME_COLORS.neutral.badge,
+    pending: THEME_COLORS.warning.badge,
+    completed: THEME_COLORS.success.badge,
+    cancelled: THEME_COLORS.error.badge,
   },
 };
 
@@ -68,7 +104,24 @@ export const getStatusColor = (
 ): string => {
   const normalizedStatus = status?.toLowerCase() || '';
   const colors = STATUS_COLORS[type];
-  return colors[normalizedStatus] || "bg-muted text-muted-foreground";
+  return colors[normalizedStatus] || THEME_COLORS.neutral.badge;
+};
+
+/**
+ * Get deal stage color based on stage name or status
+ */
+export const getDealStageColor = (stageName: string, status?: string): string => {
+  if (status === 'won') return THEME_COLORS.success.badge;
+  if (status === 'lost') return THEME_COLORS.error.badge;
+  
+  const stage = stageName?.toLowerCase() || '';
+  if (stage.includes('proposal') || stage.includes('negotiation')) {
+    return THEME_COLORS.warning.badge;
+  }
+  if (stage.includes('discovery') || stage.includes('qualification')) {
+    return THEME_COLORS.info.badge;
+  }
+  return THEME_COLORS.neutral.badge;
 };
 
 // =============================================================================

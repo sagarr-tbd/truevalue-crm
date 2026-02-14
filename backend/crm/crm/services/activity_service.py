@@ -7,7 +7,8 @@ from uuid import UUID
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from ..models import Activity, Contact, Company, Deal, Lead
@@ -388,3 +389,41 @@ class ActivityService(BaseService[Activity]):
                 'notes': qs.filter(activity_type='note').count(),
             }
         }
+    
+    def get_activity_trend(self, days: int = 30) -> List[Dict]:
+        """Get activity counts per day grouped by type for time-series chart."""
+        qs = self.get_queryset()
+        start_date = timezone.now() - timedelta(days=days)
+        
+        # Get activities created in the period, grouped by date and type
+        daily_counts = (
+            qs.filter(created_at__gte=start_date)
+            .annotate(date=TruncDate('created_at'))
+            .values('date', 'activity_type')
+            .annotate(count=Count('id'))
+            .order_by('date')
+        )
+        
+        # Build a lookup: {date_str: {type: count}}
+        date_map = {}
+        for row in daily_counts:
+            d = row['date'].isoformat()
+            if d not in date_map:
+                date_map[d] = {'calls': 0, 'meetings': 0, 'emails': 0}
+            atype = row['activity_type']
+            if atype in ('call', 'meeting', 'email'):
+                date_map[d][f'{atype}s'] = row['count']
+        
+        # Fill in missing dates with zeros
+        result = []
+        for i in range(days):
+            d = (timezone.now() - timedelta(days=days - 1 - i)).date().isoformat()
+            entry = date_map.get(d, {'calls': 0, 'meetings': 0, 'emails': 0})
+            result.append({
+                'date': d,
+                'calls': entry['calls'],
+                'meetings': entry['meetings'],
+                'emails': entry['emails'],
+            })
+        
+        return result

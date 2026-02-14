@@ -615,6 +615,45 @@ export const companiesApi = {
       label: account.accountName,
     }));
   },
+
+  // ==========================================================================
+  // COMPANY-CONTACT ASSOCIATIONS
+  // ==========================================================================
+
+  /**
+   * Link a contact to this company
+   */
+  linkContact: async (companyId: string, data: {
+    contactId: string;
+    title?: string;
+    department?: string;
+    isPrimary?: boolean;
+  }): Promise<void> => {
+    const response = await apiClient.post(
+      `/crm/api/v1/companies/${companyId}/contacts`,
+      {
+        contact_id: data.contactId,
+        title: data.title,
+        department: data.department,
+        is_primary: data.isPrimary ?? false,
+      }
+    );
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+  },
+
+  /**
+   * Unlink a contact from this company
+   */
+  unlinkContact: async (companyId: string, contactId: string): Promise<void> => {
+    const response = await apiClient.delete(
+      `/crm/api/v1/companies/${companyId}/contacts/${contactId}`
+    );
+    if (response.status !== 204 && response.status !== 200 && response.error) {
+      throw new Error(response.error.message);
+    }
+  },
 };
 
 // ============================================================================

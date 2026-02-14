@@ -177,5 +177,54 @@ export function useBulkUpdateAccounts() {
   });
 }
 
+// ============================================================================
+// COMPANY-CONTACT ASSOCIATION HOOKS
+// ============================================================================
+
+/**
+ * Link a contact to a company/account
+ */
+export function useLinkContactToAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ companyId, data }: {
+      companyId: string;
+      data: { contactId: string; title?: string; department?: string; isPrimary?: boolean };
+    }) => companiesApi.linkContact(companyId, data),
+    onSuccess: (_, { companyId }) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: accountKeys.lists() });
+      // Also invalidate contacts list since the contact's company changed
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      toast.success('Contact linked to account!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to link contact');
+    },
+  });
+}
+
+/**
+ * Unlink a contact from a company/account
+ */
+export function useUnlinkContactFromAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ companyId, contactId }: { companyId: string; contactId: string }) =>
+      companiesApi.unlinkContact(companyId, contactId),
+    onSuccess: (_, { companyId }) => {
+      queryClient.invalidateQueries({ queryKey: accountKeys.detail(companyId) });
+      queryClient.invalidateQueries({ queryKey: accountKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      toast.success('Contact unlinked from account!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to unlink contact');
+    },
+  });
+}
+
 // Legacy wrapper for backward compatibility
 export { accountsApi };

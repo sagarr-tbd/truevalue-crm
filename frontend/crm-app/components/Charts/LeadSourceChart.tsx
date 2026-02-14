@@ -16,15 +16,16 @@ export function LeadSourceChart({ data }: LeadSourceChartProps) {
   const chartData = useMemo(() => {
     if (data) return data;
 
-    // Mock lead source data
-    return [
-      { name: "Website", value: 145 },
-      { name: "Referral", value: 89 },
-      { name: "Social Media", value: 67 },
-      { name: "Email Campaign", value: 54 },
-      { name: "Cold Call", value: 32 },
-      { name: "Trade Show", value: 23 },
-    ];
+    // // Mock lead source data
+    // return [
+    //   { name: "Website", value: 145 },
+    //   { name: "Referral", value: 89 },
+    //   { name: "Social Media", value: 67 },
+    //   { name: "Email Campaign", value: 54 },
+    //   { name: "Cold Call", value: 32 },
+    //   { name: "Trade Show", value: 23 },
+    // ];
+    return [];
   }, [data]);
 
   const COLORS = [

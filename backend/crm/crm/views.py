@@ -20,6 +20,7 @@ from .models import (
 )
 from .serializers import (
     ContactSerializer, ContactListSerializer,
+    ContactCompanySerializer,
     CompanySerializer, CompanyListSerializer,
     LeadSerializer, LeadListSerializer, LeadConvertSerializer,
     DealSerializer, DealListSerializer,
@@ -130,11 +131,11 @@ class ContactListView(BaseAPIView):
         
         service = self.get_service(ContactService)
         
-        # Parse query params using safe helpers
+        # Parse query params
         filters = {}
-        owner_id = self.get_uuid_param('owner_id')
+        owner_id = request.query_params.get('owner_id')
         status_param = request.query_params.get('status')
-        company_id = self.get_uuid_param('company_id')
+        company_id = request.query_params.get('company_id')
         search = request.query_params.get('search')
         order_by = request.query_params.get('order_by', '-created_at')
         
@@ -248,6 +249,65 @@ class ContactTimelineView(BaseAPIView):
         return Response({'data': timeline})
 
 
+class ContactCompaniesView(BaseAPIView):
+    """Manage company associations for a contact."""
+    
+    def get(self, request, contact_id):
+        """List all company associations for a contact."""
+        service = self.get_service(ContactService)
+        contact = service.get_by_id(contact_id)
+        associations = contact.company_associations.select_related('company').all()
+        return Response({
+            'data': ContactCompanySerializer(associations, many=True).data
+        })
+    
+    def post(self, request, contact_id):
+        """Add a company association to a contact."""
+        service = self.get_service(ContactService)
+        
+        company_id = request.data.get('company_id')
+        if not company_id:
+            return Response(
+                {'error': 'company_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        association = service.add_company(
+            contact_id=contact_id,
+            company_id=company_id,
+            title=request.data.get('title'),
+            department=request.data.get('department'),
+            is_primary=request.data.get('is_primary', False),
+        )
+        return Response(
+            ContactCompanySerializer(association).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ContactCompanyDetailView(BaseAPIView):
+    """Remove a company association from a contact."""
+    
+    def delete(self, request, contact_id, company_id):
+        """Remove a company association."""
+        service = self.get_service(ContactService)
+        service.remove_company(contact_id, company_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    def patch(self, request, contact_id, company_id):
+        """Update a company association (title, department, is_primary)."""
+        service = self.get_service(ContactService)
+        # Re-use add_company which handles upsert
+        association = service.add_company(
+            contact_id=contact_id,
+            company_id=company_id,
+            title=request.data.get('title'),
+            department=request.data.get('department'),
+            is_primary=request.data.get('is_primary', False),
+        )
+        return Response(ContactCompanySerializer(association).data)
+
+
 class ContactImportView(BaseAPIView):
     """Bulk import contacts."""
     
@@ -350,11 +410,11 @@ class CompanyListView(BaseAPIView):
         
         service = self.get_service(CompanyService)
         
-        # Parse query params using safe helpers (consistent with ContactListView)
+        # Parse query params
         search = request.query_params.get('search')
         industry = request.query_params.get('industry')
         size = request.query_params.get('size')
-        owner_id = self.get_uuid_param('owner_id')
+        owner_id = request.query_params.get('owner_id')
         order_by = request.query_params.get('order_by', '-created_at')
         
         # Parse advanced filters (JSON string) - consistent with Lead/Contact views
@@ -454,15 +514,47 @@ class CompanyDetailView(BaseAPIView):
 
 
 class CompanyContactsView(BaseAPIView):
-    """Get contacts for a company."""
+    """Get and link contacts for a company."""
     
     def get(self, request, company_id):
-        """Get company contacts."""
+        """Get company contacts with relationship details."""
         service = self.get_service(CompanyService)
         contacts = service.get_contacts(company_id)
         return Response({
             'data': ContactListSerializer(contacts, many=True).data
         })
+    
+    def post(self, request, company_id):
+        """Link a contact to this company."""
+        contact_id = request.data.get('contact_id')
+        if not contact_id:
+            return Response(
+                {'error': 'contact_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        contact_service = self.get_service(ContactService)
+        association = contact_service.add_company(
+            contact_id=contact_id,
+            company_id=company_id,
+            title=request.data.get('title'),
+            department=request.data.get('department'),
+            is_primary=request.data.get('is_primary', False),
+        )
+        return Response(
+            ContactCompanySerializer(association).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class CompanyContactDetailView(BaseAPIView):
+    """Remove a contact from a company."""
+    
+    def delete(self, request, company_id, contact_id):
+        """Unlink a contact from this company."""
+        contact_service = self.get_service(ContactService)
+        contact_service.remove_company(contact_id, company_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CompanyStatsView(BaseAPIView):
@@ -1202,6 +1294,23 @@ class ActivityStatsView(BaseAPIView):
         service = self.get_service(ActivityService)
         stats = service.get_stats(user_id=self.get_user_id())
         return Response(stats)
+
+
+class ActivityTrendView(BaseAPIView):
+    """Get activity trend data for charts."""
+    
+    def get(self, request):
+        """Get daily activity counts grouped by type."""
+        days_param = request.query_params.get('days', '30')
+        try:
+            days = int(days_param)
+            days = max(1, min(days, 365))
+        except (ValueError, TypeError):
+            days = 30
+        
+        service = self.get_service(ActivityService)
+        trend = service.get_activity_trend(days=days)
+        return Response({'data': trend})
 
 
 # =============================================================================

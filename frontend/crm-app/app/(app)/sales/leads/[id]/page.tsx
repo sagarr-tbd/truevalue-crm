@@ -46,32 +46,24 @@ import {
 } from "@/lib/queries/useLeads";
 import { useMembers } from "@/lib/queries/useMembers";
 import { useLeadActivities, useCreateActivity, type ActivityFormData, type ActivityType } from "@/lib/queries/useActivities";
+import { THEME_COLORS, getStatusColor } from "@/lib/utils";
 
-// Status color mapping (lowercase status values)
-const getStatusColor = (status: string) => {
-  const colors: Record<string, string> = {
-    new: "bg-blue-100 text-blue-700",
-    contacted: "bg-yellow-100 text-yellow-700",
-    qualified: "bg-green-100 text-green-700",
-    unqualified: "bg-gray-100 text-gray-600",
-    converted: "bg-purple-100 text-purple-700",
-  };
-  return colors[status?.toLowerCase()] || "bg-muted text-muted-foreground";
-};
+// Status color mapping - use centralized utility
+const getLeadStatusColor = (status: string) => getStatusColor(status, 'lead');
 
-// Score color based on value
+// Score color based on value - uses theme colors
 const getScoreColor = (score: number | undefined) => {
-  if (score === undefined || score === null) return "text-muted-foreground";
-  if (score >= 80) return "text-green-600";
-  if (score >= 50) return "text-yellow-600";
-  return "text-red-600";
+  if (score === undefined || score === null) return THEME_COLORS.neutral.text;
+  if (score >= 80) return THEME_COLORS.success.text;
+  if (score >= 50) return THEME_COLORS.warning.text;
+  return THEME_COLORS.error.text;
 };
 
 const getScoreBgColor = (score: number | undefined) => {
-  if (score === undefined || score === null) return "bg-muted";
-  if (score >= 80) return "bg-green-100";
-  if (score >= 50) return "bg-yellow-100";
-  return "bg-red-100";
+  if (score === undefined || score === null) return THEME_COLORS.neutral.bg;
+  if (score >= 80) return THEME_COLORS.success.bg;
+  if (score >= 50) return THEME_COLORS.warning.bg;
+  return THEME_COLORS.error.bg;
 };
 
 // Format date helper
@@ -107,24 +99,16 @@ const getActivityIcon = (type: string) => {
 
 const getActivityColor = (type: string) => {
   const colors: Record<string, string> = {
-    task: "bg-blue-100 text-blue-600",
-    call: "bg-green-100 text-green-600",
-    email: "bg-purple-100 text-purple-600",
-    meeting: "bg-orange-100 text-orange-600",
-    note: "bg-gray-100 text-gray-600",
+    task: `${THEME_COLORS.info.bg} ${THEME_COLORS.info.text}`,
+    call: `${THEME_COLORS.success.bg} ${THEME_COLORS.success.text}`,
+    email: "bg-brand-purple/10 text-brand-purple",
+    meeting: `${THEME_COLORS.warning.bg} ${THEME_COLORS.warning.text}`,
+    note: THEME_COLORS.neutral.badge,
   };
-  return colors[type] || "bg-gray-100 text-gray-600";
+  return colors[type] || THEME_COLORS.neutral.badge;
 };
 
-const getStatusBadge = (status: string) => {
-  const badges: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-700",
-    in_progress: "bg-blue-100 text-blue-700",
-    completed: "bg-green-100 text-green-700",
-    cancelled: "bg-gray-100 text-gray-500",
-  };
-  return badges[status] || "bg-gray-100 text-gray-500";
-};
+const getStatusBadge = (status: string) => getStatusColor(status, 'generic');
 
 const formatDateTime = (dateString: string | undefined) => {
   if (!dateString) return "N/A";
@@ -365,7 +349,7 @@ export default function LeadDetailPage() {
                       {lead.companyName}
                     </span>
                   )}
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getLeadStatusColor(lead.status)}`}>
                     {lead.status}
                   </span>
                   {lead.score !== undefined && (
@@ -703,15 +687,15 @@ export default function LeadDetailPage() {
                           {/* Lead Status Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-green-500/10 rounded-lg">
-                                <Target className="h-4 w-4 text-green-500" />
+                              <div className={`p-2 ${THEME_COLORS.success.bg} rounded-lg`}>
+                                <Target className={`h-4 w-4 ${THEME_COLORS.success.text}`} />
                               </div>
                               <h3 className="text-base font-semibold">Lead Status</h3>
                             </div>
                             <div className="space-y-3">
                               <div className="flex justify-between items-center">
                                 <span className="text-sm text-muted-foreground">Status</span>
-                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(lead.status)}`}>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${getLeadStatusColor(lead.status)}`}>
                                   {lead.status}
                                 </span>
                               </div>
@@ -731,8 +715,8 @@ export default function LeadDetailPage() {
                           {/* Source Information Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-orange-500/10 rounded-lg">
-                                <Target className="h-4 w-4 text-orange-500" />
+                              <div className={`p-2 ${THEME_COLORS.warning.bg} rounded-lg`}>
+                                <Target className={`h-4 w-4 ${THEME_COLORS.warning.text}`} />
                               </div>
                               <h3 className="text-base font-semibold">Source Information</h3>
                             </div>
@@ -767,8 +751,8 @@ export default function LeadDetailPage() {
                           {(lead.addressLine1 || lead.city || lead.state || lead.country) && (
                             <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                               <div className="flex items-center gap-2 mb-4">
-                                <div className="p-2 bg-blue-500/10 rounded-lg">
-                                  <MapPin className="h-4 w-4 text-blue-500" />
+                                <div className={`p-2 ${THEME_COLORS.info.bg} rounded-lg`}>
+                                  <MapPin className={`h-4 w-4 ${THEME_COLORS.info.text}`} />
                                 </div>
                                 <h3 className="text-base font-semibold">Address</h3>
                               </div>

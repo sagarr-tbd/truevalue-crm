@@ -12,773 +12,602 @@ import {
   FileText,
   Handshake,
   Calendar,
-  Eye,
-  EyeOff,
   ArrowUpRight,
-  ArrowDownRight,
   Activity,
   BarChart3,
   PieChart,
   Clock,
   Award,
   Zap,
-  Filter,
-  Download,
   CheckCircle,
   XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import StatsCards from "@/components/StatsCards";
 import {
-  SalesTrendChart,
   PipelineChart,
   LeadSourceChart,
   ActivityChart,
-  RevenueComparisonChart,
 } from "@/components/Charts";
 import { useContacts } from "@/lib/queries/useContacts";
 import { useLeads } from "@/lib/queries/useLeads";
 import { useDeals, useDealForecast } from "@/lib/queries/useDeals";
 import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
+import { useActivities, useUpcomingActivities, useActivityTrend } from "@/lib/queries/useActivities";
+
+// ============================================================================
+// HELPERS
+// ============================================================================
 
 const formatCurrency = (value: number): string => {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  } else if (value >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
+  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
   return `$${value.toFixed(0)}`;
 };
 
-const formatNumber = (value: number): string => {
-  return value.toLocaleString();
+const formatNumber = (value: number): string => value.toLocaleString();
+
+const formatTimeAgo = (dateStr: string) => {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 };
 
+const formatDueDate = (dateStr?: string) => {
+  if (!dateStr) return "No due date";
+  const due = new Date(dateStr);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const timeStr = due.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (due.toDateString() === today.toDateString()) return `Today, ${timeStr}`;
+  if (due.toDateString() === tomorrow.toDateString()) return `Tomorrow, ${timeStr}`;
+  return due.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + `, ${timeStr}`;
+};
+
+const getPriorityColor = (priority: string) => {
+  const colors: Record<string, string> = {
+    high: "bg-destructive/10 text-destructive",
+    medium: "bg-accent/10 text-accent",
+    low: "bg-muted text-muted-foreground",
+  };
+  return colors[priority] || colors.low;
+};
+
+const ACTIVITY_ICONS: Record<string, { icon: typeof Activity; color: string }> = {
+  task: { icon: CheckCircle, color: "text-primary" },
+  call: { icon: Activity, color: "text-secondary" },
+  email: { icon: FileText, color: "text-accent" },
+  meeting: { icon: Calendar, color: "text-primary" },
+  note: { icon: FileText, color: "text-muted-foreground" },
+};
+
+// ============================================================================
+// SKELETON COMPONENTS
+// ============================================================================
+
+function MetricSkeleton() {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="animate-pulse space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="h-10 w-10 rounded-lg bg-muted" />
+            <div className="h-4 w-12 rounded bg-muted" />
+          </div>
+          <div className="h-3 w-20 rounded bg-muted" />
+          <div className="h-7 w-24 rounded bg-muted" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DealCardSkeleton() {
+  return (
+    <Card>
+      <CardContent className="p-6">
+        <div className="animate-pulse flex items-center justify-between">
+          <div className="space-y-3">
+            <div className="h-3 w-20 rounded bg-muted" />
+            <div className="h-8 w-16 rounded bg-muted" />
+            <div className="h-3 w-28 rounded bg-muted" />
+          </div>
+          <div className="h-16 w-16 rounded-full bg-muted" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListItemSkeleton() {
+  return (
+    <div className="animate-pulse flex items-start gap-3 p-3">
+      <div className="h-8 w-8 rounded-lg bg-muted" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 w-3/4 rounded bg-muted" />
+        <div className="h-3 w-1/4 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// DASHBOARD PAGE
+// ============================================================================
+
 export default function DashboardPage() {
-  const [showStats, setShowStats] = useState(true);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
 
+  // Data hooks
   const { data: contactsData, isLoading: contactsLoading } = useContacts({ page_size: 1 });
   const { data: leadsData, isLoading: leadsLoading } = useLeads({ page_size: 1 });
   const { data: dealsData, isLoading: dealsLoading } = useDeals({ page_size: 1 });
-  const { data: defaultPipeline, isLoading: pipelineLoading } = useDefaultPipeline();
+  const { data: defaultPipeline } = useDefaultPipeline();
   const { data: pipelineStats, isLoading: statsLoading } = usePipelineStats(defaultPipeline?.id || "");
-  const { data: forecast, isLoading: forecastLoading } = useDealForecast({ 
-    days: timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90,
-    pipeline_id: defaultPipeline?.id 
+  const trendDays = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+  const { data: forecast, isLoading: forecastLoading } = useDealForecast({
+    days: trendDays,
+    pipeline_id: defaultPipeline?.id,
   });
+  const { data: activityTrend } = useActivityTrend(trendDays);
+  const { data: recentActivitiesData, isLoading: activitiesLoading } = useActivities({ page_size: 5 });
+  const { data: upcomingTasksData, isLoading: tasksLoading } = useUpcomingActivities();
 
-  const isLoading = contactsLoading || leadsLoading || dealsLoading || pipelineLoading;
+  const metricsLoading = contactsLoading || leadsLoading || dealsLoading || statsLoading;
 
-  const stats = useMemo(() => {
+  // ============================================================================
+  // DERIVED DATA
+  // ============================================================================
+
+  const metrics = useMemo(() => {
     const totalContacts = contactsData?.meta?.total || 0;
     const totalLeads = leadsData?.meta?.total || 0;
     const openDeals = pipelineStats?.openDeals || dealsData?.meta?.stats?.byStatus?.open || 0;
     const wonRevenue = pipelineStats?.wonValue || dealsData?.meta?.stats?.wonValue || 0;
-
-    return [
-      {
-        label: "Total Contacts",
-        value: isLoading ? "..." : formatNumber(totalContacts),
-        icon: Users,
-        iconBgColor: "bg-primary/10",
-        iconColor: "text-primary",
-        trend: { value: 12.5, isPositive: true },
-        description: "All contacts",
-      },
-      {
-        label: "Active Leads",
-        value: isLoading ? "..." : formatNumber(totalLeads),
-        icon: TrendingUp,
-        iconBgColor: "bg-accent/10",
-        iconColor: "text-accent",
-        trend: { value: 8.2, isPositive: true },
-        description: "Open leads",
-      },
-      {
-        label: "Open Deals",
-        value: isLoading ? "..." : formatNumber(openDeals),
-        icon: Target,
-        iconBgColor: "bg-secondary/10",
-        iconColor: "text-secondary",
-        trend: { value: 4.3, isPositive: true },
-        description: "In pipeline",
-      },
-      {
-        label: "Won Revenue",
-        value: isLoading ? "..." : formatCurrency(wonRevenue),
-        icon: DollarSign,
-        iconBgColor: "bg-primary/10",
-        iconColor: "text-primary",
-        trend: { value: 15.8, isPositive: true },
-        description: "Total closed won",
-      },
-    ];
-  }, [contactsData, leadsData, dealsData, pipelineStats, isLoading]);
-
-  const performanceMetrics = useMemo(() => {
-    const winRate = pipelineStats?.winRate || 0;
-    const pipelineValue = pipelineStats 
-      ? (pipelineStats.totalValue - pipelineStats.wonValue) 
-      : (dealsData?.meta?.stats?.openValue || 0);
-    const avgDealValue = pipelineStats?.avgDealSize || dealsData?.meta?.stats?.avgDealSize || 0;
-    const wonDeals = pipelineStats?.wonDeals || 0;
-    const lostDeals = pipelineStats?.lostDeals || 0;
+    const pipelineValue = pipelineStats
+      ? pipelineStats.totalValue - pipelineStats.wonValue
+      : dealsData?.meta?.stats?.openValue || 0;
     const totalDeals = pipelineStats?.totalDeals || 0;
 
     return [
-      {
-        title: "Win Rate",
-        value: statsLoading ? "..." : `${winRate.toFixed(1)}%`,
-        change: 5.3,
-        isPositive: winRate > 50,
-        icon: Award,
-        description: `${wonDeals} won / ${wonDeals + lostDeals} closed`,
-        color: "text-secondary",
-        bgColor: "bg-secondary/10",
-      },
-      {
-        title: "Pipeline Value",
-        value: statsLoading ? "..." : formatCurrency(pipelineValue),
-        change: 22.8,
-        isPositive: true,
-        icon: TrendingUp,
-        description: "Open opportunities",
-        color: "text-accent",
-        bgColor: "bg-accent/10",
-      },
-      {
-        title: "Avg Deal Size",
-        value: statsLoading ? "..." : formatCurrency(avgDealValue),
-        change: 12.4,
-        isPositive: true,
-        icon: DollarSign,
-        description: "Average deal value",
-        color: "text-primary",
-        bgColor: "bg-primary/10",
-      },
-      {
-        title: "Total Deals",
-        value: statsLoading ? "..." : formatNumber(totalDeals),
-        change: 8.7,
-        isPositive: true,
-        icon: Target,
-        description: "All time deals",
-        color: "text-primary",
-        bgColor: "bg-primary/10",
-      },
+      { label: "Contacts", value: formatNumber(totalContacts), icon: Users, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/20" },
+      { label: "Active Leads", value: formatNumber(totalLeads), icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20" },
+      { label: "Open Deals", value: formatNumber(openDeals), icon: Target, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-900/20" },
+      { label: "Pipeline Value", value: formatCurrency(pipelineValue), icon: BarChart3, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-900/20" },
+      { label: "Won Revenue", value: formatCurrency(wonRevenue), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/20" },
+      { label: "Total Deals", value: formatNumber(totalDeals), icon: Handshake, color: "text-pink-600", bg: "bg-pink-50 dark:bg-pink-900/20" },
     ];
-  }, [pipelineStats, dealsData, statsLoading]);
+  }, [contactsData, leadsData, dealsData, pipelineStats]);
 
   const pipelineChartData = useMemo(() => {
-    if (!pipelineStats?.byStage || pipelineStats.byStage.length === 0) {
-      return undefined;
-    }
-    return pipelineStats.byStage.map(stage => ({
-      stage: stage.stageName,
-      count: stage.dealCount,
-      value: stage.dealValue,
-    }));
+    if (!pipelineStats?.byStage || pipelineStats.byStage.length === 0) return undefined;
+    return pipelineStats.byStage.map((s) => ({ stage: s.stageName, count: s.dealCount, value: s.dealValue }));
   }, [pipelineStats]);
 
-  const recentActivities = [
-    {
-      id: 1,
-      type: "New Contact",
-      name: "Sarah Johnson added to contacts",
-      time: "2 minutes ago",
-      icon: UserPlus,
-      color: "text-primary",
-    },
-    {
-      id: 2,
-      type: "Deal Closed",
-      name: "Acme Corp deal closed - $25,000",
-      time: "1 hour ago",
-      icon: Handshake,
-      color: "text-secondary",
-    },
-    {
-      id: 3,
-      type: "Lead Qualified",
-      name: "Tech Startup Inc moved to qualified",
-      time: "3 hours ago",
-      icon: Target,
-      color: "text-accent",
-    },
-    {
-      id: 4,
-      type: "Meeting Scheduled",
-      name: "Demo meeting with John Smith",
-      time: "5 hours ago",
-      icon: Calendar,
-      color: "text-primary",
-    },
-    {
-      id: 5,
-      type: "Task Completed",
-      name: "Follow-up call with Global Corp",
-      time: "6 hours ago",
-      icon: Activity,
-      color: "text-muted-foreground",
-    },
-  ];
+  const leadSourceChartData = useMemo(() => {
+    const bySource = leadsData?.meta?.stats?.bySource;
+    if (!bySource || Object.keys(bySource).length === 0) return undefined;
+    return Object.entries(bySource).map(([name, value]) => ({ name, value }));
+  }, [leadsData]);
 
-  const topPerformers = [
-    { name: "John Smith", deals: 45, revenue: "$425K", avatar: "JS", rank: 1 },
-    { name: "Jane Doe", deals: 38, revenue: "$389K", avatar: "JD", rank: 2 },
-    { name: "Mike Johnson", deals: 32, revenue: "$312K", avatar: "MJ", rank: 3 },
-    { name: "Sarah Brown", deals: 28, revenue: "$289K", avatar: "SB", rank: 4 },
-    { name: "David Wilson", deals: 25, revenue: "$265K", avatar: "DW", rank: 5 },
-  ];
+  const activityChartData = useMemo(() => {
+    if (!activityTrend || activityTrend.length === 0) return undefined;
+    return activityTrend.map((d) => ({
+      date: new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      calls: d.calls,
+      meetings: d.meetings,
+      emails: d.emails,
+    }));
+  }, [activityTrend]);
 
-  const upcomingTasks = [
-    {
-      id: 1,
-      title: "Follow-up call with Acme Corp",
-      due: "Today, 2:00 PM",
-      priority: "high",
-    },
-    {
-      id: 2,
-      title: "Send proposal to Tech Startup",
-      due: "Today, 4:30 PM",
-      priority: "high",
-    },
-    {
-      id: 3,
-      title: "Review Q1 sales report",
-      due: "Tomorrow, 10:00 AM",
-      priority: "medium",
-    },
-    {
-      id: 4,
-      title: "Team sync meeting",
-      due: "Tomorrow, 2:00 PM",
-      priority: "low",
-    },
-  ];
+  const recentActivities = useMemo(() => {
+    return (recentActivitiesData?.data || []).slice(0, 5).map((a) => {
+      const mapping = ACTIVITY_ICONS[a.type] || { icon: Activity, color: "text-muted-foreground" };
+      return {
+        id: a.id,
+        type: a.type.charAt(0).toUpperCase() + a.type.slice(1),
+        name: a.subject,
+        time: a.createdAt ? formatTimeAgo(a.createdAt) : "",
+        icon: mapping.icon,
+        color: mapping.color,
+      };
+    });
+  }, [recentActivitiesData]);
 
-  const getPriorityColor = (priority: string) => {
-    const colors = {
-      high: "bg-destructive/10 text-destructive",
-      medium: "bg-accent/10 text-accent",
-      low: "bg-muted text-muted-foreground",
-    };
-    return colors[priority as keyof typeof colors] || colors.low;
-  };
+  const upcomingTasks = useMemo(() => {
+    return (upcomingTasksData || []).slice(0, 5).map((t) => ({
+      id: t.id,
+      title: t.subject,
+      due: formatDueDate(t.dueDate),
+      priority: t.priority || "medium",
+    }));
+  }, [upcomingTasksData]);
 
-  const getRankBadge = (rank: number) => {
-    const colors = {
-      1: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-      2: "bg-gray-400/10 text-gray-600 border-gray-400/20",
-      3: "bg-orange-500/10 text-orange-600 border-orange-500/20",
-    };
-    return colors[rank as keyof typeof colors] || "bg-muted text-muted-foreground border-border";
-  };
+  // ============================================================================
+  // ANIMATION VARIANTS
+  // ============================================================================
 
-  const container = {
+  const stagger = {
     hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-      },
-    },
+    show: { opacity: 1, transition: { staggerChildren: 0.06 } },
   };
 
-  const item = {
-    hidden: { opacity: 0, y: 20 },
+  const fadeUp = {
+    hidden: { opacity: 0, y: 16 },
     show: { opacity: 1, y: 0 },
   };
 
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* ─── Header ─── */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
       >
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Welcome back! Here&apos;s what&apos;s happening with your CRM.
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Overview of your CRM performance
           </p>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowStats(!showStats)}
-            className="gap-2"
-          >
-            {showStats ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            {showStats ? "Hide" : "Show"} Stats
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Filter className="h-4 w-4" />
-            Filter
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
+        <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+          {(["7d", "30d", "90d"] as const).map((range) => (
+            <Button
+              key={range}
+              variant={timeRange === range ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setTimeRange(range)}
+              className="text-xs h-8"
+            >
+              {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
+            </Button>
+          ))}
         </div>
       </motion.div>
 
-      {/* Time Range Selector */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.1 }}
-        className="flex gap-2"
-      >
-        {(["7d", "30d", "90d"] as const).map((range) => (
-          <Button
-            key={range}
-            variant={timeRange === range ? "default" : "outline"}
-            size="sm"
-            onClick={() => setTimeRange(range)}
-          >
-            {range === "7d" ? "Last 7 Days" : range === "30d" ? "Last 30 Days" : "Last 90 Days"}
-          </Button>
-        ))}
+      {/* ─── Key Metrics ─── */}
+      <motion.div variants={stagger} initial="hidden" animate="show" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {metricsLoading
+          ? Array.from({ length: 6 }).map((_, i) => <MetricSkeleton key={i} />)
+          : metrics.map((m) => (
+              <motion.div key={m.label} variants={fadeUp}>
+                <Card className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className={`inline-flex p-2 rounded-lg ${m.bg} mb-3`}>
+                      <m.icon className={`h-4 w-4 ${m.color}`} />
+                    </div>
+                    <p className="text-xs font-medium text-muted-foreground">{m.label}</p>
+                    <p className="text-xl font-bold text-foreground mt-0.5">{m.value}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
       </motion.div>
 
-      {/* Stats Grid */}
-      <AnimatePresence mode="wait">
-        {showStats && (
-          <motion.div
-            key="stats"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <StatsCards stats={stats} columns={4} />
-          </motion.div>
+      {/* ─── Deal Summary (Won / Lost / Win Rate) ─── */}
+      <motion.div
+        variants={stagger}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+      >
+        {statsLoading ? (
+          <>
+            <DealCardSkeleton />
+            <DealCardSkeleton />
+            <DealCardSkeleton />
+          </>
+        ) : (
+          <>
+            <motion.div variants={fadeUp}>
+              <Card className="border-l-4 border-l-green-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Won Deals</p>
+                      <p className="text-2xl font-bold text-foreground mt-1">
+                        {formatNumber(pipelineStats?.wonDeals || 0)}
+                      </p>
+                      <p className="text-sm text-green-600 mt-0.5">
+                        {formatCurrency(pipelineStats?.wonValue || 0)}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-full bg-green-100 dark:bg-green-900/30">
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeUp}>
+              <Card className="border-l-4 border-l-red-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Lost Deals</p>
+                      <p className="text-2xl font-bold text-foreground mt-1">
+                        {formatNumber(pipelineStats?.lostDeals || 0)}
+                      </p>
+                      <p className="text-sm text-red-600 mt-0.5">
+                        {formatCurrency(dealsData?.meta?.stats?.lostValue || 0)}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/30">
+                      <XCircle className="h-6 w-6 text-red-600" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeUp}>
+              <Card className="border-l-4 border-l-blue-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Win Rate</p>
+                      <p className="text-2xl font-bold text-foreground mt-1">
+                        {(pipelineStats?.winRate || 0).toFixed(1)}%
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
+                      <Award className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(pipelineStats?.winRate || 0, 100)}%` }}
+                      transition={{ duration: 1, delay: 0.3 }}
+                      className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    {pipelineStats?.wonDeals || 0} won / {(pipelineStats?.wonDeals || 0) + (pipelineStats?.lostDeals || 0)} closed
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </>
         )}
-      </AnimatePresence>
-
-      {/* Performance Metrics */}
-      <motion.div
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-      >
-        {performanceMetrics.map((metric) => (
-          <motion.div key={metric.title} variants={item}>
-            <Card className="hover:shadow-lg transition-all">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`p-3 rounded-lg ${metric.bgColor}`}>
-                    <metric.icon className={`h-5 w-5 ${metric.color}`} />
-                  </div>
-                  <div className="flex items-center gap-1 text-sm">
-                    {metric.isPositive ? (
-                      <ArrowUpRight className="h-4 w-4 text-primary" />
-                    ) : (
-                      <ArrowDownRight className="h-4 w-4 text-destructive" />
-                    )}
-                    <span className={metric.isPositive ? "text-primary" : "text-destructive"}>
-                      {Math.abs(metric.change)}%
-                    </span>
-                  </div>
-                </div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-1">
-                  {metric.title}
-                </h3>
-                <p className="text-2xl font-bold text-foreground mb-1">{metric.value}</p>
-                <p className="text-xs text-muted-foreground">{metric.description}</p>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
       </motion.div>
 
-      {/* Deal Summary - Won/Lost Analysis */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
-        className="grid grid-cols-1 md:grid-cols-3 gap-6"
-      >
-        {/* Won Deals Card */}
-        <Card className="border-l-4 border-l-green-500 hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Won Deals</p>
-                <p className="text-3xl font-bold text-foreground mt-1">
-                  {statsLoading ? "..." : formatNumber(pipelineStats?.wonDeals || 0)}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  {statsLoading ? "..." : formatCurrency(pipelineStats?.wonValue || 0)} revenue
-                </p>
-              </div>
-              <div className="p-4 rounded-full bg-green-100 dark:bg-green-900/30">
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Lost Deals Card */}
-        <Card className="border-l-4 border-l-red-500 hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Lost Deals</p>
-                <p className="text-3xl font-bold text-foreground mt-1">
-                  {statsLoading ? "..." : formatNumber(pipelineStats?.lostDeals || 0)}
-                </p>
-                <p className="text-sm text-red-600 mt-1">
-                  {statsLoading ? "..." : formatCurrency(dealsData?.meta?.stats?.lostValue || 0)} lost
-                </p>
-              </div>
-              <div className="p-4 rounded-full bg-red-100 dark:bg-red-900/30">
-                <XCircle className="h-8 w-8 text-red-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Win Rate Progress Card */}
-        <Card className="border-l-4 border-l-blue-500 hover:shadow-lg transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Win Rate</p>
-                <p className="text-3xl font-bold text-foreground mt-1">
-                  {statsLoading ? "..." : `${(pipelineStats?.winRate || 0).toFixed(1)}%`}
-                </p>
-              </div>
-              <div className="p-4 rounded-full bg-blue-100 dark:bg-blue-900/30">
-                <Award className="h-8 w-8 text-blue-600" />
-              </div>
-            </div>
-            <div className="w-full bg-muted rounded-full h-3">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min(pipelineStats?.winRate || 0, 100)}%` }}
-                transition={{ duration: 1, delay: 0.5 }}
-                className="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {pipelineStats?.wonDeals || 0} won / {(pipelineStats?.wonDeals || 0) + (pipelineStats?.lostDeals || 0)} closed
-            </p>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Charts Grid */}
-      <motion.div
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-      >
-        <motion.div variants={item}>
-          <SalesTrendChart timeRange={timeRange} />
-        </motion.div>
-        <motion.div variants={item}>
+      {/* ─── Charts Grid ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <PipelineChart data={pipelineChartData} />
         </motion.div>
-        <motion.div variants={item}>
-          <LeadSourceChart />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <ActivityChart data={activityChartData} timeRange={timeRange} />
         </motion.div>
-        <motion.div variants={item}>
-          <ActivityChart timeRange={timeRange} />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <LeadSourceChart data={leadSourceChartData} />
         </motion.div>
-      </motion.div>
 
-      {/* Revenue Comparison - Full Width */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <RevenueComparisonChart />
-      </motion.div>
-
-      {/* Deal Forecast Widget */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.45 }}
-      >
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-primary" />
-              Deal Forecast
-              <span className="text-sm font-normal text-muted-foreground ml-2">
-                (Next {timeRange === "7d" ? "7 Days" : timeRange === "30d" ? "30 Days" : "90 Days"})
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {forecastLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-              </div>
-            ) : forecast ? (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">Expected Deals</p>
-                  <p className="text-3xl font-bold text-foreground">{forecast.total_deals}</p>
+        {/* Deal Forecast (compact, in chart grid) */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Deal Forecast
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({timeRange === "7d" ? "7 Days" : timeRange === "30d" ? "30 Days" : "90 Days"})
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {forecastLoading ? (
+                <div className="animate-pulse space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-lg bg-muted" />
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-8 rounded bg-muted" />
+                    ))}
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-muted/30 rounded-lg">
-                  <p className="text-sm text-muted-foreground mb-1">Total Value</p>
-                  <p className="text-3xl font-bold text-foreground">{formatCurrency(forecast.total_value)}</p>
-                </div>
-                <div className="text-center p-4 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-lg border border-primary/20">
-                  <p className="text-sm text-muted-foreground mb-1">Weighted Forecast</p>
-                  <p className="text-3xl font-bold text-primary">{formatCurrency(forecast.weighted_value)}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No forecast data available</p>
-              </div>
-            )}
-            
-            {/* Forecast by Stage */}
-            {forecast && forecast.by_stage && forecast.by_stage.length > 0 && (
-              <div className="mt-6">
-                <h4 className="text-sm font-medium text-foreground mb-3">By Stage</h4>
-                <div className="space-y-2">
-                  {forecast.by_stage.map((stage) => (
-                    <div key={stage.stage_id} className="flex items-center justify-between p-2 bg-muted/20 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{stage.stage_name}</span>
-                        <span className="text-xs text-muted-foreground">{stage.count} deals</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold">{formatCurrency(stage.weighted_value)}</span>
-                        <span className="text-xs text-muted-foreground ml-2">
-                          ({formatCurrency(stage.value)} total)
-                        </span>
-                      </div>
+              ) : forecast ? (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="text-center p-3 bg-muted/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Deals</p>
+                      <p className="text-xl font-bold">{forecast.total_deals}</p>
                     </div>
-                  ))}
+                    <div className="text-center p-3 bg-muted/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Value</p>
+                      <p className="text-xl font-bold">{formatCurrency(forecast.total_value)}</p>
+                    </div>
+                    <div className="text-center p-3 bg-primary/5 rounded-lg border border-primary/20">
+                      <p className="text-xs text-muted-foreground">Weighted</p>
+                      <p className="text-xl font-bold text-primary">{formatCurrency(forecast.weighted_value)}</p>
+                    </div>
+                  </div>
+                  {forecast.by_stage && forecast.by_stage.length > 0 && (
+                    <div className="space-y-1.5">
+                      {forecast.by_stage.map((stage) => (
+                        <div key={stage.stage_id} className="flex items-center justify-between p-2 bg-muted/20 rounded-md text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{stage.stage_name}</span>
+                            <span className="text-xs text-muted-foreground">{stage.count}</span>
+                          </div>
+                          <span className="font-semibold">{formatCurrency(stage.weighted_value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                  <TrendingUp className="h-10 w-10 mb-2 opacity-40" />
+                  <p className="text-sm">No forecast data</p>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
 
+      {/* ─── Activity Feed + Upcoming Tasks ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Activities */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.3 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <Card className="h-full">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <Activity className="h-5 w-5 text-primary" />
                 Recent Activities
               </CardTitle>
               <Link href="/analytics">
-                <Button variant="ghost" size="sm" className="gap-1">
-                  View All
-                  <ArrowUpRight className="h-3 w-3" />
+                <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
+                  View All <ArrowUpRight className="h-3 w-3" />
                 </Button>
               </Link>
             </CardHeader>
             <CardContent>
-              <div className="space-y-1">
-                {recentActivities.map((activity, index) => (
-                  <motion.div
-                    key={activity.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.4 + index * 0.05 }}
-                    whileHover={{ scale: 1.01, x: 4 }}
-                    className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-all cursor-pointer"
-                  >
-                    <div className={`p-2 rounded-lg bg-muted`}>
-                      <activity.icon className={`h-4 w-4 ${activity.color}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {activity.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{activity.time}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Top Performers */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card className="h-full">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Award className="h-5 w-5 text-primary" />
-                Top Performers
-              </CardTitle>
-              <Link href="/analytics">
-                <Button variant="ghost" size="sm" className="gap-1">
-                  View All
-                  <ArrowUpRight className="h-3 w-3" />
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {topPerformers.map((performer, index) => (
-                  <motion.div
-                    key={performer.name}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.5 + index * 0.05 }}
-                    whileHover={{ scale: 1.02 }}
-                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-all cursor-pointer"
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 ${getRankBadge(performer.rank)}`}
+              {activitiesLoading ? (
+                <div className="space-y-1">
+                  {[1, 2, 3, 4, 5].map((i) => <ListItemSkeleton key={i} />)}
+                </div>
+              ) : recentActivities.length > 0 ? (
+                <div className="space-y-0.5">
+                  {recentActivities.map((activity, index) => (
+                    <motion.div
+                      key={activity.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 + index * 0.04 }}
+                      whileHover={{ x: 3 }}
+                      className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-all cursor-pointer"
                     >
-                      {performer.rank}
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary text-white flex items-center justify-center text-sm font-semibold">
-                      {performer.avatar}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {performer.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {performer.deals} deals closed
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-foreground">{performer.revenue}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+                      <div className="p-1.5 rounded-md bg-muted">
+                        <activity.icon className={`h-3.5 w-3.5 ${activity.color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{activity.name}</p>
+                        <p className="text-xs text-muted-foreground">{activity.time}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Activity className="h-10 w-10 mb-2 opacity-40" />
+                  <p className="text-sm">No recent activities</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Tasks */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
           <Card className="h-full">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <Clock className="h-5 w-5 text-primary" />
                 Upcoming Tasks
               </CardTitle>
               <Link href="/activities/tasks">
-                <Button variant="ghost" size="sm" className="gap-1">
-                  View All
-                  <ArrowUpRight className="h-3 w-3" />
+                <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
+                  View All <ArrowUpRight className="h-3 w-3" />
                 </Button>
               </Link>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {upcomingTasks.map((task, index) => (
-                  <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6 + index * 0.05 }}
-                    whileHover={{ scale: 1.01 }}
-                    className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/30 transition-all cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-1 w-4 h-4 rounded border-border"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground">{task.title}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Clock className="h-3 w-3 text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground">{task.due}</p>
-                      </div>
-                    </div>
-                    <span
-                      className={`px-2 py-1 rounded-md text-xs font-medium ${getPriorityColor(task.priority)}`}
-                    >
-                      {task.priority}
-                    </span>
-                  </motion.div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Quick Actions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-        >
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-primary" />
-                Quick Actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { name: "Add Contact", icon: UserPlus, href: "/sales/contacts" },
-                  { name: "Create Lead", icon: FileText, href: "/sales/leads" },
-                  { name: "New Deal", icon: Handshake, href: "/sales/deals" },
-                  { name: "Schedule Meeting", icon: Calendar, href: "/activities/meetings" },
-                  { name: "View Reports", icon: BarChart3, href: "/reports" },
-                  { name: "Analytics", icon: PieChart, href: "/analytics" },
-                ].map((action, index) => (
-                  <Link key={action.name} href={action.href}>
+              {tasksLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => <ListItemSkeleton key={i} />)}
+                </div>
+              ) : upcomingTasks.length > 0 ? (
+                <div className="space-y-2">
+                  {upcomingTasks.map((task, index) => (
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.7 + index * 0.05 }}
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="flex flex-col items-center justify-center p-4 rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group"
+                      key={task.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.45 + index * 0.04 }}
+                      whileHover={{ scale: 1.01 }}
+                      className="flex items-start gap-3 p-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-muted/30 transition-all cursor-pointer"
                     >
-                      <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
-                        <action.icon className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                      <input type="checkbox" className="mt-0.5 w-4 h-4 rounded border-border" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{task.title}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground">{task.due}</p>
+                        </div>
                       </div>
-                      <span className="text-xs font-medium text-foreground mt-2 text-center">
-                        {action.name}
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getPriorityColor(task.priority)}`}>
+                        {task.priority}
                       </span>
                     </motion.div>
-                  </Link>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Clock className="h-10 w-10 mb-2 opacity-40" />
+                  <p className="text-sm">No upcoming tasks</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
       </div>
+
+      {/* ─── Quick Actions ─── */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Zap className="h-5 w-5 text-primary" />
+              Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {[
+                { name: "Add Contact", icon: UserPlus, href: "/sales/contacts" },
+                { name: "Create Lead", icon: FileText, href: "/sales/leads" },
+                { name: "New Deal", icon: Handshake, href: "/sales/deals" },
+                { name: "Schedule Meeting", icon: Calendar, href: "/activities/meetings" },
+                { name: "View Reports", icon: BarChart3, href: "/reports" },
+                { name: "Analytics", icon: PieChart, href: "/analytics" },
+              ].map((action) => (
+                <Link key={action.name} href={action.href}>
+                  <motion.div
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.97 }}
+                    className="flex flex-col items-center justify-center p-3 rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-all cursor-pointer group"
+                  >
+                    <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 transition-colors">
+                      <action.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                    <span className="text-xs font-medium text-foreground mt-1.5 text-center">
+                      {action.name}
+                    </span>
+                  </motion.div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 }

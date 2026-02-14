@@ -5,6 +5,27 @@ import type { Contact } from '@/lib/types';
  * Full contact response from API (snake_case)
  * Used for: GET /contacts/{id}
  */
+/**
+ * Company association from API (snake_case)
+ */
+export interface ContactCompanyAssociation {
+  id: string;
+  company: {
+    id: string;
+    name: string;
+    industry?: string;
+    website?: string;
+  };
+  title?: string;
+  department?: string;
+  is_primary: boolean;
+  start_date?: string;
+  end_date?: string;
+  is_current: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContactApiResponse {
   id: string;
   org_id: string;
@@ -25,6 +46,7 @@ export interface ContactApiResponse {
     industry?: string;
     website?: string;
   };
+  companies?: ContactCompanyAssociation[];
   address_line1?: string;
   address_line2?: string;
   city?: string;
@@ -82,6 +104,23 @@ export interface ContactListApiResponse {
  * Frontend contact view model (camelCase)
  * Used for: UI display, React components
  */
+/**
+ * Company association view model (camelCase)
+ */
+export interface CompanyAssociation {
+  id: string;
+  companyId: string;
+  companyName: string;
+  companyIndustry?: string;
+  companyWebsite?: string;
+  title?: string;
+  department?: string;
+  isPrimary: boolean;
+  isCurrent: boolean;
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface ContactViewModel {
   id: string; // UUID from backend
   name: string;
@@ -99,6 +138,8 @@ export interface ContactViewModel {
   sourceDetail?: string;
   created: string;
   initials: string;
+  // Company associations (many-to-many)
+  companies?: CompanyAssociation[];
   // Address
   addressLine1?: string;
   addressLine2?: string;
@@ -273,6 +314,22 @@ function toContactViewModel(response: ContactListApiResponse): ContactViewModel 
 /**
  * Transform full API response to frontend view model
  */
+function toCompanyAssociation(assoc: ContactCompanyAssociation): CompanyAssociation {
+  return {
+    id: assoc.id,
+    companyId: assoc.company.id,
+    companyName: assoc.company.name,
+    companyIndustry: assoc.company.industry,
+    companyWebsite: assoc.company.website,
+    title: nullToUndefined(assoc.title),
+    department: nullToUndefined(assoc.department),
+    isPrimary: assoc.is_primary,
+    isCurrent: assoc.is_current,
+    startDate: nullToUndefined(assoc.start_date),
+    endDate: nullToUndefined(assoc.end_date),
+  };
+}
+
 function toFullContactViewModel(response: ContactApiResponse): ContactViewModel {
   // Extract tag IDs from tags array (tag_ids is write-only in backend)
   const tagIds = response.tags?.map(tag => tag.id) || response.tag_ids;
@@ -297,6 +354,8 @@ function toFullContactViewModel(response: ContactApiResponse): ContactViewModel 
     sourceDetail: nullToUndefined(response.source_detail),
     created: formatDate(response.created_at),
     initials: getInitials(response.first_name, response.last_name),
+    // Company associations
+    companies: response.companies?.map(toCompanyAssociation),
     // Address
     addressLine1: nullToUndefined(response.address_line1),
     addressLine2: nullToUndefined(response.address_line2),
@@ -698,6 +757,68 @@ export const contactsApi = {
       value: contact.id,
       label: contact.name || contact.email,
     }));
+  },
+
+  // ==========================================================================
+  // CONTACT-COMPANY ASSOCIATIONS
+  // ==========================================================================
+
+  /**
+   * Add a company association to a contact
+   */
+  addCompany: async (contactId: string, data: {
+    companyId: string;
+    title?: string;
+    department?: string;
+    isPrimary?: boolean;
+  }): Promise<CompanyAssociation> => {
+    const response = await apiClient.post<ContactCompanyAssociation>(
+      `/crm/api/v1/contacts/${contactId}/companies`,
+      {
+        company_id: data.companyId,
+        title: data.title,
+        department: data.department,
+        is_primary: data.isPrimary ?? false,
+      }
+    );
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return toCompanyAssociation(response.data!);
+  },
+
+  /**
+   * Remove a company association from a contact
+   */
+  removeCompany: async (contactId: string, companyId: string): Promise<void> => {
+    const response = await apiClient.delete(
+      `/crm/api/v1/contacts/${contactId}/companies/${companyId}`
+    );
+    if (response.status !== 204 && response.status !== 200 && response.error) {
+      throw new Error(response.error.message);
+    }
+  },
+
+  /**
+   * Update a company association (title, department, is_primary)
+   */
+  updateCompanyAssociation: async (contactId: string, companyId: string, data: {
+    title?: string;
+    department?: string;
+    isPrimary?: boolean;
+  }): Promise<CompanyAssociation> => {
+    const response = await apiClient.patch<ContactCompanyAssociation>(
+      `/crm/api/v1/contacts/${contactId}/companies/${companyId}`,
+      {
+        title: data.title,
+        department: data.department,
+        is_primary: data.isPrimary ?? false,
+      }
+    );
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return toCompanyAssociation(response.data!);
   },
 };
 

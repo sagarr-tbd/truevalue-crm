@@ -28,23 +28,21 @@ export function ActivityChart({ data, timeRange = "30d" }: ActivityChartProps) {
   const chartData = useMemo(() => {
     if (data) return data;
 
-    // Generate mock data based on time range
-    const periods = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-    const mockData = [];
-
-    for (let i = periods - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      
-      mockData.push({
-        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        calls: Math.floor(Math.random() * 30) + 20,
-        meetings: Math.floor(Math.random() * 15) + 5,
-        emails: Math.floor(Math.random() * 50) + 30,
-      });
-    }
-
-    return mockData;
+    // // Generate mock data based on time range
+    // const periods = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+    // const mockData = [];
+    // for (let i = periods - 1; i >= 0; i--) {
+    //   const date = new Date();
+    //   date.setDate(date.getDate() - i);
+    //   mockData.push({
+    //     date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    //     calls: Math.floor(Math.random() * 30) + 20,
+    //     meetings: Math.floor(Math.random() * 15) + 5,
+    //     emails: Math.floor(Math.random() * 50) + 30,
+    //   });
+    // }
+    // return mockData;
+    return [];
   }, [data, timeRange]);
 
   return (

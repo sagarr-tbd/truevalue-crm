@@ -29,10 +29,15 @@ import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { AccountFormDrawer } from "@/components/Forms/Sales";
 import type { Account as AccountType } from "@/lib/types";
-import { useAccount, useUpdateAccount, useDeleteAccount, useAccounts } from "@/lib/queries/useAccounts";
+import { useAccount, useUpdateAccount, useDeleteAccount, useAccounts, useUnlinkContactFromAccount } from "@/lib/queries/useAccounts";
+import { useContacts } from "@/lib/queries/useContacts";
+import { useDeals } from "@/lib/queries/useDeals";
 import { companiesApi, getSizeDisplayLabel } from "@/lib/api/companies";
+import { THEME_COLORS, getStatusColor, getDealStageColor } from "@/lib/utils";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
+import { Users, X, Unlink } from "lucide-react";
+import LinkContactModal from "@/components/LinkContactModal/LinkContactModal";
 
 // Format date helper
 const formatDate = (dateString: string | undefined) => {
@@ -70,76 +75,10 @@ const getSizeColors = (size: string) => {
   return colors[size] || "bg-muted text-muted-foreground";
 };
 
-// Mock data for activities (TODO: Replace with real API when available)
-const mockActivities = [
-  {
-    id: "1",
-    type: "email",
-    title: "Follow-up email sent",
-    description: "Sent proposal for Q1 2026 partnership",
-    date: "Jan 28, 2026",
-    time: "2:30 PM",
-    icon: Mail,
-  },
-  {
-    id: "2",
-    type: "call",
-    title: "Discovery call completed",
-    description: "Discussed requirements and timeline",
-    date: "Jan 25, 2026",
-    time: "10:15 AM",
-    icon: Phone,
-  },
-  {
-    id: "3",
-    type: "meeting",
-    title: "Product demo scheduled",
-    description: "Scheduled for Feb 5, 2026 at 3:00 PM",
-    date: "Jan 24, 2026",
-    time: "4:45 PM",
-    icon: Calendar,
-  },
-];
+// Notes placeholder - TODO: Integrate with Notes API when available
+const mockNotes: Array<{ id: string; content: string; author: string; date: string; time: string }> = [];
 
-// Mock deals (TODO: Replace with real API - GET /deals?company_id={id})
-const mockDeals = [
-  {
-    id: "1",
-    name: "Enterprise Partnership Q1",
-    value: "$125,000",
-    stage: "Proposal",
-    probability: 75,
-    closeDate: "Feb 15, 2026",
-  },
-  {
-    id: "2",
-    name: "Annual License Renewal",
-    value: "$45,000",
-    stage: "Negotiation",
-    probability: 60,
-    closeDate: "Mar 1, 2026",
-  },
-];
-
-// Mock notes (TODO: Replace with real API when available)
-const mockNotes = [
-  {
-    id: "1",
-    content: "Account is very interested in our enterprise solutions. Follow up next week.",
-    author: "John Doe",
-    date: "Jan 28, 2026",
-    time: "2:30 PM",
-  },
-  {
-    id: "2",
-    content: "Discussed pricing options and implementation timeline. Decision expected by end of Q1.",
-    author: "Jane Smith",
-    date: "Jan 25, 2026",
-    time: "10:15 AM",
-  },
-];
-
-type TabType = "details" | "activity" | "deals" | "notes";
+type TabType = "details" | "contacts" | "deals" | "activity" | "notes";
 
 export default function AccountDetailPage() {
   const params = useParams();
@@ -153,10 +92,14 @@ export default function AccountDetailPage() {
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Partial<AccountType> | null>(null);
 
+  // Link contact state
+  const [showLinkContactModal, setShowLinkContactModal] = useState(false);
+
   // Fetch account from API
   const { data: account, isLoading, error } = useAccount(id);
   const deleteAccountMutation = useDeleteAccount();
   const updateAccountMutation = useUpdateAccount();
+  const unlinkContact = useUnlinkContactFromAccount();
 
   // Fetch related accounts from same industry
   const { data: relatedAccountsResponse } = useAccounts(
@@ -167,19 +110,45 @@ export default function AccountDetailPage() {
     { enabled: !!account?.industry }
   );
 
+  // Fetch contacts linked to this company
+  const { data: linkedContactsResponse } = useContacts(
+    {
+      company_id: id,
+      page_size: 50,
+    },
+    { enabled: !!id }
+  );
+  const linkedContacts = linkedContactsResponse?.data ?? [];
+
+  // Fetch deals linked to this company
+  const { data: linkedDealsResponse } = useDeals({
+    company_id: id,
+    page_size: 50,
+  });
+  const linkedDeals = linkedDealsResponse?.data ?? [];
+
   // Filter out current account from related accounts
   const relatedAccounts = useMemo(() => {
     if (!account || !relatedAccountsResponse?.data) return [];
     return relatedAccountsResponse.data.filter((a) => a.id !== account.id).slice(0, 4);
   }, [account, relatedAccountsResponse?.data]);
 
-  // Calculate communication stats (mock for now)
-  const communicationStats = useMemo(() => {
-    const emails = mockActivities.filter((a) => a.type === "email").length;
-    const calls = mockActivities.filter((a) => a.type === "call").length;
-    const meetings = mockActivities.filter((a) => a.type === "meeting").length;
-    return { emails, calls, meetings };
-  }, []);
+  // Calculate deal stats from real data
+  const dealStats = useMemo(() => {
+    const openDeals = linkedDeals.filter(d => d.status === 'open');
+    const wonDeals = linkedDeals.filter(d => d.status === 'won');
+    const lostDeals = linkedDeals.filter(d => d.status === 'lost');
+    const totalValue = openDeals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const wonValue = wonDeals.reduce((sum, d) => sum + (d.value || 0), 0);
+    return { 
+      total: linkedDeals.length, 
+      open: openDeals.length, 
+      won: wonDeals.length, 
+      lost: lostDeals.length,
+      totalValue,
+      wonValue,
+    };
+  }, [linkedDeals]);
 
   // Handle delete
   const handleDeleteClick = () => {
@@ -329,8 +298,9 @@ export default function AccountDetailPage() {
 
   const tabs = [
     { id: "details" as TabType, label: "Details", icon: FileText },
+    { id: "contacts" as TabType, label: `Contacts (${linkedContacts.length})`, icon: Users },
+    { id: "deals" as TabType, label: `Deals (${linkedDeals.length})`, icon: DollarSign },
     { id: "activity" as TabType, label: "Activity", icon: Activity },
-    { id: "deals" as TabType, label: "Related Deals", icon: DollarSign },
     { id: "notes" as TabType, label: "Notes", icon: MessageSquare },
   ];
 
@@ -501,22 +471,26 @@ export default function AccountDetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                Communication Stats
+                <DollarSign className="h-4 w-4" />
+                Deal Summary
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <div>
-                <p className="text-xs text-muted-foreground">Emails</p>
-                <p className="text-sm font-medium">{communicationStats.emails}</p>
+                <p className="text-xs text-muted-foreground">Total Deals</p>
+                <p className="text-sm font-medium">{dealStats.total}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Calls</p>
-                <p className="text-sm font-medium">{communicationStats.calls}</p>
+                <p className="text-xs text-muted-foreground">Open Deals</p>
+                <p className={`text-sm font-medium ${THEME_COLORS.info.text}`}>{dealStats.open}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Meetings</p>
-                <p className="text-sm font-medium">{communicationStats.meetings}</p>
+                <p className="text-xs text-muted-foreground">Won</p>
+                <p className={`text-sm font-medium ${THEME_COLORS.success.text}`}>{dealStats.won}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Lost</p>
+                <p className={`text-sm font-medium ${THEME_COLORS.error.text}`}>{dealStats.lost}</p>
               </div>
             </CardContent>
           </Card>
@@ -605,15 +579,15 @@ export default function AccountDetailPage() {
                           {/* Business Details Card */}
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                             <div className="flex items-center gap-2 mb-4">
-                              <div className="p-2 bg-green-500/10 rounded-lg">
-                                <DollarSign className="h-4 w-4 text-green-500" />
+                              <div className={`p-2 ${THEME_COLORS.success.bg} rounded-lg`}>
+                                <DollarSign className={`h-4 w-4 ${THEME_COLORS.success.text}`} />
                               </div>
                               <h3 className="text-base font-semibold">Business Details</h3>
                             </div>
                             <div className="space-y-3">
                               <div className="flex justify-between items-start">
                                 <span className="text-sm text-muted-foreground">Annual Revenue</span>
-                                <span className="text-sm font-semibold text-green-600">
+                                <span className={`text-sm font-semibold ${THEME_COLORS.success.text}`}>
                                   {formatCurrency(account.annualRevenue)}
                                 </span>
                               </div>
@@ -692,8 +666,8 @@ export default function AccountDetailPage() {
                           {(account.linkedinUrl || account.twitterUrl || account.facebookUrl) && (
                             <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                               <div className="flex items-center gap-2 mb-4">
-                                <div className="p-2 bg-blue-500/10 rounded-lg">
-                                  <Globe className="h-4 w-4 text-blue-500" />
+                                <div className={`p-2 ${THEME_COLORS.info.bg} rounded-lg`}>
+                                  <Globe className={`h-4 w-4 ${THEME_COLORS.info.text}`} />
                                 </div>
                                 <h3 className="text-base font-semibold">Social Profiles</h3>
                               </div>
@@ -788,43 +762,95 @@ export default function AccountDetailPage() {
                       </motion.div>
                     )}
 
-                    {activeTab === "activity" && (
+                    {activeTab === "contacts" && (
                       <motion.div
-                        key="activity"
+                        key="contacts"
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.2 }}
                         className="space-y-4"
                       >
-                        {mockActivities.length > 0 ? (
-                          mockActivities.map((activity, index) => {
-                            const Icon = activity.icon;
-                            return (
-                              <div key={activity.id} className="flex gap-4">
-                                <div className="flex flex-col items-center">
-                                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                    <Icon className="h-5 w-5 text-primary" />
-                                  </div>
-                                  {index < mockActivities.length - 1 && (
-                                    <div className="w-0.5 h-full bg-border mt-2" />
-                                  )}
+                        {/* Header with Link Contact button */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">
+                            {linkedContacts.length} contact{linkedContacts.length !== 1 ? 's' : ''} linked
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => setShowLinkContactModal(true)}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Link Contact
+                          </Button>
+                        </div>
+
+                        {linkedContacts.length > 0 ? (
+                          linkedContacts.map((contact) => (
+                            <div
+                              key={contact.id}
+                              className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
+                              onClick={() => router.push(`/sales/contacts/${contact.id}`)}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
+                                  {contact.initials || contact.name?.substring(0, 2).toUpperCase()}
                                 </div>
-                                <div className="flex-1 pb-4">
-                                  <div className="flex items-start justify-between mb-1">
-                                    <p className="font-medium">{activity.title}</p>
-                                    <span className="text-sm text-muted-foreground">{activity.date}</span>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground mb-2">{activity.description}</p>
-                                  <p className="text-xs text-muted-foreground">{activity.time}</p>
+                                <div>
+                                  <p className="font-medium">{contact.name}</p>
+                                  <p className="text-sm text-muted-foreground">{contact.jobTitle || 'No title'}</p>
                                 </div>
                               </div>
-                            );
-                          })
+                              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                                {contact.email && (
+                                  <a 
+                                    href={`mailto:${contact.email}`} 
+                                    className="hover:text-primary"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Mail className="h-4 w-4" />
+                                  </a>
+                                )}
+                                {contact.phone && (
+                                  <a 
+                                    href={`tel:${contact.phone}`} 
+                                    className="hover:text-primary"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Phone className="h-4 w-4" />
+                                  </a>
+                                )}
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(contact.status || '', 'contact')}`}>
+                                  {contact.status}
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    unlinkContact.mutate({ companyId: id, contactId: contact.id });
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1.5 rounded-md hover:bg-destructive/10"
+                                  title="Unlink contact"
+                                >
+                                  <Unlink className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
-                            <Activity className="h-12 w-12 mx-auto mb-3" />
-                            <p>No activities recorded yet</p>
+                            <Users className="h-12 w-12 mx-auto mb-3" />
+                            <p>No contacts linked to this account</p>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="mt-4"
+                              onClick={() => setShowLinkContactModal(true)}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Link Contact
+                            </Button>
                           </div>
                         )}
                       </motion.div>
@@ -839,31 +865,52 @@ export default function AccountDetailPage() {
                         transition={{ duration: 0.2 }}
                         className="space-y-4"
                       >
-                        {mockDeals.length > 0 ? (
-                          mockDeals.map((deal) => (
+                        {/* Deal Stats Summary */}
+                        {linkedDeals.length > 0 && (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                            <div className="p-3 bg-muted/30 rounded-lg text-center">
+                              <p className="text-2xl font-bold">{dealStats.total}</p>
+                              <p className="text-xs text-muted-foreground">Total Deals</p>
+                            </div>
+                            <div className={`p-3 ${THEME_COLORS.info.bg} rounded-lg text-center`}>
+                              <p className={`text-2xl font-bold ${THEME_COLORS.info.text}`}>{dealStats.open}</p>
+                              <p className="text-xs text-muted-foreground">Open</p>
+                            </div>
+                            <div className={`p-3 ${THEME_COLORS.success.bg} rounded-lg text-center`}>
+                              <p className={`text-2xl font-bold ${THEME_COLORS.success.text}`}>{dealStats.won}</p>
+                              <p className="text-xs text-muted-foreground">Won</p>
+                            </div>
+                            <div className={`p-3 ${THEME_COLORS.error.bg} rounded-lg text-center`}>
+                              <p className={`text-2xl font-bold ${THEME_COLORS.error.text}`}>{dealStats.lost}</p>
+                              <p className="text-xs text-muted-foreground">Lost</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {linkedDeals.length > 0 ? (
+                          linkedDeals.map((deal) => (
                             <div
                               key={deal.id}
-                              className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+                              className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                              onClick={() => router.push(`/sales/deals/${deal.id}`)}
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
                                   <p className="font-medium">{deal.name}</p>
-                                  <span
-                                    className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                      deal.stage === "Proposal" || deal.stage === "Negotiation"
-                                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                                        : "bg-muted text-muted-foreground"
-                                    }`}
-                                  >
-                                    {deal.stage}
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getDealStageColor(deal.stageName, deal.status)}`}>
+                                    {deal.stageName}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                  <span>{deal.value}</span>
+                                  <span className="font-medium text-foreground">{formatCurrency(deal.value)}</span>
                                   <span>•</span>
                                   <span>{deal.probability}% probability</span>
-                                  <span>•</span>
-                                  <span>Close: {deal.closeDate}</span>
+                                  {deal.expectedCloseDate && (
+                                    <>
+                                      <span>•</span>
+                                      <span>Close: {formatDate(deal.expectedCloseDate)}</span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -872,8 +919,35 @@ export default function AccountDetailPage() {
                           <div className="text-center py-8 text-muted-foreground">
                             <DollarSign className="h-12 w-12 mx-auto mb-3" />
                             <p>No related deals found</p>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="mt-4"
+                              onClick={() => router.push('/sales/deals')}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Create Deal
+                            </Button>
                           </div>
                         )}
+                      </motion.div>
+                    )}
+
+                    {activeTab === "activity" && (
+                      <motion.div
+                        key="activity"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-4"
+                      >
+                        {/* Activity tab - TODO: Integrate with Activity API when available */}
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Activity className="h-12 w-12 mx-auto mb-3" />
+                          <p>Activity tracking coming soon</p>
+                          <p className="text-xs mt-2">Activities will be logged automatically when you interact with this account</p>
+                        </div>
                       </motion.div>
                     )}
 
@@ -1051,6 +1125,15 @@ export default function AccountDetailPage() {
         initialData={editingAccount}
         mode="edit"
         defaultView="detailed"
+      />
+
+      {/* Link Contact Modal */}
+      <LinkContactModal
+        isOpen={showLinkContactModal}
+        onClose={() => setShowLinkContactModal(false)}
+        companyId={id}
+        companyName={account.accountName}
+        existingContactIds={linkedContacts.map((c) => c.id)}
       />
     </div>
   );

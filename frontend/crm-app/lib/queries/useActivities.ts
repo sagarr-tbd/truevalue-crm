@@ -98,6 +98,17 @@ export function useActivityStats() {
 }
 
 /**
+ * Hook to fetch activity trend (daily counts by type for charts)
+ */
+export function useActivityTrend(days: number = 30) {
+  return useQuery({
+    queryKey: ['activities', 'trend', days],
+    queryFn: () => activitiesApi.getActivityTrend(days),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
  * Hook to create an activity
  */
 export function useCreateActivity() {

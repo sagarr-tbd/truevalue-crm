@@ -362,7 +362,7 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         )
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get lead statistics by status."""
+        """Get lead statistics by status and source."""
         from django.db.models import Count
         
         qs = self.get_queryset()
@@ -378,9 +378,16 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             by_status[status] = count
             total += count
         
+        # Get counts by source
+        source_counts = qs.exclude(source__isnull=True).exclude(source='').values('source').annotate(count=Count('id')).order_by('-count')
+        by_source = {}
+        for item in source_counts:
+            by_source[item['source']] = item['count']
+        
         return {
             'total': total,
             'by_status': by_status,
+            'by_source': by_source,
         }
     
     def check_duplicates(

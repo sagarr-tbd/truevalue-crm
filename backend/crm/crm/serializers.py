@@ -147,9 +147,9 @@ class CompanyMinimalSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 class ContactCompanySerializer(serializers.ModelSerializer):
-    """Serializer for Contact-Company relationship."""
+    """Serializer for Contact-Company relationship (from contact perspective)."""
     company = CompanyMinimalSerializer(read_only=True)
-    company_id = serializers.UUIDField(write_only=True)
+    company_id = serializers.UUIDField(write_only=True, required=False)
     
     class Meta:
         model = ContactCompany
