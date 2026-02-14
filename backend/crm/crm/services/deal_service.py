@@ -23,6 +23,7 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     
     model = Deal
     entity_type = 'deal'
+    billing_feature_code = 'deals'
     
     # Field mapping for advanced filters (frontend field -> backend field)
     # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
@@ -257,6 +258,9 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Deal:
         """Create a new deal."""
+        # Check plan limits via billing service
+        self.check_plan_limit('deals')
+        
         # Get pipeline and stage
         pipeline_id = data.get('pipeline_id')
         stage_id = data.get('stage_id')
@@ -318,7 +322,12 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         # Set stage entered time
         data['stage_entered_at'] = timezone.now()
         
-        return super().create(data, **kwargs)
+        deal = super().create(data, **kwargs)
+        
+        # Sync usage to billing
+        self.sync_usage_to_billing('deals')
+        
+        return deal
     
     @transaction.atomic
     def move_stage(self, deal_id: UUID, stage_id: UUID) -> Deal:

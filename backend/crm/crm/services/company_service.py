@@ -20,6 +20,7 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
     
     model = Company
     entity_type = 'company'
+    billing_feature_code = 'companies'
     
     # Field mapping for advanced filters (frontend field -> backend field)
     FILTER_FIELD_MAP = {
@@ -111,12 +112,20 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Company:
         """Create a new company."""
+        # Check plan limits via billing service
+        self.check_plan_limit('companies')
+        
         # Check for duplicates by name
         name = data.get('name')
         if name and self.get_queryset().filter(name__iexact=name).exists():
             raise DuplicateEntityError('Company', 'name', name)
         
-        return super().create(data, **kwargs)
+        company = super().create(data, **kwargs)
+        
+        # Sync usage to billing
+        self.sync_usage_to_billing('companies')
+        
+        return company
     
     @transaction.atomic
     def update(self, entity_id: UUID, data: Dict[str, Any], **kwargs) -> Company:

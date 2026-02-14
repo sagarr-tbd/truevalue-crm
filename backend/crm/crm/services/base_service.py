@@ -271,6 +271,7 @@ class BaseService(Generic[T]):
     
     model: Type[T] = None
     entity_type: str = None
+    billing_feature_code: str = None  # Set in subclass to auto-sync usage on delete
     
     def __init__(self, org_id: UUID, user_id: UUID):
         self.org_id = org_id
@@ -436,6 +437,10 @@ class BaseService(Generic[T]):
             else:
                 entity.delete()
         
+        # Sync usage to billing after deletion
+        if self.billing_feature_code:
+            self.sync_usage_to_billing(self.billing_feature_code)
+        
         return True
     
     @transaction.atomic
@@ -514,23 +519,152 @@ class BaseService(Generic[T]):
         except Exception as e:
             logger.error(f"Failed to create audit log: {e}")
     
-    def check_plan_limit(self, limit_key: str, current_count: int = None):
-        """Check if plan limit is exceeded."""
-        # TODO: Fetch org plan from billing service
-        # For now, use 'free' plan limits
-        plan = 'free'
+    def check_plan_limit(self, feature_code: str, additional: int = 1):
+        """
+        Check if plan limit allows this action.
+        
+        Calls the Billing Service via BillingClient (source of truth).
+        Falls back to local CRM_SETTINGS limits if billing is unavailable.
+        
+        Args:
+            feature_code: Feature to check (e.g., 'contacts', 'deals', 'pipelines')
+            additional: Number of new items being added (default: 1)
+        """
+        allowed, message, limit, current = self._check_limit_with_billing(
+            feature_code, additional
+        )
+        
+        if allowed is None:
+            # Billing service unavailable — fall back to local limits
+            logger.warning(
+                f"Billing service unavailable, using local limits for {feature_code}"
+            )
+            self._check_limit_local(feature_code)
+            return
+        
+        if not allowed:
+            raise LimitExceededError(
+                resource=self.entity_type,
+                limit=limit or 0,
+                current=current or 0,
+            )
+    
+    def _check_limit_with_billing(self, feature_code: str, additional: int = 1):
+        """
+        Check limit via Billing Service internal API.
+        
+        Returns:
+            Tuple of (allowed, message, limit, current).
+            allowed=None means billing service is unavailable.
+        """
+        try:
+            client = self._get_billing_client()
+            if not client:
+                return None, "Billing service not configured", None, None
+            
+            result = client.check_limit(
+                org_id=self.org_id,
+                service_code='crm',
+                feature_code=feature_code,
+                additional=additional,
+            )
+            
+            return (
+                result.get('allowed', False),
+                result.get('message', ''),
+                result.get('limit'),
+                result.get('current'),
+            )
+        except Exception as e:
+            logger.error(f"Error checking limit with Billing Service: {e}")
+            return None, str(e), None, None
+    
+    def _check_limit_local(self, feature_code: str):
+        """
+        Fallback: check limits using local CRM_SETTINGS when billing is unavailable.
+        Uses 'free' plan limits as a safe default.
+        """
+        limit_key_map = {
+            'contacts': 'CONTACT_LIMITS',
+            'pipelines': 'PIPELINE_LIMITS',
+            'custom_fields': 'CUSTOM_FIELD_LIMITS',
+        }
+        limit_key = limit_key_map.get(feature_code)
+        if not limit_key:
+            return  # No local limit defined — allow
+        
         limits = settings.CRM_SETTINGS.get(limit_key, {})
-        limit = limits.get(plan, 0)
+        limit = limits.get('free', 0)
         
         if limit == 0:  # Unlimited
             return
         
-        if current_count is None:
-            current_count = self.count()
-        
+        current_count = self.count()
         if current_count >= limit:
             raise LimitExceededError(
                 resource=self.entity_type,
                 limit=limit,
-                current=current_count
+                current=current_count,
             )
+    
+    def _get_billing_client(self):
+        """
+        Get a configured BillingClient instance, or None if unavailable.
+        """
+        import os
+        try:
+            from truevalue_common.clients import BillingClient
+            
+            billing_url = getattr(settings, 'BILLING_SERVICE_URL', None)
+            if not billing_url:
+                return None
+            
+            return BillingClient(
+                base_url=billing_url,
+                service_name=os.getenv('SERVICE_NAME', 'crm-service'),
+                service_secret=os.getenv('SERVICE_SECRET', ''),
+                timeout=5.0,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create BillingClient: {e}")
+            return None
+    
+    def sync_usage_to_billing(self, feature_code: str):
+        """
+        Sync the actual entity count to the Billing Service.
+        
+        Sets the absolute count for the given feature so the billing
+        service's usage endpoint reflects real CRM data.
+        
+        Uses transaction.on_commit() so the HTTP call happens AFTER the
+        DB transaction commits — avoids holding DB locks during network I/O.
+        Failures are logged but never block the CRM operation.
+        
+        Args:
+            feature_code: Feature code matching billing (e.g., 'contacts', 'deals')
+        """
+        # Capture values now (inside the transaction) — the callback
+        # runs after commit, when self may have changed.
+        org_id = self.org_id
+        
+        def _do_sync():
+            try:
+                client = self._get_billing_client()
+                if not client:
+                    return
+                
+                current_count = self.count()
+                client.sync_usage(
+                    org_id=org_id,
+                    service_code='crm',
+                    feature_code=feature_code,
+                    quantity=current_count,
+                )
+                logger.debug(
+                    f"Synced usage: {feature_code}={current_count} for org={org_id}"
+                )
+            except Exception as e:
+                # Never block CRM operations for billing sync failures
+                logger.warning(f"Failed to sync usage to billing for {feature_code}: {e}")
+        
+        transaction.on_commit(_do_sync)
