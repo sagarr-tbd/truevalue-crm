@@ -1,7 +1,11 @@
-import { accountsApi as mockAccountsApi } from './mock/accounts';
-// import { accountsApi as realAccountsApi } from './real/accounts'; // Future: Django API
+// Real backend API for accounts/companies
+// The mock API is no longer used - keeping import for reference
+// import { accountsApi as mockAccountsApi } from './mock/accounts';
 
-// Toggle between mock and real API
-const USE_MOCK = true; // Change to false when Django backend is ready
+import { accountsApi, AccountDisplay } from './companies';
 
-export const accountsApi = USE_MOCK ? mockAccountsApi : mockAccountsApi; // Future: realAccountsApi
+// Export the real API directly
+export { accountsApi };
+
+// Re-export the AccountDisplay type
+export type { AccountDisplay };

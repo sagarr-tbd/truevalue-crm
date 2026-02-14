@@ -36,7 +36,7 @@ import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
-import { AdvancedFilter, FilterField, FilterGroup, filterData } from "@/components/AdvancedFilter";
+import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
@@ -46,8 +46,10 @@ import {
   useUpdateAccount,
   useDeleteAccount, 
   useBulkDeleteAccounts, 
-  useBulkUpdateAccounts 
+  useBulkUpdateAccounts,
+  AccountQueryParams,
 } from "@/lib/queries/useAccounts";
+import { getSizeDisplayLabel, companiesApi } from "@/lib/api/companies";
 import { useUIStore } from "@/stores";
 
 // Lazy load heavy components
@@ -69,14 +71,6 @@ const BulkUpdateModal = dynamic(
 export default function AccountsPage() {
   const router = useRouter();
   
-  // React Query (server/mock data)
-  const { data: accounts = [], isLoading } = useAccounts();
-  const createAccount = useCreateAccount();
-  const updateAccount = useUpdateAccount();
-  const deleteAccount = useDeleteAccount();
-  const bulkDelete = useBulkDeleteAccounts();
-  const bulkUpdate = useBulkUpdateAccounts();
-  
   // Zustand (UI state)
   const { 
     viewMode, 
@@ -89,15 +83,15 @@ export default function AccountsPage() {
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
   
-  // Initialize filters from store
-  const accountsFilters = filters.accounts || {};
+  // Initialize filters from store (casting to allow flexible field access)
+  const accountsFilters = (filters.accounts || {}) as Record<string, string | null | undefined>;
   
   // State management
   const [searchQuery, setSearchQuery] = useState(accountsFilters.search || "");
-  const [statusFilter, setStatusFilter] = useState<string | null>(accountsFilters.status || null);
+  const [industryFilter, setIndustryFilter] = useState<string | null>(accountsFilters.industry || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedAccounts, setSelectedAccounts] = useState<number[]>([]);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -118,16 +112,58 @@ export default function AccountsPage() {
     deletePreset,
   } = useFilterPresets("accounts");
   
-  // Debounce search query
+  // Debounce search query for API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  
+  // Build query params for server-side pagination (including advanced filters)
+  const queryParams: AccountQueryParams = useMemo(() => {
+    const params: AccountQueryParams = {
+      page: currentPage,
+      page_size: itemsPerPage,
+      search: debouncedSearchQuery || undefined,
+      industry: industryFilter || undefined,
+    };
+    
+    // Add sorting
+    if (sortColumn) {
+      const fieldMap: Record<string, string> = {
+        accountName: 'name',
+        industry: 'industry',
+        type: 'size',
+        annualRevenue: 'annual_revenue',
+        created: 'created_at',
+      };
+      const backendField = fieldMap[sortColumn] || sortColumn;
+      params.order_by = sortDirection === 'desc' ? `-${backendField}` : backendField;
+    }
+    
+    // Add advanced filters if present
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      params.filters = filterGroup;
+    }
+    
+    return params;
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, industryFilter, sortColumn, sortDirection, filterGroup]);
+  
+  // React Query - fetch accounts with server-side pagination
+  const { data: accountsResponse, isLoading } = useAccounts(queryParams);
+  const accounts = useMemo(() => accountsResponse?.data ?? [], [accountsResponse?.data]);
+  const totalItems = accountsResponse?.meta?.total ?? 0;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  
+  const createAccount = useCreateAccount();
+  const updateAccount = useUpdateAccount();
+  const deleteAccount = useDeleteAccount();
+  const bulkDelete = useBulkDeleteAccounts();
+  const bulkUpdate = useBulkUpdateAccounts();
   
   // Save filters to store when they change
   useEffect(() => {
     setModuleFilters('accounts', {
       search: searchQuery,
-      status: statusFilter,
+      industry: industryFilter,
     });
-  }, [searchQuery, statusFilter, setModuleFilters]);
+  }, [searchQuery, industryFilter, setModuleFilters]);
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -136,6 +172,7 @@ export default function AccountsPage() {
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Partial<AccountType> | null>(null);
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
@@ -159,7 +196,7 @@ export default function AccountsPage() {
     { key: 'lastActivity', label: 'Last Activity' },
   ], []);
 
-  // Advanced filter fields
+  // Advanced filter fields (match backend fields)
   const filterFields: FilterField[] = useMemo(() => [
     {
       key: 'accountName',
@@ -173,21 +210,16 @@ export default function AccountsPage() {
     },
     {
       key: 'type',
-      label: 'Type',
+      label: 'Company Size',
       type: 'select',
       options: [
-        { label: 'Enterprise', value: 'Enterprise' },
-        { label: 'Mid-Market', value: 'Mid-Market' },
-        { label: 'SMB', value: 'SMB' },
-      ],
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      type: 'select',
-      options: [
-        { label: 'Active', value: 'Active' },
-        { label: 'Inactive', value: 'Inactive' },
+        { label: '1 (Solo)', value: '1' },
+        { label: '2-10 (Micro)', value: '2-10' },
+        { label: '11-50 (Small)', value: '11-50' },
+        { label: '51-200 (Medium)', value: '51-200' },
+        { label: '201-500 (Large)', value: '201-500' },
+        { label: '501-1000 (Enterprise)', value: '501-1000' },
+        { label: '1000+ (Corporate)', value: '1000+' },
       ],
     },
     {
@@ -200,66 +232,27 @@ export default function AccountsPage() {
       label: 'State',
       type: 'text',
     },
+    {
+      key: 'country',
+      label: 'Country',
+      type: 'text',
+    },
   ], []);
 
-  // Filter & sort logic (using debounced search query)
-  const filteredAccounts = useMemo(() => {
-    let filtered = accounts;
-
-    // Search filter (debounced)
-    if (debouncedSearchQuery) {
-      filtered = filtered.filter(
-        (account) =>
-          account.accountName?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          account.industry?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          account.city?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      );
-    }
-
-    // Status filter
-    if (statusFilter) {
-      filtered = filtered.filter((account) => account.status === statusFilter);
-    }
-
-    // Advanced filter
-    if (filterGroup && filterGroup.conditions.length > 0) {
-      filtered = filterData(filtered, filterGroup);
-    }
-
-    // Sorting
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [accounts, debouncedSearchQuery, statusFilter, filterGroup, sortColumn, sortDirection]);
-
-  // Pagination
-  const paginatedAccounts = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredAccounts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredAccounts, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredAccounts.length / itemsPerPage);
-
-  // Stats calculations
+  // Stats from API response (includes all accounts, not just current page)
+  const apiStats = accountsResponse?.meta?.stats;
+  
+  // Stats calculations using API stats
   const stats = useMemo(() => {
-    const totalAccounts = accounts.length;
-    const activeAccounts = accounts.filter((a) => a.status === "Active").length;
-    const totalRevenue = accounts.reduce((sum, account) => sum + account.annualRevenue, 0);
-    const totalEmployees = accounts.reduce((sum, account) => sum + account.employees, 0);
+    const totalAccounts = apiStats?.total ?? 0;
+    const totalRevenue = apiStats?.totalRevenue ?? 0;
+    const totalEmployees = apiStats?.totalEmployees ?? 0;
+    
+    // Count by size categories
+    const bySize = apiStats?.bySize ?? {};
+    const enterpriseCount = (bySize['501-1000'] ?? 0) + (bySize['1000+'] ?? 0);
+    const midMarketCount = (bySize['51-200'] ?? 0) + (bySize['201-500'] ?? 0);
+    const smbCount = (bySize['1'] ?? 0) + (bySize['2-10'] ?? 0) + (bySize['11-50'] ?? 0);
 
     return [
       {
@@ -268,32 +261,33 @@ export default function AccountsPage() {
         icon: Building2,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
-        trend: { value: 8, isPositive: true },
       },
       {
-        label: "Active Accounts",
-        value: activeAccounts,
+        label: "Enterprise",
+        value: enterpriseCount,
         icon: TrendingUp,
         iconBgColor: "bg-secondary/10",
         iconColor: "text-secondary",
+        subtitle: "500+ employees",
       },
       {
-        label: "Total Revenue",
-        value: `$${(totalRevenue / 1000000).toFixed(1)}M`,
+        label: "Mid-Market",
+        value: midMarketCount,
         icon: DollarSign,
         iconBgColor: "bg-accent/10",
         iconColor: "text-accent",
-        trend: { value: 15, isPositive: true },
+        subtitle: "51-500 employees",
       },
       {
-        label: "Total Employees",
-        value: totalEmployees.toLocaleString(),
+        label: "SMB",
+        value: smbCount,
         icon: Users,
         iconBgColor: "bg-primary/20",
         iconColor: "text-primary",
+        subtitle: "1-50 employees",
       },
     ];
-  }, [accounts]);
+  }, [apiStats]);
 
   // Filter dropdown ref for click outside
   const filterDropdownRef = useRef<HTMLDivElement>(null);
@@ -317,24 +311,33 @@ export default function AccountsPage() {
     };
   }, [showFilterDropdown]);
 
-  // Filter options
-  const filterOptions = useMemo(() => [
-    {
-      label: "All Accounts",
-      value: null,
-      count: accounts.length,
-    },
-    {
-      label: "Active",
-      value: "Active",
-      count: accounts.filter((a) => a.status === "Active").length,
-    },
-    {
-      label: "Inactive",
-      value: "Inactive",
-      count: accounts.filter((a) => a.status === "Inactive").length,
-    },
-  ], [accounts]);
+  // Industry filter options from API stats
+  const filterOptions = useMemo(() => {
+    const byIndustry = apiStats?.byIndustry ?? {};
+    const options: Array<{ label: string; value: string | null; count: number }> = [
+      {
+        label: "All Industries",
+        value: null,
+        count: apiStats?.total ?? 0,
+      },
+    ];
+    
+    // Add industry options sorted by count
+    const industries = Object.entries(byIndustry)
+      .filter(([industry]) => industry && industry !== 'Unknown')
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10); // Top 10 industries
+    
+    for (const [industry, count] of industries) {
+      options.push({
+        label: industry,
+        value: industry,
+        count: count,
+      });
+    }
+    
+    return options;
+  }, [apiStats]);
 
   // Handlers
   const handleSort = (column: string) => {
@@ -344,22 +347,23 @@ export default function AccountsPage() {
       setSortColumn(column);
       setSortDirection("asc");
     }
+    setCurrentPage(1); // Reset to first page on sort change
   };
 
   const handleSelectAll = () => {
-    if (selectedAccounts.length === paginatedAccounts.length) {
+    if (selectedAccounts.length === accounts.length) {
       setSelectedAccounts([]);
     } else {
-      setSelectedAccounts(paginatedAccounts.map((a) => a.id));
+      setSelectedAccounts(accounts.map((a) => a.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
-    const numId = typeof id === "string" ? parseInt(id) : id;
-    if (selectedAccounts.includes(numId)) {
-      setSelectedAccounts(selectedAccounts.filter((aId) => aId !== numId));
+    const strId = String(id);
+    if (selectedAccounts.includes(strId)) {
+      setSelectedAccounts(selectedAccounts.filter((aId) => aId !== strId));
     } else {
-      setSelectedAccounts([...selectedAccounts, numId]);
+      setSelectedAccounts([...selectedAccounts, strId]);
     }
   };
 
@@ -390,75 +394,86 @@ export default function AccountsPage() {
   const handleAddAccount = () => {
     setFormMode("add");
     setEditingAccount(null);
+    setEditingAccountId(null);
     setFormDrawerOpen(true);
   };
 
-  const handleEditAccount = (account: typeof accounts[0]) => {
-    setFormMode("edit");
-    setEditingAccount({
-      accountName: account.accountName,
-      website: account.website,
-      phone: account.phone,
-      email: account.email,
-      industry: account.industry,
-      type: account.type as "Customer" | "Partner" | "Prospect" | "Vendor" | "Other",
-      employees: account.employees.toString(),
-      annualRevenue: account.annualRevenue,
-      assignedTo: account.owner,
-      city: account.city,
-      state: account.state,
-      country: account.country,
-    });
-    setFormDrawerOpen(true);
+  const handleEditAccount = async (account: typeof accounts[0]) => {
+    try {
+      // Fetch full account details to get all fields (list API doesn't return all fields)
+      const fullAccount = await companiesApi.getById(account.id);
+      
+      setFormMode("edit");
+      setEditingAccountId(account.id); // Store the ID for update
+      setEditingAccount({
+        accountName: fullAccount.accountName,
+        website: fullAccount.website,
+        phone: fullAccount.phone,
+        email: fullAccount.email,
+        industry: fullAccount.industry,
+        type: fullAccount.type as "1" | "2-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1000+",
+        employees: fullAccount.employees,
+        annualRevenue: fullAccount.annualRevenue,
+        // Address fields
+        addressLine1: fullAccount.addressLine1 || '',
+        addressLine2: fullAccount.addressLine2 || '',
+        city: fullAccount.city,
+        state: fullAccount.state,
+        postalCode: fullAccount.postalCode || '',
+        country: fullAccount.country,
+        // Business info
+        description: fullAccount.description || '',
+        // Social URLs
+        linkedinUrl: fullAccount.linkedinUrl || '',
+        twitterUrl: fullAccount.twitterUrl || '',
+        facebookUrl: fullAccount.facebookUrl || '',
+        // Tags (as UUIDs)
+        tagIds: fullAccount.tagIds || [],
+      });
+      setFormDrawerOpen(true);
+    } catch (error) {
+      console.error("Error fetching account details:", error);
+      toast.error("Failed to load account details");
+    }
   };
 
   const handleFormSubmit = async (data: Partial<AccountType>) => {
     try {
-      if (formMode === "add") {
-      const newAccount = {
+      const accountData = {
         accountName: data.accountName || "",
         industry: data.industry || "",
-        type: data.type || "",
+        type: data.type || "", // Size value like "51-200"
         website: data.website || "",
         phone: data.phone || "",
         email: data.email || "",
+        // Address fields
+        addressLine1: data.addressLine1 || "",
+        addressLine2: data.addressLine2 || "",
         city: data.city || "",
         state: data.state || "",
+        postalCode: data.postalCode || "",
         country: data.country || "",
-        employees: parseInt(data.employees || "0"),
+        // Business fields
+        employees: typeof data.employees === 'number' ? data.employees : parseInt(String(data.employees) || "0"),
         annualRevenue: data.annualRevenue || 0,
-        owner: data.assignedTo || "Unassigned",
-        status: "Active",
+        description: data.description || "",
+        // Social URLs
+        linkedinUrl: data.linkedinUrl || "",
+        twitterUrl: data.twitterUrl || "",
+        facebookUrl: data.facebookUrl || "",
+        // Tags (UUIDs from form)
+        tagIds: Array.isArray(data.tagIds) ? data.tagIds : [],
       };
-        await createAccount.mutateAsync(newAccount);
-      } else if (editingAccount) {
-        // Find the account ID from the accounts list
-        const accountToUpdate = accounts.find(a => 
-          a.accountName === editingAccount.accountName ||
-          a.email === editingAccount.email
-        );
-        
-        if (accountToUpdate?.id) {
-          const updatedAccount = {
-            accountName: data.accountName || "",
-            industry: data.industry || "",
-            type: data.type || "",
-            website: data.website || "",
-            phone: data.phone || "",
-            email: data.email || "",
-            city: data.city || "",
-            state: data.state || "",
-            country: data.country || "",
-            employees: parseInt(data.employees || "0"),
-            annualRevenue: data.annualRevenue || 0,
-            owner: data.assignedTo || "Unassigned",
-          };
-          await updateAccount.mutateAsync({ id: accountToUpdate.id, data: updatedAccount });
-        }
+
+      if (formMode === "add") {
+        await createAccount.mutateAsync(accountData);
+      } else if (editingAccountId) {
+        await updateAccount.mutateAsync({ id: editingAccountId, data: accountData });
       }
       
       setFormDrawerOpen(false);
       setEditingAccount(null);
+      setEditingAccountId(null);
     } catch (error) {
       console.error("Error submitting account:", error);
       throw error; // Let FormDrawer handle the error toast
@@ -467,7 +482,8 @@ export default function AccountsPage() {
 
   // Bulk operation handlers
   const handleSelectAllAccounts = () => {
-    setSelectedAccounts(filteredAccounts.map(a => a.id).filter((id): id is number => id !== undefined));
+    // Select all accounts on current page
+    setSelectedAccounts(accounts.map(a => a.id));
   };
 
   const handleDeselectAll = () => {
@@ -501,7 +517,7 @@ export default function AccountsPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredAccounts.filter(account => account.id !== undefined && selectedAccounts.includes(account.id));
+    const selectedData = accounts.filter(account => account.id !== undefined && selectedAccounts.includes(account.id));
     
     if (selectedData.length === 0) {
       toast.error("No accounts selected for export");
@@ -527,11 +543,11 @@ export default function AccountsPage() {
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
     
-    if (statusFilter) {
+    if (industryFilter) {
       chips.push({
-        id: 'status-filter',
-        label: 'Status',
-        value: statusFilter,
+        id: 'industry-filter',
+        label: 'Industry',
+        value: industryFilter,
         color: 'primary',
       });
     }
@@ -549,11 +565,12 @@ export default function AccountsPage() {
     }
     
     return chips;
-  }, [statusFilter, filterGroup, filterFields]);
+  }, [industryFilter, filterGroup, filterFields]);
 
   const handleRemoveFilterChip = (chipId: string) => {
-    if (chipId === 'status-filter') {
-      setStatusFilter(null);
+    if (chipId === 'industry-filter') {
+      setIndustryFilter(null);
+      setCurrentPage(1);
     } else if (chipId.startsWith('advanced-filter')) {
       const index = parseInt(chipId.split('-')[2]);
       if (filterGroup) {
@@ -566,34 +583,35 @@ export default function AccountsPage() {
             conditions: newConditions,
           });
         }
+        setCurrentPage(1);
       }
     }
   };
 
   const handleClearAllFilters = () => {
-    setStatusFilter(null);
+    setIndustryFilter(null);
     setSearchQuery('');
     setFilterGroup(null);
+    setCurrentPage(1);
     clearModuleFilters('accounts');
   };
 
-  // Get status color helper
-  const getStatusColor = (status: string) => {
-    const colors = {
-      Active: "bg-primary/10 text-primary",
-      Inactive: "bg-muted text-muted-foreground",
+  // Get type/size color helper (based on company size)
+  const getTypeColor = (size: string) => {
+    // Map size values to color classes
+    const sizeColorMap: Record<string, string> = {
+      // Small companies
+      '1': 'bg-muted text-muted-foreground',
+      '2-10': 'bg-muted text-muted-foreground',
+      '11-50': 'bg-accent/10 text-accent',
+      // Medium companies
+      '51-200': 'bg-secondary/10 text-secondary',
+      '201-500': 'bg-secondary/10 text-secondary',
+      // Large/Enterprise companies
+      '501-1000': 'bg-primary/10 text-primary',
+      '1000+': 'bg-primary/10 text-primary',
     };
-    return colors[status as keyof typeof colors] || "bg-muted text-muted-foreground";
-  };
-
-  // Get type color helper
-  const getTypeColor = (type: string) => {
-    const colors = {
-      Enterprise: "bg-primary/10 text-primary",
-      "Mid-Market": "bg-secondary/10 text-secondary",
-      SMB: "bg-accent/10 text-accent",
-    };
-    return colors[type as keyof typeof colors] || "bg-muted text-muted-foreground";
+    return sizeColorMap[size] || 'bg-muted text-muted-foreground';
   };
 
   // Keyboard shortcuts
@@ -606,6 +624,7 @@ export default function AccountsPage() {
         description: "New account",
         action: () => {
           setEditingAccount(null);
+          setEditingAccountId(null);
           setFormMode("add");
           setDefaultView("quick");
           setFormDrawerOpen(true);
@@ -630,40 +649,41 @@ export default function AccountsPage() {
           </div>
           <div>
             <div className="font-semibold text-foreground">{row.accountName}</div>
-            <div className="text-sm text-muted-foreground">{row.industry}</div>
           </div>
         </div>
       ),
     },
     {
-      key: "type",
-      label: "Type",
+      key: "industry",
+      label: "Industry",
       sortable: true,
       render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(value)}`}>
-          {value}
-        </span>
+        <span className="text-sm text-foreground">{value || '-'}</span>
       ),
     },
     {
-      key: "status",
-      label: "Status",
+      key: "type",
+      label: "Size",
       sortable: true,
       render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value}
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(value)}`}>
+          {getSizeDisplayLabel(value) || value || '-'}
         </span>
       ),
     },
     {
       key: "city",
       label: "Location",
-      render: (_value: unknown, row: typeof accounts[0]) => (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <MapPin className="h-4 w-4" />
-          {row.city}, {row.state}
-        </div>
-      ),
+      render: (_value: unknown, row: typeof accounts[0]) => {
+        const parts = [row.city, row.state, row.country].filter(Boolean);
+        const location = parts.length > 0 ? parts.slice(0, 2).join(', ') : '-';
+        return (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <MapPin className="h-4 w-4" />
+            {location}
+          </div>
+        );
+      },
     },
     {
       key: "annualRevenue",
@@ -729,18 +749,18 @@ export default function AccountsPage() {
               )}
             </Button>
             
-            {/* Filter Dropdown */}
+            {/* Industry Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                title="Filter accounts by status"
+                title="Filter accounts by industry"
               >
                 <Filter className="h-4 w-4 mr-2" />
-                {statusFilter
-                  ? filterOptions.find((f) => f.value === statusFilter)?.label
-                  : "All Accounts"}
+                {industryFilter
+                  ? filterOptions.find((f) => f.value === industryFilter)?.label
+                  : "All Industries"}
                 <ChevronDown className="h-4 w-4 ml-2" />
               </Button>
 
@@ -751,26 +771,26 @@ export default function AccountsPage() {
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: -10 }}
                     transition={{ duration: 0.1 }}
-                    className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-border py-2 z-50"
+                    className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-border py-2 z-50 max-h-80 overflow-y-auto"
                   >
                     {filterOptions.map((option) => (
                       <button
                         key={option.value || "all"}
                         onClick={() => {
-                          setStatusFilter(option.value);
+                          setIndustryFilter(option.value);
                           setShowFilterDropdown(false);
                           setCurrentPage(1);
                         }}
                         className="w-full flex items-center justify-between px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                       >
                         <div className="flex items-center gap-3">
-                          <span>{option.label}</span>
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                          <span className="truncate">{option.label}</span>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground flex-shrink-0">
                             {option.count}
                           </span>
                         </div>
-                        {statusFilter === option.value && (
-                          <Check className="h-4 w-4 text-brand-teal" />
+                        {industryFilter === option.value && (
+                          <Check className="h-4 w-4 text-brand-teal flex-shrink-0" />
                         )}
                       </button>
                     ))}
@@ -806,7 +826,7 @@ export default function AccountsPage() {
               Import
             </Button>
             <ExportButton
-              data={filteredAccounts}
+              data={accounts}
               columns={exportColumns}
               filename="accounts-export"
               title="Accounts Export"
@@ -842,13 +862,13 @@ export default function AccountsPage() {
         {selectedAccounts.length > 0 && (
           <BulkActionsToolbar
             selectedCount={selectedAccounts.length}
-            totalCount={filteredAccounts.length}
+            totalCount={totalItems}
             onSelectAll={handleSelectAllAccounts}
             onDeselectAll={handleDeselectAll}
             onDelete={() => setShowBulkDelete(true)}
             onExport={handleBulkExport}
             onUpdateStatus={() => setShowBulkUpdateStatus(true)}
-            statusLabel="Status"
+            statusLabel="Size"
             isProcessing={isBulkProcessing}
           />
         )}
@@ -857,7 +877,7 @@ export default function AccountsPage() {
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedAccounts}
+          data={accounts}
           columns={columns}
           selectedIds={selectedAccounts}
           onSelectAll={handleSelectAll}
@@ -882,16 +902,19 @@ export default function AccountsPage() {
                   icon: Edit,
                   onClick: () => handleEditAccount(row),
                 },
-                {
+                ...(row.email ? [{
                   label: "Send Email",
                   icon: Mail,
                   onClick: () => window.location.href = `mailto:${row.email}`,
-                },
-                {
+                }] : []),
+                ...(row.website ? [{
                   label: "View Website",
                   icon: Globe,
-                  onClick: () => window.open(`https://${row.website}`, '_blank'),
-                },
+                  onClick: () => {
+                    const url = row.website?.startsWith('http') ? row.website : `https://${row.website}`;
+                    window.open(url, '_blank');
+                  },
+                }] : []),
                 { divider: true, label: "", onClick: () => {} },
                 {
                   label: "Delete",
@@ -906,7 +929,7 @@ export default function AccountsPage() {
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedAccounts.map((account, index) => (
+          {accounts.map((account, index) => (
             <motion.div
               key={account.id}
               initial={{ opacity: 0, y: 20 }}
@@ -941,11 +964,19 @@ export default function AccountsPage() {
                           icon: Edit,
                           onClick: () => handleEditAccount(account),
                         },
-                        {
+                        ...(account.email ? [{
                           label: "Send Email",
                           icon: Mail,
                           onClick: () => window.location.href = `mailto:${account.email}`,
-                        },
+                        }] : []),
+                        ...(account.website ? [{
+                          label: "View Website",
+                          icon: Globe,
+                          onClick: () => {
+                            const url = account.website?.startsWith('http') ? account.website : `https://${account.website}`;
+                            window.open(url, '_blank');
+                          },
+                        }] : []),
                         { divider: true, label: "", onClick: () => {} },
                         {
                           label: "Delete",
@@ -958,22 +989,21 @@ export default function AccountsPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor(account.type)}`}>
-                      {account.type}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(account.status)}`}>
-                      {account.status}
+                      {getSizeDisplayLabel(account.type) || account.type || '-'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <MapPin className="h-4 w-4" />
-                    <span>{account.city}, {account.state}</span>
+                    <span>{[account.city, account.country].filter(Boolean).join(', ') || '-'}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Globe className="h-4 w-4" />
-                    <span className="truncate">{account.website}</span>
-                  </div>
+                  {account.website && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Globe className="h-4 w-4" />
+                      <span className="truncate">{account.website}</span>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4 pt-2">
                     <div>
                       <p className="text-xs text-muted-foreground">Revenue</p>
@@ -1003,7 +1033,7 @@ export default function AccountsPage() {
       <DataPagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredAccounts.length}
+        totalItems={totalItems}
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
@@ -1015,7 +1045,7 @@ export default function AccountsPage() {
           setSelectedAccounts([]);
         }}
         filterInfo={
-          statusFilter ? `filtered by ${statusFilter}` : undefined
+          industryFilter ? `filtered by ${industryFilter}` : undefined
         }
       />
 
@@ -1088,6 +1118,7 @@ export default function AccountsPage() {
         onClose={() => {
           setFormDrawerOpen(false);
           setEditingAccount(null);
+          setEditingAccountId(null);
         }}
         onSubmit={handleFormSubmit}
         initialData={editingAccount}

@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import NotificationPanel from "@/components/NotificationPanel";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useKeyboardShortcuts } from "@/hooks";
 import { useUIStore } from "@/stores";
 
@@ -626,7 +627,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content - Responsive padding */}
-        <main className="p-3 sm:p-4 md:p-6 max-w-full">{children}</main>
+        <main className="p-3 sm:p-4 md:p-6 max-w-full">
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+        </main>
       </div>
 
       {/* Mobile Menu Overlay */}
