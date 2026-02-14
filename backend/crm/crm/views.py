@@ -345,31 +345,66 @@ class CompanyListView(BaseAPIView):
     """List and create companies."""
     
     def get(self, request):
-        """List companies."""
+        """List companies with pagination, filtering, and stats."""
+        import json
+        
         service = self.get_service(CompanyService)
         
+        # Parse query params using safe helpers (consistent with ContactListView)
         search = request.query_params.get('search')
         industry = request.query_params.get('industry')
+        size = request.query_params.get('size')
+        owner_id = self.get_uuid_param('owner_id')
         order_by = request.query_params.get('order_by', '-created_at')
         
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 10))
+        # Parse advanced filters (JSON string) - consistent with Lead/Contact views
+        advanced_filters = None
+        filter_logic = 'and'
+        filters_param = request.query_params.get('filters')
+        if filters_param:
+            try:
+                filter_data = json.loads(filters_param)
+                advanced_filters = filter_data.get('conditions', [])
+                filter_logic = filter_data.get('logic', 'and')
+            except (json.JSONDecodeError, TypeError):
+                pass  # Invalid JSON, ignore
+        
+        # Pagination with safe int parsing and bounds
+        page = self.get_int_param('page', default=1, min_value=1)
+        page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
         
-        companies = service.list(
+        # Get filtered queryset (without pagination) for count
+        filtered_qs = service.list(
             search=search,
-            industry=industry,
             order_by=order_by,
-            limit=page_size,
-            offset=offset,
+            limit=None,  # No limit for count
+            offset=0,
+            owner_id=UUID(owner_id) if owner_id else None,
+            industry=industry,
+            size=size,
+            advanced_filters=advanced_filters,
+            filter_logic=filter_logic,
         )
         
-        total = service.count()
+        # Get total count of filtered results
+        total = filtered_qs.count()
+        
+        # Get paginated companies
+        companies = filtered_qs[offset:offset + page_size]
+        
+        # Get aggregate stats (for all companies, not filtered)
+        stats = service.get_aggregate_stats()
         
         serializer = CompanyListSerializer(companies, many=True)
         return Response({
             'data': serializer.data,
-            'meta': {'page': page, 'page_size': page_size, 'total': total}
+            'meta': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'stats': stats,
+            }
         })
     
     def post(self, request):

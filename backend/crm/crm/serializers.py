@@ -129,7 +129,8 @@ class CompanyListSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'id', 'name', 'industry', 'size', 'phone', 'email',
-            'city', 'country', 'tags', 'owner_id', 'created_at'
+            'city', 'state', 'country', 'annual_revenue', 'employee_count',
+            'tags', 'owner_id', 'created_at'
         ]
 
 

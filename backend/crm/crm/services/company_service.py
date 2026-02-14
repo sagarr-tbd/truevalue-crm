@@ -10,16 +10,42 @@ from django.db.models import Q, Count, Sum
 
 from ..models import Company, Contact, Deal, CRMAuditLog
 from ..exceptions import DuplicateEntityError
-from .base_service import BaseService
+from .base_service import BaseService, AdvancedFilterMixin
 
 logger = logging.getLogger(__name__)
 
 
-class CompanyService(BaseService[Company]):
+class CompanyService(AdvancedFilterMixin, BaseService[Company]):
     """Service for Company operations."""
     
     model = Company
     entity_type = 'company'
+    
+    # Field mapping for advanced filters (frontend field -> backend field)
+    FILTER_FIELD_MAP = {
+        'accountName': 'name',
+        'name': 'name',
+        'industry': 'industry',
+        'type': 'size',
+        'size': 'size',
+        'email': 'email',
+        'phone': 'phone',
+        'website': 'website',
+        'city': 'city',
+        'state': 'state',
+        'country': 'country',
+        'employees': 'employee_count',
+        'employee_count': 'employee_count',
+        'annualRevenue': 'annual_revenue',
+        'annual_revenue': 'annual_revenue',
+    }
+    
+    def get_optimized_queryset(self):
+        """
+        Get queryset with prefetch_related for performance.
+        Prevents N+1 queries when serializing companies.
+        """
+        return self.get_queryset().prefetch_related('tags')
     
     def list(
         self,
@@ -32,9 +58,12 @@ class CompanyService(BaseService[Company]):
         industry: str = None,
         size: str = None,
         tag_ids: List[UUID] = None,
+        advanced_filters: List[Dict] = None,
+        filter_logic: str = 'and',
     ):
         """List companies with advanced filtering."""
-        qs = self.get_queryset()
+        # Use optimized queryset to prevent N+1 queries
+        qs = self.get_optimized_queryset()
         
         # Apply basic filters
         if filters:
@@ -66,6 +95,9 @@ class CompanyService(BaseService[Company]):
                 Q(email__icontains=search) |
                 Q(phone__icontains=search)
             )
+        
+        # Apply advanced filters using mixin
+        qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
         
         # Apply ordering
         qs = qs.order_by(order_by)
@@ -143,6 +175,39 @@ class CompanyService(BaseService[Company]):
             'lost_deals': deals.filter(status='lost').count(),
             'total_deal_value': deals.aggregate(Sum('value'))['value__sum'] or 0,
             'won_deal_value': deals.filter(status='won').aggregate(Sum('value'))['value__sum'] or 0,
+        }
+    
+    def get_aggregate_stats(self) -> Dict[str, Any]:
+        """Get aggregate statistics for all companies in the org."""
+        qs = self.get_queryset()
+        
+        # Get counts by industry
+        industry_counts = qs.values('industry').annotate(count=Count('id'))
+        by_industry = {}
+        for item in industry_counts:
+            industry = item['industry'] or 'Unknown'
+            by_industry[industry] = item['count']
+        
+        # Get counts by size
+        size_counts = qs.values('size').annotate(count=Count('id'))
+        by_size = {}
+        for item in size_counts:
+            size = item['size'] or 'Unknown'
+            by_size[size] = item['count']
+        
+        # Get totals
+        total = qs.count()
+        totals = qs.aggregate(
+            total_revenue=Sum('annual_revenue'),
+            total_employees=Sum('employee_count'),
+        )
+        
+        return {
+            'total': total,
+            'by_industry': by_industry,
+            'by_size': by_size,
+            'total_revenue': float(totals['total_revenue'] or 0),
+            'total_employees': totals['total_employees'] or 0,
         }
     
     def check_duplicates(
