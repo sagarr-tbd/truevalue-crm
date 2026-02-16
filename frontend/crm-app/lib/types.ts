@@ -98,24 +98,26 @@ export type Document = z.infer<typeof documentSchema> & {
 };
 
 export type Task = z.infer<typeof taskSchema> & {
-  id?: number;
+  id?: string;
   createdAt?: string;
   updatedAt?: string;
-  completedDate?: string;
+  completedAt?: string;
   initials?: string;
 };
 
 export type Call = z.infer<typeof callSchema> & {
-  id?: number;
+  id?: string;
   createdAt?: string;
   updatedAt?: string;
+  completedAt?: string;
   initials?: string;
 };
 
 export type Meeting = z.infer<typeof meetingSchema> & {
-  id?: number;
+  id?: string;
   createdAt?: string;
   updatedAt?: string;
+  completedAt?: string;
   initials?: string;
 };
 

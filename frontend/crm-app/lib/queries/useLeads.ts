@@ -30,6 +30,7 @@ export const leadKeys = {
   lists: () => [...leadKeys.all, 'list'] as const,
   list: (params?: LeadQueryParams) => [...leadKeys.lists(), params] as const,
   detail: (id: string) => [...leadKeys.all, 'detail', id] as const,
+  options: () => [...leadKeys.all, 'options'] as const,
   sources: () => [...leadKeys.all, 'sources'] as const,
 };
 
@@ -68,6 +69,17 @@ export function useLeadSources() {
     queryKey: leadKeys.sources(),
     queryFn: () => leadsApi.getSources(),
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+}
+
+/**
+ * Get leads as select options (for dropdowns)
+ */
+export function useLeadOptions() {
+  return useQuery({
+    queryKey: leadKeys.options(),
+    queryFn: () => leadsApi.getAsOptions(),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

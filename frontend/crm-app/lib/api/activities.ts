@@ -42,7 +42,10 @@ export interface ActivityApiResponse {
   } | null;
   lead?: {
     id: string;
-    name: string;
+    name?: string;
+    full_name?: string;
+    first_name?: string;
+    last_name?: string;
   } | null;
   assigned_to?: string | null;
   reminder_at?: string | null;
@@ -99,21 +102,21 @@ export interface ActivityViewModel {
 export interface ActivityApiRequest {
   activity_type: ActivityType;
   subject: string;
-  description?: string;
+  description?: string | null;
   status?: ActivityStatus;
   priority?: ActivityPriority;
-  due_date?: string;
-  start_time?: string;
-  end_time?: string;
-  duration_minutes?: number;
-  call_direction?: string;
-  call_outcome?: string;
-  contact_id?: string;
-  company_id?: string;
-  deal_id?: string;
-  lead_id?: string;
-  assigned_to?: string;
-  reminder_at?: string;
+  due_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  duration_minutes?: number | null;
+  call_direction?: string | null;
+  call_outcome?: string | null;
+  contact_id?: string | null;
+  company_id?: string | null;
+  deal_id?: string | null;
+  lead_id?: string | null;
+  assigned_to?: string | null;
+  reminder_at?: string | null;
 }
 
 /**
@@ -137,6 +140,26 @@ export interface ActivityFormData {
   leadId?: string;
   assignedTo?: string;
   reminderAt?: string;
+}
+
+/**
+ * Activity statistics (camelCase for frontend)
+ */
+export interface ActivityStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byPriority: Record<string, number>;
+  overdue: number;
+}
+
+/**
+ * Backend activity statistics (snake_case)
+ */
+interface BackendActivityStats {
+  total: number;
+  by_status?: Record<string, number>;
+  by_priority?: Record<string, number>;
+  overdue?: number;
 }
 
 /**
@@ -175,7 +198,7 @@ function toActivityViewModel(response: ActivityApiResponse): ActivityViewModel {
     } : undefined,
     lead: response.lead ? {
       id: response.lead.id,
-      name: response.lead.name,
+      name: response.lead.full_name || response.lead.name || `${response.lead.first_name || ''} ${response.lead.last_name || ''}`.trim() || 'Unknown',
     } : undefined,
     assignedTo: response.assigned_to ?? undefined,
     reminderAt: response.reminder_at ?? undefined,
@@ -187,25 +210,32 @@ function toActivityViewModel(response: ActivityApiResponse): ActivityViewModel {
 /**
  * Transform form data to API request
  */
+/**
+ * Convert empty string to undefined (strip empty optional fields from payload)
+ */
+function emptyToUndefined(v: string | undefined): string | undefined {
+  return v === '' ? undefined : v;
+}
+
 function toApiRequest(data: ActivityFormData): ActivityApiRequest {
   return {
     activity_type: data.activityType,
     subject: data.subject,
-    description: data.description,
+    description: emptyToUndefined(data.description),
     status: data.status,
     priority: data.priority,
-    due_date: data.dueDate,
-    start_time: data.startTime,
-    end_time: data.endTime,
+    due_date: emptyToUndefined(data.dueDate),
+    start_time: emptyToUndefined(data.startTime),
+    end_time: emptyToUndefined(data.endTime),
     duration_minutes: data.durationMinutes,
-    call_direction: data.callDirection,
-    call_outcome: data.callOutcome,
-    contact_id: data.contactId,
-    company_id: data.companyId,
-    deal_id: data.dealId,
-    lead_id: data.leadId,
-    assigned_to: data.assignedTo,
-    reminder_at: data.reminderAt,
+    call_direction: emptyToUndefined(data.callDirection),
+    call_outcome: emptyToUndefined(data.callOutcome),
+    contact_id: emptyToUndefined(data.contactId),
+    company_id: emptyToUndefined(data.companyId),
+    deal_id: emptyToUndefined(data.dealId),
+    lead_id: emptyToUndefined(data.leadId),
+    assigned_to: emptyToUndefined(data.assignedTo),
+    reminder_at: emptyToUndefined(data.reminderAt),
   };
 }
 
@@ -225,27 +255,49 @@ export const activitiesApi = {
     deal_id?: string;
     lead_id?: string;
     search?: string;
-  }): Promise<{ data: ActivityViewModel[]; meta: { total: number; page: number; page_size: number } }> => {
+    filters?: string;
+  }): Promise<{
+    data: ActivityViewModel[];
+    meta: {
+      total: number;
+      page: number;
+      page_size: number;
+      stats?: ActivityStats;
+    };
+  }> => {
     const queryParams = new URLSearchParams();
     if (params?.page) queryParams.set('page', params.page.toString());
     if (params?.page_size) queryParams.set('page_size', params.page_size.toString());
-    if (params?.activity_type) queryParams.set('activity_type', params.activity_type);
+    if (params?.activity_type) queryParams.set('type', params.activity_type);
     if (params?.status) queryParams.set('status', params.status);
     if (params?.contact_id) queryParams.set('contact_id', params.contact_id);
     if (params?.deal_id) queryParams.set('deal_id', params.deal_id);
     if (params?.lead_id) queryParams.set('lead_id', params.lead_id);
     if (params?.search) queryParams.set('search', params.search);
+    if (params?.filters) queryParams.set('filters', params.filters);
 
     const url = `/crm/api/v1/activities${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await apiClient.get<PaginatedResponse<ActivityApiResponse>>(url);
+    const response = await apiClient.get<PaginatedResponse<ActivityApiResponse, BackendActivityStats>>(url);
 
     if (response.error) {
       throw new Error(response.error.message);
     }
 
+    const backendMeta = response.data!.meta;
+
     return {
       data: response.data!.data.map(toActivityViewModel),
-      meta: response.data!.meta,
+      meta: {
+        page: backendMeta.page,
+        page_size: backendMeta.page_size,
+        total: backendMeta.total,
+        stats: backendMeta.stats ? {
+          total: backendMeta.stats.total,
+          byStatus: backendMeta.stats.by_status || {},
+          byPriority: backendMeta.stats.by_priority || {},
+          overdue: backendMeta.stats.overdue || 0,
+        } : undefined,
+      },
     };
   },
 
@@ -253,13 +305,13 @@ export const activitiesApi = {
    * Get activity by ID
    */
   getById: async (id: string): Promise<ActivityViewModel> => {
-    const response = await apiClient.get<{ data: ActivityApiResponse }>(`/crm/api/v1/activities/${id}`);
+    const response = await apiClient.get<ActivityApiResponse>(`/crm/api/v1/activities/${id}`);
 
     if (response.error) {
       throw new Error(response.error.message);
     }
 
-    return toActivityViewModel(response.data!.data);
+    return toActivityViewModel(response.data!);
   },
 
   /**
@@ -357,7 +409,7 @@ export const activitiesApi = {
    * Create a new activity
    */
   create: async (data: ActivityFormData): Promise<ActivityViewModel> => {
-    const response = await apiClient.post<{ data: ActivityApiResponse }>(
+    const response = await apiClient.post<ActivityApiResponse>(
       '/crm/api/v1/activities',
       toApiRequest(data)
     );
@@ -366,33 +418,37 @@ export const activitiesApi = {
       throw new Error(response.error.message);
     }
 
-    return toActivityViewModel(response.data!.data);
+    return toActivityViewModel(response.data!);
   },
 
   /**
    * Update an activity
    */
   update: async (id: string, data: Partial<ActivityFormData>): Promise<ActivityViewModel> => {
+    // Convert empty strings to null for optional/UUID fields
+    const emptyToNull = (v: string | undefined): string | null | undefined =>
+      v === '' ? null : v;
+
     const payload: Partial<ActivityApiRequest> = {};
     if (data.activityType) payload.activity_type = data.activityType;
     if (data.subject) payload.subject = data.subject;
-    if (data.description !== undefined) payload.description = data.description;
+    if (data.description !== undefined) payload.description = data.description || null;
     if (data.status) payload.status = data.status;
     if (data.priority) payload.priority = data.priority;
-    if (data.dueDate !== undefined) payload.due_date = data.dueDate;
-    if (data.startTime !== undefined) payload.start_time = data.startTime;
-    if (data.endTime !== undefined) payload.end_time = data.endTime;
+    if (data.dueDate !== undefined) payload.due_date = emptyToNull(data.dueDate);
+    if (data.startTime !== undefined) payload.start_time = emptyToNull(data.startTime);
+    if (data.endTime !== undefined) payload.end_time = emptyToNull(data.endTime);
     if (data.durationMinutes !== undefined) payload.duration_minutes = data.durationMinutes;
-    if (data.callDirection !== undefined) payload.call_direction = data.callDirection;
-    if (data.callOutcome !== undefined) payload.call_outcome = data.callOutcome;
-    if (data.contactId !== undefined) payload.contact_id = data.contactId;
-    if (data.companyId !== undefined) payload.company_id = data.companyId;
-    if (data.dealId !== undefined) payload.deal_id = data.dealId;
-    if (data.leadId !== undefined) payload.lead_id = data.leadId;
-    if (data.assignedTo !== undefined) payload.assigned_to = data.assignedTo;
-    if (data.reminderAt !== undefined) payload.reminder_at = data.reminderAt;
+    if (data.callDirection !== undefined) payload.call_direction = emptyToNull(data.callDirection);
+    if (data.callOutcome !== undefined) payload.call_outcome = emptyToNull(data.callOutcome);
+    if (data.contactId !== undefined) payload.contact_id = emptyToNull(data.contactId);
+    if (data.companyId !== undefined) payload.company_id = emptyToNull(data.companyId);
+    if (data.dealId !== undefined) payload.deal_id = emptyToNull(data.dealId);
+    if (data.leadId !== undefined) payload.lead_id = emptyToNull(data.leadId);
+    if (data.assignedTo !== undefined) payload.assigned_to = emptyToNull(data.assignedTo);
+    if (data.reminderAt !== undefined) payload.reminder_at = emptyToNull(data.reminderAt);
 
-    const response = await apiClient.patch<{ data: ActivityApiResponse }>(
+    const response = await apiClient.patch<ActivityApiResponse>(
       `/crm/api/v1/activities/${id}`,
       payload
     );
@@ -401,7 +457,7 @@ export const activitiesApi = {
       throw new Error(response.error.message);
     }
 
-    return toActivityViewModel(response.data!.data);
+    return toActivityViewModel(response.data!);
   },
 
   /**
@@ -419,7 +475,7 @@ export const activitiesApi = {
    * Complete an activity
    */
   complete: async (id: string): Promise<ActivityViewModel> => {
-    const response = await apiClient.post<{ data: ActivityApiResponse }>(
+    const response = await apiClient.post<ActivityApiResponse>(
       `/crm/api/v1/activities/${id}/complete`,
       {}
     );
@@ -428,6 +484,6 @@ export const activitiesApi = {
       throw new Error(response.error.message);
     }
 
-    return toActivityViewModel(response.data!.data);
+    return toActivityViewModel(response.data!);
   },
 };

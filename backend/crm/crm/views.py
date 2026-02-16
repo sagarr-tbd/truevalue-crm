@@ -1164,6 +1164,8 @@ class ActivityListView(BaseAPIView):
     
     def get(self, request):
         """List activities."""
+        import json
+        
         service = self.get_service(ActivityService)
         
         search = request.query_params.get('search')
@@ -1171,31 +1173,59 @@ class ActivityListView(BaseAPIView):
         status_param = request.query_params.get('status')
         contact_id = request.query_params.get('contact_id')
         deal_id = request.query_params.get('deal_id')
+        lead_id = request.query_params.get('lead_id')
         overdue = request.query_params.get('overdue')
         order_by = request.query_params.get('order_by', '-created_at')
+        
+        # Parse advanced filters (JSON string) — matches leads pattern
+        advanced_filters = None
+        filter_logic = 'and'
+        filters_param = request.query_params.get('filters')
+        if filters_param:
+            try:
+                filter_data = json.loads(filters_param)
+                advanced_filters = filter_data.get('conditions', [])
+                filter_logic = filter_data.get('logic', 'and')
+            except (json.JSONDecodeError, TypeError):
+                pass
         
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 10))
         offset = (page - 1) * page_size
         
-        activities = service.list(
+        # Build shared filter kwargs
+        filter_kwargs = dict(
             search=search,
             activity_type=activity_type,
             status=status_param,
             contact_id=UUID(contact_id) if contact_id else None,
             deal_id=UUID(deal_id) if deal_id else None,
+            lead_id=UUID(lead_id) if lead_id else None,
             overdue=overdue.lower() == 'true' if overdue else None,
             order_by=order_by,
-            limit=page_size,
-            offset=offset,
+            advanced_filters=advanced_filters,
+            filter_logic=filter_logic,
         )
         
-        total = service.count()
+        # Get filtered queryset (without pagination) for count
+        filtered_qs = service.list(**filter_kwargs)
+        total = filtered_qs.count()
+        
+        # Get paginated results
+        activities = filtered_qs[offset:offset + page_size]
+        
+        # Get stats for all activities of this type (not filtered by search/status)
+        stats = service.get_type_stats(activity_type=activity_type)
         
         serializer = ActivityListSerializer(activities, many=True)
         return Response({
             'data': serializer.data,
-            'meta': {'page': page, 'page_size': page_size, 'total': total}
+            'meta': {
+                'page': page,
+                'page_size': page_size,
+                'total': total,
+                'stats': stats,
+            }
         })
     
     def post(self, request):
@@ -1213,7 +1243,7 @@ class ActivityListView(BaseAPIView):
         activity = service.create(data)
         
         return Response(
-            {'data': ActivitySerializer(activity).data},
+            ActivitySerializer(activity).data,
             status=status.HTTP_201_CREATED
         )
 

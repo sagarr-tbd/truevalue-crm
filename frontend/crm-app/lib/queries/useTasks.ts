@@ -1,125 +1,173 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { tasksApi } from "@/lib/api/tasks";
-import type { TaskDisplay } from "@/lib/api/mock/tasks";
-import { toast } from "sonner";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  tasksApi,
+  TaskQueryParams,
+  TaskFormData,
+  TaskViewModel,
+} from '@/lib/api/tasks';
+import type { ActivityStats } from '@/lib/api/activities';
+import { toast } from 'sonner';
 
-// Query Keys
+// Re-export types for convenience
+export type { TaskQueryParams, TaskFormData, TaskViewModel, ActivityStats };
+
+// ============================================================================
+// QUERY KEYS
+// ============================================================================
+
 export const taskKeys = {
-  all: ["tasks"] as const,
-  lists: () => [...taskKeys.all, "list"] as const,
-  detail: (id: number) => [...taskKeys.all, "detail", id] as const,
+  all: ['tasks'] as const,
+  lists: () => [...taskKeys.all, 'list'] as const,
+  list: (params?: TaskQueryParams) => [...taskKeys.lists(), params] as const,
+  detail: (id: string) => [...taskKeys.all, 'detail', id] as const,
 };
 
-// GET all tasks
-export function useTasks() {
+// ============================================================================
+// QUERY HOOKS
+// ============================================================================
+
+/**
+ * Fetch tasks with server-side pagination and filtering
+ */
+export function useTasks(params: TaskQueryParams = {}) {
   return useQuery({
-    queryKey: taskKeys.lists(),
-    queryFn: tasksApi.getAll,
+    queryKey: taskKeys.list(params),
+    queryFn: () => tasksApi.getAll(params),
+    staleTime: 60 * 1000, // 1 minute
   });
 }
 
-// GET single task
-export function useTask(id: number) {
+/**
+ * Fetch single task by ID (UUID)
+ */
+export function useTask(id: string) {
   return useQuery({
     queryKey: taskKeys.detail(id),
     queryFn: () => tasksApi.getById(id),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000, // 2 minutes
   });
 }
 
-// CREATE task
+// ============================================================================
+// MUTATION HOOKS
+// ============================================================================
+
+/**
+ * Create a new task
+ */
 export function useCreateTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: tasksApi.create,
-    onMutate: async (newTask) => {
-      await queryClient.cancelQueries({ queryKey: taskKeys.lists() });
-      const previous = queryClient.getQueryData(taskKeys.lists());
-      
-      queryClient.setQueryData(taskKeys.lists(), (old: TaskDisplay[] = []) => [
-        { ...newTask, id: Date.now() } as TaskDisplay,
-        ...old,
-      ]);
-      
-      return { previous };
-    },
-    onError: (err, newTask, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(taskKeys.lists(), context.previous);
-      }
-      toast.error("Failed to create task");
-    },
+    mutationFn: (data: TaskFormData) => tasksApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      toast.success("Task created successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Task created successfully!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create task');
     },
   });
 }
 
-// UPDATE task
+/**
+ * Update a task
+ */
 export function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<TaskDisplay> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<TaskFormData> }) =>
       tasksApi.update(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      toast.success("Task updated successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Task updated successfully!');
     },
-    onError: () => {
-      toast.error("Failed to update task");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update task');
     },
   });
 }
 
-// DELETE task
+/**
+ * Delete a task
+ */
 export function useDeleteTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: tasksApi.delete,
-    onSuccess: () => {
+    mutationFn: (id: string) => tasksApi.delete(id),
+    onSuccess: (_, id) => {
+      queryClient.removeQueries({ queryKey: taskKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      toast.success("Task deleted successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Task deleted successfully!');
     },
-    onError: () => {
-      toast.error("Failed to delete task");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete task');
     },
   });
 }
 
-// BULK DELETE
+/**
+ * Complete a task
+ */
+export function useCompleteTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => tasksApi.complete(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Task completed!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to complete task');
+    },
+  });
+}
+
+/**
+ * Bulk delete tasks
+ */
 export function useBulkDeleteTasks() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: tasksApi.bulkDelete,
-    onSuccess: (_, ids) => {
+    mutationFn: (ids: string[]) => tasksApi.bulkDelete(ids),
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      toast.success(`${ids.length} tasks deleted successfully!`);
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success(`${result.success} tasks deleted successfully!`);
     },
-    onError: () => {
-      toast.error("Failed to delete tasks");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete tasks');
     },
   });
 }
 
-// BULK UPDATE
+/**
+ * Bulk update tasks
+ */
 export function useBulkUpdateTasks() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ ids, data }: { ids: number[]; data: Partial<TaskDisplay> }) =>
+    mutationFn: ({ ids, data }: { ids: string[]; data: Partial<TaskFormData> }) =>
       tasksApi.bulkUpdate(ids, data),
-    onSuccess: (_, { ids }) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      toast.success(`${ids.length} tasks updated successfully!`);
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success(`${result.success} tasks updated successfully!`);
     },
-    onError: () => {
-      toast.error("Failed to update tasks");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update tasks');
     },
   });
 }

@@ -5,7 +5,6 @@ import {
   User,
   Link2,
   Clock,
-  Tag,
 } from "lucide-react";
 import { taskSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
@@ -16,34 +15,37 @@ export const taskFormConfig: FormDrawerConfig = {
   schema: taskSchema,
   
   defaultValues: {
-    title: "",
+    subject: "",
     description: "",
     priority: undefined,
     status: undefined,
     dueDate: "",
-    startDate: "",
-    category: "",
-    relatedTo: "",
-    relatedToType: "",
+    startTime: "",
+    endTime: "",
+    durationMinutes: undefined,
+    contactId: "",
+    companyId: "",
+    dealId: "",
+    leadId: "",
     assignedTo: "",
-    reminderDate: "",
+    reminderAt: "",
   },
 
   quickFormSections: [
     {
       label: "Task Details",
       icon: <CheckSquare className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["title", "description", "priority", "status"],
+      fields: ["subject", "description", "priority", "status"],
     },
     {
       label: "Schedule",
       icon: <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["dueDate", "startDate", "reminderDate"],
+      fields: ["dueDate", "reminderAt"],
     },
     {
       label: "Assignment",
       icon: <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["assignedTo", "category"],
+      fields: ["assignedTo"],
     },
   ],
 
@@ -54,7 +56,7 @@ export const taskFormConfig: FormDrawerConfig = {
       icon: <CheckSquare className="h-4 w-4" />,
       fields: [
         {
-          name: "title",
+          name: "subject",
           label: "Task Title",
           type: "text",
           required: true,
@@ -71,7 +73,12 @@ export const taskFormConfig: FormDrawerConfig = {
           label: "Priority",
           type: "select",
           required: true,
-          options: ["Urgent", "High", "Medium", "Low"],
+          options: [
+            { label: "Urgent", value: "urgent" },
+            { label: "High", value: "high" },
+            { label: "Normal", value: "normal" },
+            { label: "Low", value: "low" },
+          ],
           placeholder: "Select priority...",
           icon: <Flag className="h-4 w-4" />,
         },
@@ -80,32 +87,19 @@ export const taskFormConfig: FormDrawerConfig = {
           label: "Status",
           type: "select",
           required: true,
-          options: ["Not Started", "In Progress", "Completed", "Cancelled"],
-          placeholder: "Select status...",
-        },
-        {
-          name: "category",
-          label: "Category",
-          type: "select",
           options: [
-            "Sales",
-            "Marketing",
-            "Customer Success",
-            "Administrative",
-            "Onboarding",
-            "Maintenance",
-            "Reporting",
-            "Documentation",
-            "Legal",
-            "Other",
+            { label: "Pending", value: "pending" },
+            { label: "In Progress", value: "in_progress" },
+            { label: "Completed", value: "completed" },
+            { label: "Cancelled", value: "cancelled" },
           ],
-          placeholder: "Select category...",
+          placeholder: "Select status...",
         },
       ],
       layout: [
         {
           gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "title" }],
+          fields: [{ name: "subject" }],
         },
         {
           gridClass: "grid-cols-1 gap-4",
@@ -118,10 +112,6 @@ export const taskFormConfig: FormDrawerConfig = {
             { name: "status" },
           ],
         },
-        {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "category" }],
-        },
       ],
     },
     {
@@ -130,21 +120,34 @@ export const taskFormConfig: FormDrawerConfig = {
       icon: <Calendar className="h-4 w-4" />,
       fields: [
         {
-          name: "startDate",
-          label: "Start Date",
-          type: "date",
-          icon: <Calendar className="h-4 w-4" />,
-        },
-        {
           name: "dueDate",
           label: "Due Date",
           type: "date",
-          required: true,
           icon: <Calendar className="h-4 w-4" />,
         },
         {
-          name: "reminderDate",
-          label: "Reminder Date",
+          name: "startTime",
+          label: "Start Time",
+          type: "datetime-local",
+          icon: <Clock className="h-4 w-4" />,
+        },
+        {
+          name: "endTime",
+          label: "End Time",
+          type: "datetime-local",
+          icon: <Clock className="h-4 w-4" />,
+        },
+        {
+          name: "durationMinutes",
+          label: "Duration (minutes)",
+          type: "number",
+          placeholder: "e.g., 60",
+          icon: <Clock className="h-4 w-4" />,
+          helperText: "Estimated duration in minutes",
+        },
+        {
+          name: "reminderAt",
+          label: "Reminder",
           type: "datetime-local",
           icon: <Clock className="h-4 w-4" />,
           helperText: "Set a reminder notification",
@@ -154,13 +157,20 @@ export const taskFormConfig: FormDrawerConfig = {
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
-            { name: "startDate" },
             { name: "dueDate" },
+            { name: "durationMinutes" },
+          ],
+        },
+        {
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
+            { name: "startTime" },
+            { name: "endTime" },
           ],
         },
         {
           gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "reminderDate" }],
+          fields: [{ name: "reminderAt" }],
         },
       ],
     },
@@ -170,41 +180,31 @@ export const taskFormConfig: FormDrawerConfig = {
       icon: <Link2 className="h-4 w-4" />,
       fields: [
         {
-          name: "relatedTo",
-          label: "Related To",
+          name: "contactId",
+          label: "Contact",
           type: "select",
-          options: [
-            "Acme Corporation",
-            "TechVision Inc",
-            "Global Solutions Ltd",
-            "Innovate Labs",
-            "NextGen Systems",
-            "CloudFirst Inc",
-            "Prime Industries",
-            "Apex Solutions",
-            "Strategic Partners",
-            "Internal",
-          ],
-          placeholder: "Select related account/contact...",
+          options: [],
+          placeholder: "Select contact...",
         },
         {
-          name: "relatedToType",
-          label: "Related To Type",
+          name: "companyId",
+          label: "Company",
           type: "select",
-          options: ["Account", "Contact", "Deal", "Lead", "Campaign", "Internal"],
-          placeholder: "Select type...",
+          options: [],
+          placeholder: "Select company...",
+        },
+        {
+          name: "dealId",
+          label: "Deal",
+          type: "select",
+          options: [],
+          placeholder: "Select deal...",
         },
         {
           name: "assignedTo",
           label: "Assigned To",
           type: "select",
-          options: [
-            "John Smith",
-            "Jane Doe",
-            "Mike Johnson",
-            "Sarah Brown",
-            "Robert Wilson",
-          ],
+          options: [],
           placeholder: "Select assignee...",
           icon: <User className="h-4 w-4" />,
         },
@@ -213,34 +213,15 @@ export const taskFormConfig: FormDrawerConfig = {
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
-            { name: "relatedTo" },
-            { name: "relatedToType" },
+            { name: "contactId" },
+            { name: "companyId" },
           ],
         },
         {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "assignedTo" }],
-        },
-      ],
-    },
-    {
-      id: "tags",
-      label: "Tags",
-      icon: <Tag className="h-4 w-4" />,
-      fields: [
-        {
-          name: "tags",
-          label: "Tags",
-          type: "tags",
-          options: [
-            "Urgent",
-            "Follow-up",
-            "Important",
-            "Client Request",
-            "Internal",
-            "Revenue Related",
-            "Quick Win",
-            "Long Term",
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
+            { name: "dealId" },
+            { name: "assignedTo" },
           ],
         },
       ],

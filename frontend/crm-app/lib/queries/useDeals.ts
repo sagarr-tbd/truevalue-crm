@@ -13,6 +13,7 @@ export const dealKeys = {
   list: (params: DealQueryParams) => [...dealKeys.lists(), params] as const,
   details: () => [...dealKeys.all, "detail"] as const,
   detail: (id: string) => [...dealKeys.details(), id] as const,
+  options: () => [...dealKeys.all, "options"] as const,
   forecast: (params?: { days?: number; pipeline_id?: string }) => [...dealKeys.all, "forecast", params] as const,
 };
 
@@ -51,6 +52,17 @@ export function useDealForecast(params?: { days?: number; pipeline_id?: string }
     queryKey: dealKeys.forecast(params),
     queryFn: () => dealsApi.getForecast(params),
     staleTime: 5 * 60 * 1000, // 5 minutes - forecast changes less frequently
+  });
+}
+
+/**
+ * Get deals as select options (for dropdowns)
+ */
+export function useDealOptions() {
+  return useQuery({
+    queryKey: dealKeys.options(),
+    queryFn: () => dealsApi.getAsOptions(),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

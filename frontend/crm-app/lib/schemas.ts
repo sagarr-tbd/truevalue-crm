@@ -517,89 +517,121 @@ export const documentSchema = z.object({
 
 // Task validation schema
 export const taskSchema = z.object({
-  title: z.string().min(1, "Task title is required"),
+  subject: z.string().min(1, "Task title is required"),
   description: z.string().optional(),
   priority: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Urgent", "High", "Medium", "Low"], {
+    z.enum(["urgent", "high", "normal", "low"], {
       required_error: "Priority is required",
       invalid_type_error: "Priority is required",
     })
   ),
   status: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Not Started", "In Progress", "Completed", "Cancelled"], {
+    z.enum(["pending", "in_progress", "completed", "cancelled"], {
       required_error: "Status is required",
       invalid_type_error: "Status is required",
     })
   ),
-  dueDate: z.string().min(1, "Due date is required"),
-  startDate: z.string().optional(),
-  category: z.string().optional(),
-  relatedTo: z.string().optional(),
-  relatedToType: z.string().optional(),
+  dueDate: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  durationMinutes: z.preprocess(
+    (val) => {
+      if (!val || val === "" || val === null || val === undefined) return undefined;
+      if (typeof val === "string") {
+        const num = parseInt(val);
+        return isNaN(num) ? undefined : num;
+      }
+      return typeof val === "number" ? val : undefined;
+    },
+    z.number().min(0).optional()
+  ),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
   assignedTo: z.string().optional(),
-  reminderDate: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  reminderAt: z.string().optional(),
 });
 
 // Call validation schema
 export const callSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   description: z.string().optional(),
-  direction: z.preprocess(
+  callDirection: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Incoming", "Outgoing"], {
+    z.enum(["inbound", "outbound"], {
       required_error: "Direction is required",
       invalid_type_error: "Direction is required",
     })
   ),
+  callOutcome: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["answered", "voicemail", "no_answer", "busy", "failed"]).optional()
+  ),
   status: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Scheduled", "Completed", "Missed", "Cancelled"]).optional()
+    z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
   ),
-  date: z.string().min(1, "Date is required"),
-  time: z.string().min(1, "Time is required"),
-  duration: z.string().optional(),
-  contactName: z.string().optional(),
-  contactPhone: z.string().optional().refine((val) => {
-    if (!val) return true;
-    return /^[\d\s\-\+\(\)]+$/.test(val);
-  }, "Invalid phone format"),
-  relatedTo: z.string().optional(),
-  relatedToType: z.string().optional(),
-  outcome: z.string().optional(),
-  callBy: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"]).optional()
+  ),
+  dueDate: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  durationMinutes: z.preprocess(
+    (val) => {
+      if (!val || val === "" || val === null || val === undefined) return undefined;
+      if (typeof val === "string") {
+        const num = parseInt(val);
+        return isNaN(num) ? undefined : num;
+      }
+      return typeof val === "number" ? val : undefined;
+    },
+    z.number().min(0).optional()
+  ),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedTo: z.string().optional(),
+  reminderAt: z.string().optional(),
 });
 
 // Meeting validation schema
 export const meetingSchema = z.object({
-  title: z.string().min(1, "Meeting title is required"),
+  subject: z.string().min(1, "Meeting title is required"),
   description: z.string().optional(),
-  date: z.string().min(1, "Date is required"),
-  time: z.string().min(1, "Time is required"),
-  duration: z.string().optional(),
-  type: z.preprocess(
-    (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["In Person", "Video Call", "Phone Call"]).optional()
-  ),
   status: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
-    z.enum(["Scheduled", "Completed", "Cancelled", "Rescheduled"]).optional()
+    z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
   ),
-  location: z.string().optional(),
-  meetingLink: z.string().optional().refine((val) => {
-    if (!val) return true;
-    return z.string().url().safeParse(val).success;
-  }, "Invalid URL format"),
-  organizer: z.string().optional(),
-  attendees: z.array(z.string()).optional(),
-  relatedTo: z.string().optional(),
-  relatedToType: z.string().optional(),
-  agenda: z.string().optional(),
-  notes: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"]).optional()
+  ),
+  dueDate: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  durationMinutes: z.preprocess(
+    (val) => {
+      if (!val || val === "" || val === null || val === undefined) return undefined;
+      if (typeof val === "string") {
+        const num = parseInt(val);
+        return isNaN(num) ? undefined : num;
+      }
+      return typeof val === "number" ? val : undefined;
+    },
+    z.number().min(0).optional()
+  ),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedTo: z.string().optional(),
+  reminderAt: z.string().optional(),
 });
 
 // Product validation schema
