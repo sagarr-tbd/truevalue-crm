@@ -721,6 +721,33 @@ export default function LeadsPage() {
       ),
     },
     {
+      key: "tags",
+      label: "Tags",
+      render: (_: unknown, row: LeadViewModel) => {
+        const tags = row.tags;
+        if (!tags || tags.length === 0) return <span className="text-muted-foreground/50">—</span>;
+        return (
+          <div className="flex items-center gap-1 flex-wrap">
+            {tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag.id}
+                className="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+                style={{
+                  backgroundColor: tag.color ? `${tag.color}20` : 'hsl(var(--primary) / 0.1)',
+                  color: tag.color || 'hsl(var(--primary))',
+                }}
+              >
+                {tag.name}
+              </span>
+            ))}
+            {tags.length > 2 && (
+              <span className="text-xs text-muted-foreground">+{tags.length - 2}</span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: "created",
       label: "Created",
       render: (value: string) => (

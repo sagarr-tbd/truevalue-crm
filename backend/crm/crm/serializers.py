@@ -6,6 +6,7 @@ Serializers for all CRM entities with validation and nested representations.
 from decimal import Decimal
 from rest_framework import serializers
 from django.utils import timezone
+import re
 
 from .models import (
     Company, Contact, ContactCompany,
@@ -14,6 +15,48 @@ from .models import (
     CustomFieldDefinition, CustomFieldValue,
     CRMAuditLog,
 )
+
+
+# =============================================================================
+# SANITIZATION HELPERS
+# =============================================================================
+
+PHONE_REGEX = re.compile(r'^[\d\s\-\+\(\)]+$')
+
+
+def sanitize_str(value):
+    """Strip leading/trailing whitespace from strings."""
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def normalize_email(value):
+    """Lowercase and strip email."""
+    if isinstance(value, str):
+        return value.strip().lower()
+    return value
+
+
+def validate_phone_format(value):
+    """Validate phone contains only digits, spaces, +, -, (, )."""
+    if value and not PHONE_REGEX.match(value):
+        raise serializers.ValidationError("Phone must contain only digits, spaces, +, -, (, )")
+    return value
+
+
+class SanitizedCharField(serializers.CharField):
+    """CharField that auto-strips whitespace."""
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        return sanitize_str(value)
+
+
+class SanitizedEmailField(serializers.EmailField):
+    """EmailField that auto-strips and lowercases."""
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        return normalize_email(value)
 
 
 # =============================================================================
@@ -114,6 +157,18 @@ class CompanySerializer(serializers.ModelSerializer):
             'owner_id': {'required': False},
         }
     
+    def validate_name(self, value):
+        return sanitize_str(value)
+    
+    def validate_email(self, value):
+        return normalize_email(value) if value else value
+    
+    def validate_phone(self, value):
+        if value:
+            value = sanitize_str(value)
+            validate_phone_format(value)
+        return value
+    
     def get_contact_count(self, obj) -> int:
         return obj.contact_associations.count()
     
@@ -199,6 +254,30 @@ class ContactSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'owner_id': {'required': False},
         }
+    
+    def validate_email(self, value):
+        return normalize_email(value)
+    
+    def validate_secondary_email(self, value):
+        return normalize_email(value) if value else value
+    
+    def validate_phone(self, value):
+        if value:
+            value = sanitize_str(value)
+            validate_phone_format(value)
+        return value
+    
+    def validate_mobile(self, value):
+        if value:
+            value = sanitize_str(value)
+            validate_phone_format(value)
+        return value
+    
+    def validate_first_name(self, value):
+        return sanitize_str(value)
+    
+    def validate_last_name(self, value):
+        return sanitize_str(value)
     
     def get_deal_count(self, obj) -> int:
         return obj.deals.count()
@@ -507,6 +586,30 @@ class LeadSerializer(serializers.ModelSerializer):
             'owner_id': {'required': False},
         }
     
+    def validate_email(self, value):
+        return normalize_email(value)
+    
+    def validate_phone(self, value):
+        if value:
+            value = sanitize_str(value)
+            validate_phone_format(value)
+        return value
+    
+    def validate_mobile(self, value):
+        if value:
+            value = sanitize_str(value)
+            validate_phone_format(value)
+        return value
+    
+    def validate_first_name(self, value):
+        return sanitize_str(value)
+    
+    def validate_last_name(self, value):
+        return sanitize_str(value)
+    
+    def validate_source(self, value):
+        return sanitize_str(value)
+    
     def get_activity_count(self, obj) -> int:
         return obj.activities.count()
 
@@ -567,7 +670,77 @@ class LeadConvertSerializer(serializers.Serializer):
 # ACTIVITY SERIALIZERS
 # =============================================================================
 
-class ActivitySerializer(serializers.ModelSerializer):
+class ActivityValidationMixin:
+    """Shared validation logic for Activity serializers."""
+    
+    # Fields that are only relevant to specific activity types
+    CALL_ONLY_FIELDS = {'call_direction', 'call_outcome'}
+    EMAIL_ONLY_FIELDS = {'email_direction', 'email_message_id'}
+    TIME_RANGE_FIELDS = {'start_time', 'end_time', 'duration_minutes'}
+    
+    # Which types support which field groups
+    TYPE_ALLOWED_FIELDS = {
+        'task': {'due_date', 'reminder_at'},
+        'note': set(),  # Notes: just subject + description + entity links
+        'call': {'due_date', 'start_time', 'end_time', 'duration_minutes', 'call_direction', 'call_outcome', 'reminder_at'},
+        'meeting': {'due_date', 'start_time', 'end_time', 'duration_minutes', 'reminder_at'},
+        'email': {'due_date', 'email_direction', 'email_message_id', 'reminder_at'},
+    }
+    
+    def _validate_activity(self, data):
+        """Cross-field and type-specific validation for activities."""
+        errors = {}
+        activity_type = data.get('activity_type') or (
+            self.instance.activity_type if self.instance else None
+        )
+        
+        # --- Entity link required on create ---
+        if not self.instance:
+            has_entity = any([
+                data.get('contact_id') or data.get('contact'),
+                data.get('company_id') or data.get('company'),
+                data.get('deal_id') or data.get('deal'),
+                data.get('lead_id') or data.get('lead'),
+            ])
+            if not has_entity:
+                raise serializers.ValidationError(
+                    'Activity must be linked to at least one entity (contact, company, deal, or lead)'
+                )
+        
+        # --- Cross-field: end_time > start_time ---
+        start = data.get('start_time')
+        end = data.get('end_time')
+        if start and end and end <= start:
+            errors['end_time'] = 'End time must be after start time.'
+        
+        # --- Cross-field: reminder_at < due_date ---
+        reminder = data.get('reminder_at')
+        due = data.get('due_date')
+        if reminder and due and reminder >= due:
+            errors['reminder_at'] = 'Reminder must be before the due date.'
+        
+        # --- Type-specific: strip irrelevant fields silently ---
+        if activity_type and activity_type in self.TYPE_ALLOWED_FIELDS:
+            allowed = self.TYPE_ALLOWED_FIELDS[activity_type]
+            type_specific_fields = (
+                self.CALL_ONLY_FIELDS | self.EMAIL_ONLY_FIELDS | self.TIME_RANGE_FIELDS |
+                {'due_date', 'reminder_at'}
+            )
+            for field in type_specific_fields - allowed:
+                data.pop(field, None)
+        
+        # --- Type-specific: call_direction required for calls ---
+        if activity_type == 'call' and not self.instance:
+            if not data.get('call_direction'):
+                errors['call_direction'] = 'Call direction is required for calls.'
+        
+        if errors:
+            raise serializers.ValidationError(errors)
+        
+        return data
+
+
+class ActivitySerializer(ActivityValidationMixin, serializers.ModelSerializer):
     """Full serializer for Activity model."""
     contact = ContactMinimalSerializer(read_only=True)
     contact_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
@@ -599,21 +772,11 @@ class ActivitySerializer(serializers.ModelSerializer):
             'owner_id': {'required': False},
         }
     
+    def validate_subject(self, value):
+        return sanitize_str(value)
+    
     def validate(self, data):
-        """Validate at least one entity is linked."""
-        # For new activities, require at least one entity
-        if not self.instance:
-            has_entity = any([
-                data.get('contact_id'),
-                data.get('company_id'),
-                data.get('deal_id'),
-                data.get('lead_id'),
-            ])
-            if not has_entity:
-                raise serializers.ValidationError(
-                    'Activity must be linked to at least one entity (contact, company, deal, or lead)'
-                )
-        return data
+        return self._validate_activity(data)
 
 
 class ActivityListSerializer(serializers.ModelSerializer):
@@ -631,13 +794,14 @@ class ActivityListSerializer(serializers.ModelSerializer):
             'due_date', 'completed_at',
             'start_time', 'end_time', 'duration_minutes',
             'call_direction', 'call_outcome',
+            'email_direction',
             'contact', 'company', 'deal', 'lead',
             'owner_id', 'assigned_to',
             'reminder_at', 'created_at',
         ]
 
 
-class ActivityCreateSerializer(serializers.ModelSerializer):
+class ActivityCreateSerializer(ActivityValidationMixin, serializers.ModelSerializer):
     """Serializer for creating activities (simplified)."""
     
     class Meta:
@@ -646,9 +810,16 @@ class ActivityCreateSerializer(serializers.ModelSerializer):
             'activity_type', 'subject', 'description', 'status', 'priority',
             'due_date', 'start_time', 'end_time', 'duration_minutes',
             'call_direction', 'call_outcome',
+            'email_direction',
             'contact', 'company', 'deal', 'lead',
             'assigned_to', 'reminder_at'
         ]
+    
+    def validate_subject(self, value):
+        return sanitize_str(value)
+    
+    def validate(self, data):
+        return self._validate_activity(data)
 
 
 # =============================================================================

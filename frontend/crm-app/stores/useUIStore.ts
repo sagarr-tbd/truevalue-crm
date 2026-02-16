@@ -99,6 +99,10 @@ interface UIStore {
       status?: string | null;
       search?: string;
     };
+    emails?: {
+      status?: string | null;
+      search?: string;
+    };
     cases?: {
       status?: string | null;
       search?: string;

@@ -1298,41 +1298,63 @@
 These are non-negotiable. Without these, it's not a CRM.
 
 ### **1. Contact Management**
-| Feature | Description | Priority | Hours |
-|---------|-------------|----------|-------|
-| Contacts | Individual people with details (name, email, phone, etc.) | P0 | 16h |
-| Companies/Accounts | Organizations that contacts belong to | P0 | 12h |
-| Contact-Company linking | Associate multiple contacts to one company | P0 | 6h |
-| Contact timeline | Activity history per contact | P0 | 10h |
-| Custom fields | User-defined fields for contacts/companies | P0 | 20h |
-| Tags/Labels | Categorize contacts | P0 | 6h |
-| Import/Export | CSV import, bulk export | P0 | 16h |
-| Duplicate detection | Prevent/merge duplicate contacts | P0 | 12h |
-| Search & filters | Advanced search across all fields | P0 | 14h |
-| **Subtotal** | | | **112h** |
+| Feature | Description | Priority | Hours | Status |
+|---------|-------------|----------|-------|--------|
+| Contacts | Individual people with details (name, email, phone, etc.) | P0 | 16h | ✅ Done |
+| Companies/Accounts | Organizations that contacts belong to | P0 | 12h | ✅ Done |
+| Contact-Company linking | Associate multiple contacts to one company | P0 | 6h | ✅ Done |
+| Contact timeline | Activity history per contact | P0 | 10h | ✅ Done |
+| Custom fields | User-defined fields for contacts/companies | P0 | 20h | ⚠️ Backend done, frontend form UI pending |
+| Tags/Labels | Categorize contacts | P0 | 6h | ✅ Done |
+| Import/Export | CSV import, bulk export | P0 | 16h | ⚠️ Import done, export endpoint pending |
+| Duplicate detection | Prevent/merge duplicate contacts | P0 | 12h | ✅ Done |
+| Search & filters | Advanced search across all fields | P0 | 14h | ✅ Done |
+| **Subtotal** | | | **112h** | |
 
-### **2. Deal/Opportunity Management**
-| Feature | Description | Priority | Hours |
-|---------|-------------|----------|-------|
-| Deals | Track sales opportunities with value | P0 | 14h |
-| Pipeline stages | Customizable stages (Lead → Won/Lost) | P0 | 10h |
-| Kanban board | Visual drag-drop pipeline | P0 | 16h |
-| Deal value & probability | Amount + win probability | P0 | 4h |
-| Expected close date | Forecasting support | P0 | 3h |
-| Deal-Contact linking | Associate deals with contacts/companies | P0 | 6h |
-| Multiple pipelines | Different pipelines for different products | P1 | 8h |
-| **Subtotal** | | | **61h** |
+**Implementation Notes (Feb 2026):**
+- Backend: Full Contact & Company APIs (`/api/v1/contacts`, `/api/v1/companies`)
+- Endpoints: CRUD, search, filters, duplicate detection, timeline, tags, CSV import
+- Frontend: List/detail views, form drawers, quick actions, validation aligned with backend
+- Tags: Displayed in list views (contacts, leads, deals, accounts) with color badges
+- Pending: Custom fields form UI, export endpoint
 
-### **3. Activity Tracking**
-| Feature | Description | Priority | Hours |
-|---------|-------------|----------|-------|
-| Tasks | To-do items linked to contacts/deals | P0 | 12h |
-| Notes | Free-form notes on records | P0 | 6h |
-| Meetings/Appointments | Calendar events | P0 | 10h |
-| Call logging | Log phone calls with outcomes | P0 | 8h |
-| Email logging | Track emails sent/received | P0 | 10h |
-| Activity reminders | Due date notifications | P0 | 8h |
-| **Subtotal** | | | **54h** |
+### **2. Deal/Opportunity Management** ✅ PHASE 1 COMPLETE
+| Feature | Description | Priority | Hours | Status |
+|---------|-------------|----------|-------|--------|
+| Deals | Track sales opportunities with value | P0 | 14h | ✅ Done |
+| Pipeline stages | Customizable stages (Lead → Won/Lost) | P0 | 10h | ✅ Done |
+| Kanban board | Visual drag-drop pipeline | P0 | 16h | ✅ Done |
+| Deal value & probability | Amount + win probability | P0 | 4h | ✅ Done |
+| Expected close date | Forecasting support | P0 | 3h | ✅ Done |
+| Deal-Contact linking | Associate deals with contacts/companies | P0 | 6h | ✅ Done |
+| Multiple pipelines | Different pipelines for different products | P1 | 8h | ✅ Done |
+| **Subtotal** | | | **61h** | |
+
+**Implementation Notes (Feb 2026):**
+- Backend: Full Deal & Pipeline APIs (`/api/v1/deals`, `/api/v1/pipelines`)
+- Endpoints: CRUD, stage transitions, kanban view, deal-contact/company linking
+- Frontend: List/detail views, Kanban board, form drawers, quick actions, validation aligned
+
+### **3. Activity Tracking** ✅ PHASE 1 COMPLETE
+| Feature | Description | Priority | Hours | Status |
+|---------|-------------|----------|-------|--------|
+| Tasks | To-do items linked to contacts/deals | P0 | 12h | ✅ Done |
+| Notes | Free-form notes on records | P0 | 6h | ✅ Done |
+| Meetings/Appointments | Calendar events | P0 | 10h | ✅ Done |
+| Call logging | Log phone calls with outcomes | P0 | 8h | ✅ Done |
+| Email logging | Track emails sent/received | P0 | 10h | ✅ Done |
+| Activity reminders | Due date notifications | P0 | 8h | ✅ Done |
+| **Subtotal** | | | **54h** | |
+
+**Implementation Notes (Feb 2026):**
+- Backend: Full Activity API (`/api/v1/activities`) with type-specific validation
+- Activity types: Task, Note, Meeting, Call, Email
+- Serializers: ActivitySerializer (full), ActivityListSerializer (list with email_direction), ActivityCreateSerializer (create with email_direction)
+- Validation: Entity linking, cross-field (end_time > start_time, reminder < due_date), type-specific field stripping
+- Email type supports: due_date, reminder_at, email_direction, email_message_id
+- Frontend: Form drawers for all types, quick actions on all entity detail pages, validation aligned
+- Email logging: Full list page (`/activities/emails`) with form drawer, direction (sent/received), search, filters, bulk operations, export
+- Seed data: 25 tasks, 20 calls, 20 meetings, 25 emails via `seed_tasks` management command
 
 ### **4. Lead Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1351,23 +1373,31 @@ These are non-negotiable. Without these, it's not a CRM.
 - Features: List/detail views, conversion modal, duplicate detection
 - Web Form: Public endpoint at `/api/v1/leads/web-form` with UTM tracking
 
-### **5. Basic Reporting**
-| Feature | Description | Priority | Hours |
-|---------|-------------|----------|-------|
-| Pipeline report | Deals by stage | P0 | 8h |
-| Sales dashboard | Key metrics overview | P0 | 16h |
-| Activity report | Team activity summary | P0 | 8h |
-| Won/Lost analysis | Deal outcomes | P0 | 6h |
-| **Subtotal** | | | **38h** |
+### **5. Basic Reporting** ✅ PHASE 1 COMPLETE
+| Feature | Description | Priority | Hours | Status |
+|---------|-------------|----------|-------|--------|
+| Pipeline report | Deals by stage | P0 | 8h | ✅ Done |
+| Sales dashboard | Key metrics overview | P0 | 16h | ✅ Done |
+| Activity report | Team activity summary | P0 | 8h | ✅ Done |
+| Won/Lost analysis | Deal outcomes | P0 | 6h | ✅ Done |
+| **Subtotal** | | | **38h** | |
+
+**Implementation Notes (Feb 2026):**
+- Frontend: Sales dashboard with pipeline report, activity summary, won/lost analysis
+- Backend: Dashboard stats endpoint with metrics aggregation
 
 ### **6. User & Team Management**
-| Feature | Description | Priority | Hours |
-|---------|-------------|----------|-------|
-| Multiple users | Team access | P0 | 4h |
-| Record ownership | Assign contacts/deals to users | P0 | 6h |
-| Role-based access | Use your Permission service | P0 | 8h |
-| Teams | Group users | P1 | 6h |
-| **Subtotal** | | | **24h** |
+| Feature | Description | Priority | Hours | Status |
+|---------|-------------|----------|-------|--------|
+| Multiple users | Team access | P0 | 4h | ✅ Done |
+| Record ownership | Assign contacts/deals to users | P0 | 6h | ✅ Done |
+| Role-based access | Use your Permission service | P0 | 8h | ⚠️ Pending |
+| Teams | Group users | P1 | 6h | ⚠️ Pending |
+| **Subtotal** | | | **24h** | |
+
+**Implementation Notes (Feb 2026):**
+- Backend: User model with JWT auth, record ownership (owner_id on all entities)
+- Pending: Role-based permission checks in views, Team model & team-scoped queries
 
 ### **MVP TOTAL: 333 hours (~8.5 weeks for 1 dev)**
 

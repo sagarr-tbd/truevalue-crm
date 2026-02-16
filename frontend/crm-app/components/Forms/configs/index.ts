@@ -9,6 +9,7 @@ export { taskFormConfig } from "./taskFormConfig";
 export { callFormConfig } from "./callFormConfig";
 export { meetingFormConfig } from "./meetingFormConfig";
 export { noteFormConfig } from "./noteFormConfig";
+export { emailFormConfig } from "./emailFormConfig";
 export { productFormConfig } from "./productFormConfig";
 export { vendorFormConfig } from "./vendorFormConfig";
 export { invoiceFormConfig } from "./invoiceFormConfig";

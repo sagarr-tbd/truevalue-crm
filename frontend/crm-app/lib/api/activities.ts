@@ -111,6 +111,7 @@ export interface ActivityApiRequest {
   duration_minutes?: number | null;
   call_direction?: string | null;
   call_outcome?: string | null;
+  email_direction?: string | null;
   contact_id?: string | null;
   company_id?: string | null;
   deal_id?: string | null;
@@ -134,6 +135,7 @@ export interface ActivityFormData {
   durationMinutes?: number;
   callDirection?: string;
   callOutcome?: string;
+  emailDirection?: string;
   contactId?: string;
   companyId?: string;
   dealId?: string;
@@ -230,6 +232,7 @@ function toApiRequest(data: ActivityFormData): ActivityApiRequest {
     duration_minutes: data.durationMinutes,
     call_direction: emptyToUndefined(data.callDirection),
     call_outcome: emptyToUndefined(data.callOutcome),
+    email_direction: emptyToUndefined(data.emailDirection),
     contact_id: emptyToUndefined(data.contactId),
     company_id: emptyToUndefined(data.companyId),
     deal_id: emptyToUndefined(data.dealId),

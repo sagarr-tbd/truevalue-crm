@@ -901,8 +901,11 @@ class Lead(SoftDeleteOwnedModel):
     source_detail = models.CharField(max_length=255, null=True, blank=True)
     # E.g., "Google Ads Campaign Q1", "John Smith referral"
     
-    # Lead score (Phase 3: AI-based)
-    score = models.PositiveIntegerField(null=True, blank=True)
+    # Lead score (0-100, Phase 3: AI-based)
+    score = models.PositiveIntegerField(
+        null=True, blank=True,
+        validators=[MaxValueValidator(100)]
+    )
     
     # Interest/needs
     description = models.TextField(null=True, blank=True)
@@ -993,6 +996,21 @@ class Activity(OwnedModel):
         COMPLETED = 'completed', 'Completed'
         CANCELLED = 'cancelled', 'Cancelled'
     
+    class CallDirection(models.TextChoices):
+        INBOUND = 'inbound', 'Inbound'
+        OUTBOUND = 'outbound', 'Outbound'
+    
+    class CallOutcome(models.TextChoices):
+        ANSWERED = 'answered', 'Answered'
+        VOICEMAIL = 'voicemail', 'Voicemail'
+        NO_ANSWER = 'no_answer', 'No Answer'
+        BUSY = 'busy', 'Busy'
+        FAILED = 'failed', 'Failed'
+    
+    class EmailDirection(models.TextChoices):
+        SENT = 'sent', 'Sent'
+        RECEIVED = 'received', 'Received'
+    
     # Activity type
     activity_type = models.CharField(
         max_length=20,
@@ -1023,14 +1041,26 @@ class Activity(OwnedModel):
     # For meetings/calls
     start_time = models.DateTimeField(null=True, blank=True)
     end_time = models.DateTimeField(null=True, blank=True)
-    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField(
+        null=True, blank=True,
+        validators=[MaxValueValidator(1440)]  # 24 hours max
+    )
     
     # Call specific
-    call_direction = models.CharField(max_length=10, null=True, blank=True)  # inbound/outbound
-    call_outcome = models.CharField(max_length=50, null=True, blank=True)  # answered, voicemail, no_answer
+    call_direction = models.CharField(
+        max_length=10, null=True, blank=True,
+        choices=CallDirection.choices
+    )
+    call_outcome = models.CharField(
+        max_length=50, null=True, blank=True,
+        choices=CallOutcome.choices
+    )
     
     # Email specific (Phase 2: full email sync)
-    email_direction = models.CharField(max_length=10, null=True, blank=True)  # sent/received
+    email_direction = models.CharField(
+        max_length=10, null=True, blank=True,
+        choices=EmailDirection.choices
+    )
     email_message_id = models.CharField(max_length=255, null=True, blank=True)
     
     # Related entities (polymorphic)

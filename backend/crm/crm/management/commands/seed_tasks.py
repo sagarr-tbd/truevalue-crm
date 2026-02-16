@@ -310,6 +310,159 @@ MEETING_DATA = [
     },
 ]
 
+EMAIL_DATA = [
+    {
+        'subject': 'Proposal: Enterprise CRM Package for Acme Corp',
+        'description': 'Attached is our tailored proposal covering the Enterprise tier with custom integrations, dedicated support, and onboarding package. Please review and let us know if you have any questions.',
+        'email_direction': 'sent',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Re: Follow-up on product demo',
+        'description': 'Thanks for the demo yesterday. Our team is interested in the analytics module. Can you share pricing for 50 users?',
+        'email_direction': 'received',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Meeting recap: Q2 Pipeline Review',
+        'description': 'Hi team, here are the action items from today\'s pipeline review: 1) Update stale deals by Friday, 2) Schedule demos for 3 new prospects, 3) Finalize Q3 forecast.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Contract renewal reminder — MediaWorks',
+        'description': 'This is a reminder that the MediaWorks annual contract expires in 15 days. Renewal proposal is attached with a 10% uplift as discussed.',
+        'email_direction': 'sent',
+        'priority': 'urgent',
+    },
+    {
+        'subject': 'Re: Technical requirements for API integration',
+        'description': 'We\'ve reviewed your API documentation. Our engineering team has a few questions about webhook authentication and rate limits. Can we schedule a call this week?',
+        'email_direction': 'received',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Welcome to TrueValue CRM — Getting Started Guide',
+        'description': 'Welcome aboard! Here\'s your getting started guide with links to documentation, training videos, and your dedicated success manager\'s contact info.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Invoice #2024-0847 for CloudScale Technologies',
+        'description': 'Please find attached invoice #2024-0847 for the Q1 subscription and professional services. Payment terms: Net 30.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Re: Pricing concern — 15% over budget',
+        'description': 'Hi, after reviewing internally our budget can only accommodate $45k/year. Is there flexibility on the analytics add-on pricing? We\'d like to move forward quickly.',
+        'email_direction': 'received',
+        'priority': 'urgent',
+    },
+    {
+        'subject': 'Feature request: Custom dashboard widgets',
+        'description': 'Several of our sales managers have requested the ability to create custom dashboard widgets. Is this on the product roadmap? If so, what\'s the expected timeline?',
+        'email_direction': 'received',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Case study: How RetailMax increased sales by 34%',
+        'description': 'Sharing our latest case study featuring RetailMax. They saw a 34% increase in sales pipeline velocity after implementing our CRM. Feel free to share with your prospects.',
+        'email_direction': 'sent',
+        'priority': 'low',
+    },
+    {
+        'subject': 'Re: Partnership opportunity with BizConnect',
+        'description': 'Thanks for the introduction. We\'re excited about the partnership opportunity. I\'ve reviewed the co-marketing proposal and have a few suggestions. Let\'s discuss this week.',
+        'email_direction': 'received',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Security compliance documentation — SOC2 & GDPR',
+        'description': 'As requested, attached are our SOC2 Type II report, GDPR compliance documentation, and data processing agreement template for your legal review.',
+        'email_direction': 'sent',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Webinar invitation: Mastering Sales Automation',
+        'description': 'You\'re invited to our upcoming webinar on sales automation best practices. Date: March 15, 2pm EST. Register via the link below.',
+        'email_direction': 'sent',
+        'priority': 'low',
+    },
+    {
+        'subject': 'Re: Data migration timeline',
+        'description': 'Our IT team has completed the data export from Salesforce. The CSV files are ready for upload. Can we schedule the migration for next Monday?',
+        'email_direction': 'received',
+        'priority': 'high',
+    },
+    {
+        'subject': 'NPS Survey Results — January 2026',
+        'description': 'Here are the January NPS results: Score 72 (+5 from December). Key highlights: improved onboarding satisfaction, API reliability praised. Detractor feedback attached.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Urgent: Service disruption notification',
+        'description': 'We experienced a brief service disruption today between 2:15-2:45 PM EST. All systems are now fully operational. Root cause analysis is attached.',
+        'email_direction': 'sent',
+        'priority': 'urgent',
+    },
+    {
+        'subject': 'Re: Referral from John at Prime Industries',
+        'description': 'Hi, John from Prime Industries mentioned you might be a good fit for our logistics division. We have 200+ field reps who need mobile CRM access. Would love to learn more.',
+        'email_direction': 'received',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Quarterly business review slides — EduTech',
+        'description': 'Attached are the QBR presentation slides for next Tuesday\'s meeting with EduTech. Please review and add any account-specific updates by EOD Friday.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Re: Custom integration quote request',
+        'description': 'We need a quote for integrating your CRM with our SAP ERP system and custom warehouse management tool. Estimated 15 API endpoints. Timeline: 6 weeks.',
+        'email_direction': 'received',
+        'priority': 'high',
+    },
+    {
+        'subject': 'Product update: New reporting features launched',
+        'description': 'Exciting news! We\'ve launched 5 new reporting features including advanced pipeline analytics, team performance dashboards, and automated scheduled reports.',
+        'email_direction': 'sent',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Re: Trial extension request — HealthPlus Corp',
+        'description': 'Our evaluation team needs 2 more weeks to complete testing. We\'re very interested but need to validate HIPAA compliance features. Can you extend our trial to March 10?',
+        'email_direction': 'received',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Competitive displacement win — DataDrive switched from HubSpot',
+        'description': 'Great news! DataDrive Inc has signed a 2-year contract after switching from HubSpot. Key decision factors: better API, lower cost, and superior reporting.',
+        'email_direction': 'sent',
+        'priority': 'low',
+    },
+    {
+        'subject': 'Re: Annual planning meeting agenda',
+        'description': 'Thanks for sharing the agenda. I\'d like to add a section on territory planning and new vertical opportunities. Also, can we allocate 30 min for the product roadmap discussion?',
+        'email_direction': 'received',
+        'priority': 'normal',
+    },
+    {
+        'subject': 'Customer escalation: Apex Solutions — sync issues',
+        'description': 'Apex Solutions is reporting intermittent data sync failures with their Outlook integration. This is a P1 account. Engineering ticket #4521 has been created.',
+        'email_direction': 'sent',
+        'priority': 'urgent',
+    },
+    {
+        'subject': 'Re: Multi-year deal structure for Strategic Partners',
+        'description': 'We\'ve reviewed the 3-year proposal internally. The pricing works for us but we need custom SLA terms for 99.95% uptime and 4-hour response time. Can your team accommodate this?',
+        'email_direction': 'received',
+        'priority': 'urgent',
+    },
+]
+
 TASK_DATA = [
     {
         'subject': 'Follow up on Q2 proposal',
@@ -440,7 +593,7 @@ TASK_DATA = [
 
 
 class Command(BaseCommand):
-    help = 'Seed 25 tasks, 20 calls, and 20 meetings for testing the Activities module'
+    help = 'Seed 25 tasks, 20 calls, 20 meetings, and 25 emails for testing the Activities module'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -461,7 +614,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--type',
             type=str,
-            choices=['task', 'call', 'meeting', 'all'],
+            choices=['task', 'call', 'meeting', 'email', 'all'],
             default='all',
             help='Which activity type to seed (default: all)',
         )
@@ -492,7 +645,7 @@ class Command(BaseCommand):
         if options['clear']:
             if seed_type == 'all':
                 deleted, _ = Activity.objects.filter(
-                    org_id=org_id, activity_type__in=['task', 'call', 'meeting']
+                    org_id=org_id, activity_type__in=['task', 'call', 'meeting', 'email']
                 ).delete()
                 self.stdout.write(self.style.WARNING(f'Cleared {deleted} existing activities'))
             else:
@@ -521,6 +674,10 @@ class Command(BaseCommand):
         if seed_type in ('meeting', 'all'):
             count = self._seed_meetings(org_id, owner_id, contacts, companies, deals, leads, assignee_ids)
             self.stdout.write(self.style.SUCCESS(f'Created {count} meetings'))
+
+        if seed_type in ('email', 'all'):
+            count = self._seed_emails(org_id, owner_id, contacts, companies, deals, leads, assignee_ids)
+            self.stdout.write(self.style.SUCCESS(f'Created {count} emails'))
 
         # Print summary
         self._print_summary(org_id, seed_type)
@@ -711,10 +868,63 @@ class Command(BaseCommand):
 
         return created
 
+    def _seed_emails(self, org_id, owner_id, contacts, companies, deals, leads, assignee_ids):
+        statuses = ['pending', 'in_progress', 'completed', 'cancelled']
+        status_weights = [0.15, 0.10, 0.65, 0.10]  # most emails are completed
+        created = 0
+
+        for i, data in enumerate(EMAIL_DATA):
+            status = random.choices(statuses, weights=status_weights, k=1)[0]
+
+            # Emails spread across past 3 weeks and upcoming week
+            days_offset = random.randint(-21, 7)
+            due_date = timezone.now() + timedelta(days=days_offset)
+
+            completed_at = None
+            if status == 'completed':
+                completed_at = due_date + timedelta(
+                    hours=random.randint(0, 4),
+                    minutes=random.randint(0, 59),
+                )
+
+            contact, company, deal, lead = self._get_related_entities(
+                i, contacts, companies, deals, leads
+            )
+
+            # ~50% of emails have an assignee
+            assigned_to = assignee_ids[i % len(assignee_ids)] if assignee_ids and random.random() > 0.5 else None
+
+            # ~30% have a reminder
+            reminder_at = None
+            if status == 'pending' and random.random() > 0.7:
+                reminder_at = due_date - timedelta(hours=random.choice([1, 2, 4, 8]))
+
+            Activity.objects.create(
+                org_id=org_id,
+                owner_id=owner_id,
+                activity_type='email',
+                subject=data['subject'],
+                description=data['description'],
+                priority=data['priority'],
+                status=status,
+                due_date=due_date,
+                email_direction=data.get('email_direction'),
+                completed_at=completed_at,
+                contact=contact,
+                company=company,
+                deal=deal,
+                lead=lead,
+                assigned_to=assigned_to,
+                reminder_at=reminder_at,
+            )
+            created += 1
+
+        return created
+
     def _print_summary(self, org_id, seed_type):
         statuses = ['pending', 'in_progress', 'completed', 'cancelled']
         priorities = ['urgent', 'high', 'normal', 'low']
-        types_to_show = ['task', 'call', 'meeting'] if seed_type == 'all' else [seed_type]
+        types_to_show = ['task', 'call', 'meeting', 'email'] if seed_type == 'all' else [seed_type]
 
         self.stdout.write('')
         for atype in types_to_show:
