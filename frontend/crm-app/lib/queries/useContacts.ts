@@ -3,7 +3,6 @@ import {
   contactsApi,
   ContactQueryParams,
   ContactFormData,
-  ContactOption,
 } from '@/lib/api/contacts';
 import { toast } from 'sonner';
 

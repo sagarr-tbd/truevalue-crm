@@ -12,16 +12,27 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from ..models import Activity, Contact, Company, Deal, Lead
-from .base_service import BaseService
+from .base_service import AdvancedFilterMixin, BaseService
 
 logger = logging.getLogger(__name__)
 
 
-class ActivityService(BaseService[Activity]):
+class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
     """Service for Activity operations."""
     
     model = Activity
     entity_type = 'activity'
+    
+    FILTER_FIELD_MAP = {
+        'subject': 'subject',
+        'status': 'status',
+        'priority': 'priority',
+        'activity_type': 'activity_type',
+        'activityType': 'activity_type',
+        'description': 'description',
+        'assignedTo': 'assigned_to',
+        'assigned_to': 'assigned_to',
+    }
     
     def list(
         self,
@@ -42,6 +53,8 @@ class ActivityService(BaseService[Activity]):
         due_from: datetime = None,
         due_to: datetime = None,
         overdue: bool = None,
+        advanced_filters: List[Dict] = None,
+        filter_logic: str = 'and',
     ):
         """List activities with advanced filtering."""
         qs = self.get_queryset()
@@ -95,6 +108,9 @@ class ActivityService(BaseService[Activity]):
                 Q(subject__icontains=search) |
                 Q(description__icontains=search)
             )
+        
+        # Apply advanced filters (same as leads/contacts/deals)
+        qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
         
         # Apply ordering
         qs = qs.order_by(order_by)
@@ -388,6 +404,47 @@ class ActivityService(BaseService[Activity]):
                 'meetings': qs.filter(activity_type='meeting').count(),
                 'notes': qs.filter(activity_type='note').count(),
             }
+        }
+    
+    def get_type_stats(self, activity_type: str = None) -> Dict[str, Any]:
+        """
+        Get activity statistics by status and priority, optionally scoped to an activity type.
+        Matches the leads get_stats() response shape for frontend consistency.
+        """
+        qs = self.get_queryset()
+        
+        if activity_type:
+            qs = qs.filter(activity_type=activity_type)
+        
+        now = timezone.now()
+        
+        # Counts by status
+        status_counts = qs.values('status').annotate(count=Count('id'))
+        by_status = {}
+        total = 0
+        for item in status_counts:
+            s = item['status'] or 'unknown'
+            c = item['count']
+            by_status[s] = c
+            total += c
+        
+        # Counts by priority
+        priority_counts = qs.values('priority').annotate(count=Count('id'))
+        by_priority = {}
+        for item in priority_counts:
+            by_priority[item['priority'] or 'unknown'] = item['count']
+        
+        # Overdue count
+        overdue = qs.filter(
+            status__in=['pending', 'in_progress'],
+            due_date__lt=now,
+        ).count()
+        
+        return {
+            'total': total,
+            'by_status': by_status,
+            'by_priority': by_priority,
+            'overdue': overdue,
         }
     
     def get_activity_trend(self, days: int = 30) -> List[Dict]:

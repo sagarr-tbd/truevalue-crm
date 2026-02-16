@@ -14,7 +14,6 @@ import {
   Trash2,
   FileText,
   Clock,
-  User,
   Flag,
   ChevronDown,
   Check,
@@ -30,12 +29,12 @@ import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
 import { TaskFormDrawer } from "@/components/Forms/Activities";
-import type { TaskDisplay } from "@/lib/api/mock/tasks";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
-import { AdvancedFilter, FilterField, FilterGroup, filterData } from "@/components/AdvancedFilter";
+import { toSnakeCaseOperator } from "@/lib/utils";
+import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
@@ -43,13 +42,19 @@ import {
   useTasks, 
   useCreateTask,
   useUpdateTask,
-  useDeleteTask, 
+  useDeleteTask,
+  useCompleteTask,
   useBulkDeleteTasks, 
-  useBulkUpdateTasks 
+  useBulkUpdateTasks,
+  type TaskQueryParams,
+  type TaskViewModel,
+  type TaskFormData,
 } from "@/lib/queries/useTasks";
+import { tasksApi } from "@/lib/api/tasks";
 import { useUIStore } from "@/stores";
+import type { Task } from "@/lib/types";
 
-// Lazy load heavy components
+// Lazy load heavy components that are only used conditionally
 const DeleteConfirmationModal = dynamic(
   () => import("@/components/DeleteConfirmationModal"),
   { ssr: false }
@@ -65,16 +70,85 @@ const BulkUpdateModal = dynamic(
   { ssr: false }
 ) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
 
+// ============================================================================
+// DISPLAY HELPERS
+// ============================================================================
+
+const PRIORITY_DISPLAY: Record<string, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+const STATUS_DISPLAY: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const getPriorityColor = (priority: string) => {
+  const colors: Record<string, string> = {
+    urgent: "bg-destructive/10 text-destructive",
+    high: "bg-orange-50 text-orange-600",
+    normal: "bg-accent/10 text-accent",
+    low: "bg-muted text-muted-foreground",
+  };
+  return colors[priority] || "bg-muted text-muted-foreground";
+};
+
+const getStatusColor = (status: string) => {
+  const colors: Record<string, string> = {
+    completed: "bg-primary/10 text-primary",
+    in_progress: "bg-accent/10 text-accent",
+    pending: "bg-muted text-muted-foreground",
+    cancelled: "bg-destructive/10 text-destructive",
+  };
+  return colors[status] || "bg-muted text-muted-foreground";
+};
+
+function formatDate(isoDate?: string): string {
+  if (!isoDate) return "—";
+  try {
+    return new Date(isoDate).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return isoDate;
+  }
+}
+
+/** Convert ISO string → YYYY-MM-DD for <input type="date"> */
+function toDateInputValue(iso?: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toISOString().split("T")[0];
+  } catch {
+    return iso.split("T")[0] || "";
+  }
+}
+
+/** Convert ISO string → YYYY-MM-DDTHH:MM for <input type="datetime-local"> */
+function toDateTimeLocalValue(iso?: string): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return iso.slice(0, 16) || "";
+  }
+}
+
+// ============================================================================
+// PAGE COMPONENT
+// ============================================================================
+
 export default function TasksPage() {
   const router = useRouter();
-  
-  // React Query (server/mock data)
-  const { data: tasks = [], isLoading } = useTasks();
-  const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
-  const bulkDelete = useBulkDeleteTasks();
-  const bulkUpdate = useBulkUpdateTasks();
   
   // Zustand (UI state)
   const { 
@@ -96,29 +170,56 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(tasksFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   
-  // Bulk operations state
-  const [showBulkDelete, setShowBulkDelete] = useState(false);
-  const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  // Debounce search query for API calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   
-  // Advanced filter state
+  // Advanced Filter state
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
+  const { presets, addPreset, deletePreset } = useFilterPresets("tasks");
+
+  // Build query params for server-side pagination (including advanced filters)
+  const queryParams: TaskQueryParams = useMemo(() => {
+    const params: TaskQueryParams = {
+      page: currentPage,
+      page_size: itemsPerPage,
+      search: debouncedSearchQuery || undefined,
+      status: statusFilter as TaskQueryParams['status'] || undefined,
+    };
+    
+    // Add advanced filters if present
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      params.filters = {
+        logic: (filterGroup.logic?.toLowerCase() || 'and') as 'and' | 'or',
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      };
+    }
+    
+    return params;
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
+
+  // React Query (server data) - with pagination
+  const { data: tasksResponse, isLoading } = useTasks(queryParams);
+  const tasks = useMemo(() => tasksResponse?.data ?? [], [tasksResponse?.data]);
+  const totalItems = tasksResponse?.meta?.total ?? 0;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
   
-  // Filter presets
-  const {
-    presets: filterPresets,
-    addPreset,
-    deletePreset,
-  } = useFilterPresets("tasks");
-  
-  // Debounce search query
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Stats from API response (includes all tasks, not just current page)
+  const apiStats = tasksResponse?.meta?.stats;
+
+  const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
+  const deleteTask = useDeleteTask();
+  const completeTask = useCompleteTask();
+  const bulkDelete = useBulkDeleteTasks();
+  const bulkUpdate = useBulkUpdateTasks();
   
   // Save filters to store when they change
   useEffect(() => {
@@ -128,165 +229,74 @@ export default function TasksPage() {
     });
   }, [searchQuery, statusFilter, setModuleFilters]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [taskToDelete, setTaskToDelete] = useState<typeof tasks[0] | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<TaskViewModel | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Partial<TaskDisplay> | null>(null);
+  const [editingTask, setEditingTask] = useState<Partial<Task> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
+  // Bulk operations state
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  // Filter dropdown ref for click outside
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+
   // Export columns configuration
-  const exportColumns: ExportColumn<typeof tasks[0]>[] = useMemo(() => [
+  const exportColumns: ExportColumn<TaskViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
-    { key: 'title', label: 'Title' },
+    { key: 'subject', label: 'Title' },
     { key: 'description', label: 'Description' },
-    { key: 'priority', label: 'Priority' },
-    { key: 'status', label: 'Status' },
-    { key: 'dueDate', label: 'Due Date' },
+    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'dueDate', label: 'Due Date', format: (v) => v ? formatDate(String(v)) : '' },
     { key: 'assignedTo', label: 'Assigned To' },
     { key: 'relatedTo', label: 'Related To' },
-    { key: 'category', label: 'Category' },
-    { key: 'created', label: 'Created Date' },
+    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
   ], []);
 
-  // Advanced filter fields
+  // Advanced filter fields configuration
   const filterFields: FilterField[] = useMemo(() => [
-    {
-      key: 'title',
-      label: 'Title',
-      type: 'text',
-    },
     {
       key: 'status',
       label: 'Status',
       type: 'select',
       options: [
-        { label: 'Not Started', value: 'Not Started' },
-        { label: 'In Progress', value: 'In Progress' },
-        { label: 'Completed', value: 'Completed' },
+        { label: 'Pending', value: 'pending' },
+        { label: 'In Progress', value: 'in_progress' },
+        { label: 'Completed', value: 'completed' },
+        { label: 'Cancelled', value: 'cancelled' },
       ],
+    },
+    {
+      key: 'subject',
+      label: 'Title',
+      type: 'text',
+      placeholder: 'Enter task title...',
     },
     {
       key: 'priority',
       label: 'Priority',
       type: 'select',
       options: [
-        { label: 'Urgent', value: 'Urgent' },
-        { label: 'High', value: 'High' },
-        { label: 'Medium', value: 'Medium' },
-        { label: 'Low', value: 'Low' },
+        { label: 'Urgent', value: 'urgent' },
+        { label: 'High', value: 'high' },
+        { label: 'Normal', value: 'normal' },
+        { label: 'Low', value: 'low' },
       ],
     },
-    {
-      key: 'category',
-      label: 'Category',
-      type: 'text',
-    },
-    {
-      key: 'assignedTo',
-      label: 'Assigned To',
-      type: 'text',
-    },
   ], []);
-
-  // Filter & sort logic (using debounced search query)
-  const filteredTasks = useMemo(() => {
-    let filtered = tasks;
-
-    // Search filter (debounced)
-    if (debouncedSearchQuery) {
-      filtered = filtered.filter(
-        (task) =>
-          task.title?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          task.description?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          task.relatedTo?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      );
-    }
-
-    // Status filter
-    if (statusFilter) {
-      filtered = filtered.filter((task) => task.status === statusFilter);
-    }
-
-    // Advanced filter
-    if (filterGroup && filterGroup.conditions.length > 0) {
-      filtered = filterData(filtered, filterGroup);
-    }
-
-    // Sorting
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [tasks, debouncedSearchQuery, statusFilter, filterGroup, sortColumn, sortDirection]);
-
-  // Pagination
-  const paginatedTasks = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredTasks.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredTasks, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredTasks.length / itemsPerPage);
-
-  // Stats calculations
-  const stats = useMemo(() => {
-    const totalTasks = tasks.length;
-    const inProgress = tasks.filter((t) => t.status === "In Progress").length;
-    const completed = tasks.filter((t) => t.status === "Completed").length;
-    const urgent = tasks.filter((t) => t.priority === "Urgent").length;
-
-    return [
-      {
-        label: "Total Tasks",
-        value: totalTasks,
-        icon: CheckSquare,
-        iconBgColor: "bg-primary/10",
-        iconColor: "text-primary",
-      },
-      {
-        label: "In Progress",
-        value: inProgress,
-        icon: Clock,
-        iconBgColor: "bg-accent/10",
-        iconColor: "text-accent",
-        description: `${totalTasks > 0 ? ((inProgress / totalTasks) * 100).toFixed(0) : 0}% of total`,
-      },
-      {
-        label: "Completed",
-        value: completed,
-        icon: Check,
-        iconBgColor: "bg-primary/20",
-        iconColor: "text-primary",
-        trend: { value: 12, isPositive: true },
-      },
-      {
-        label: "Urgent",
-        value: urgent,
-        icon: AlertCircle,
-        iconBgColor: "bg-destructive/10",
-        iconColor: "text-destructive",
-      },
-    ];
-  }, [tasks]);
-
-  // Filter dropdown ref for click outside
-  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -307,59 +317,112 @@ export default function TasksPage() {
     };
   }, [showFilterDropdown]);
 
-  // Filter options
+  // Page-specific keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        key: "n",
+        meta: true,
+        ctrl: true,
+        description: "New task",
+        action: () => {
+          setEditingTask(null);
+          setFormMode("add");
+          setDefaultView("quick");
+          setFormDrawerOpen(true);
+        },
+      },
+    ],
+  });
+
+  // Filter options for quick dropdown (using API stats for counts)
   const filterOptions = useMemo(() => [
     {
       label: "All Tasks",
       value: null,
-      count: tasks.length,
+      count: apiStats?.total ?? totalItems,
     },
     {
-      label: "Not Started",
-      value: "Not Started",
-      count: tasks.filter((t) => t.status === "Not Started").length,
+      label: "Pending",
+      value: "pending",
+      count: apiStats?.byStatus?.['pending'] ?? 0,
     },
     {
       label: "In Progress",
-      value: "In Progress",
-      count: tasks.filter((t) => t.status === "In Progress").length,
+      value: "in_progress",
+      count: apiStats?.byStatus?.['in_progress'] ?? 0,
     },
     {
       label: "Completed",
-      value: "Completed",
-      count: tasks.filter((t) => t.status === "Completed").length,
+      value: "completed",
+      count: apiStats?.byStatus?.['completed'] ?? 0,
     },
-  ], [tasks]);
+    {
+      label: "Cancelled",
+      value: "cancelled",
+      count: apiStats?.byStatus?.['cancelled'] ?? 0,
+    },
+  ], [apiStats, totalItems]);
+
+  // Stats calculations using API stats (includes all tasks, not just current page)
+  const stats = useMemo(() => {
+    const totalTasks = apiStats?.total ?? totalItems;
+    const inProgress = apiStats?.byStatus?.['in_progress'] ?? 0;
+    const completed = apiStats?.byStatus?.['completed'] ?? 0;
+    const overdue = apiStats?.overdue ?? 0;
+
+    return [
+      {
+        label: "Total Tasks",
+        value: totalTasks,
+        icon: CheckSquare,
+        iconBgColor: "bg-primary/10",
+        iconColor: "text-primary",
+      },
+      {
+        label: "In Progress",
+        value: inProgress,
+        icon: Clock,
+        iconBgColor: "bg-accent/10",
+        iconColor: "text-accent",
+      },
+      {
+        label: "Completed",
+        value: completed,
+        icon: Check,
+        iconBgColor: "bg-primary/20",
+        iconColor: "text-primary",
+      },
+      {
+        label: "Overdue",
+        value: overdue,
+        icon: AlertCircle,
+        iconBgColor: "bg-destructive/10",
+        iconColor: "text-destructive",
+      },
+    ];
+  }, [apiStats, totalItems]);
 
   // Handlers
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
   const handleSelectAll = () => {
-    if (selectedTasks.length === paginatedTasks.length) {
+    if (selectedTasks.length === tasks.length) {
       setSelectedTasks([]);
     } else {
-      setSelectedTasks(paginatedTasks.map((t) => t.id));
+      setSelectedTasks(tasks.map((t) => t.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
-    const numId = typeof id === "string" ? parseInt(id) : id;
-    if (selectedTasks.includes(numId)) {
-      setSelectedTasks(selectedTasks.filter((tId) => tId !== numId));
+    const strId = String(id);
+    if (selectedTasks.includes(strId)) {
+      setSelectedTasks(selectedTasks.filter((tId) => tId !== strId));
     } else {
-      setSelectedTasks([...selectedTasks, numId]);
+      setSelectedTasks([...selectedTasks, strId]);
     }
   };
 
   // Delete handlers
-  const handleDeleteClick = (task: typeof tasks[0]) => {
+  const handleDeleteClick = (task: TaskViewModel) => {
     setTaskToDelete(task);
     setIsDeleteModalOpen(true);
   };
@@ -367,12 +430,16 @@ export default function TasksPage() {
   const handleDeleteConfirm = async () => {
     if (!taskToDelete?.id) return;
     
+    setIsDeleting(true);
+    
     try {
       await deleteTask.mutateAsync(taskToDelete.id);
       setIsDeleteModalOpen(false);
       setTaskToDelete(null);
     } catch (error) {
       console.error("Error deleting task:", error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -381,55 +448,9 @@ export default function TasksPage() {
     setTaskToDelete(null);
   };
 
-  // Form handlers
-  const handleAddTask = () => {
-    setFormMode("add");
-    setEditingTask(null);
-    setFormDrawerOpen(true);
-  };
-
-  const handleEditTask = (task: typeof tasks[0]) => {
-    setFormMode("edit");
-    setEditingTask({
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      status: task.status,
-      dueDate: task.dueDate,
-      assignedTo: task.assignedTo,
-      relatedTo: task.relatedTo,
-      category: task.category,
-    });
-    setFormDrawerOpen(true);
-  };
-
-  const handleFormSubmit = async (data: Partial<TaskDisplay>) => {
-    try {
-      if (formMode === "add") {
-        await createTask.mutateAsync(data);
-      } else if (editingTask) {
-        // Find the task ID from the tasks list
-        const taskToUpdate = tasks.find(t => 
-          t.title === editingTask.title ||
-          (t.dueDate === editingTask.dueDate && t.assignedTo === editingTask.assignedTo)
-        );
-        
-        if (taskToUpdate?.id) {
-          await updateTask.mutateAsync({ id: taskToUpdate.id, data });
-        }
-      }
-      
-      setFormDrawerOpen(false);
-      setEditingTask(null);
-    } catch (error) {
-      console.error("Error submitting task:", error);
-      throw error; // Let FormDrawer handle the error toast
-    }
-  };
-
   // Bulk operation handlers
   const handleSelectAllTasks = () => {
-    setSelectedTasks(filteredTasks.map(t => t.id).filter((id): id is number => id !== undefined));
+    setSelectedTasks(tasks.map(t => t.id));
   };
 
   const handleDeselectAll = () => {
@@ -443,7 +464,7 @@ export default function TasksPage() {
       setSelectedTasks([]);
       setShowBulkDelete(false);
     } catch (error) {
-      console.error("Error bulk deleting tasks:", error);
+      console.error("Bulk delete error:", error);
     } finally {
       setIsBulkProcessing(false);
     }
@@ -452,18 +473,21 @@ export default function TasksPage() {
   const handleBulkUpdateStatus = async (status: string) => {
     setIsBulkProcessing(true);
     try {
-      await bulkUpdate.mutateAsync({ ids: selectedTasks, data: { status: status as "Not Started" | "In Progress" | "Completed" } });
+      await bulkUpdate.mutateAsync({ 
+        ids: selectedTasks, 
+        data: { status: status as TaskFormData['status'] } 
+      });
       setSelectedTasks([]);
       setShowBulkUpdateStatus(false);
     } catch (error) {
-      console.error("Error bulk updating tasks:", error);
+      console.error("Bulk update error:", error);
     } finally {
       setIsBulkProcessing(false);
     }
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredTasks.filter(task => task.id !== undefined && selectedTasks.includes(task.id));
+    const selectedData = tasks.filter(task => selectedTasks.includes(task.id));
     
     if (selectedData.length === 0) {
       toast.error("No tasks selected for export");
@@ -476,12 +500,23 @@ export default function TasksPage() {
         exportColumns, 
         `selected-tasks-${new Date().toISOString().split('T')[0]}.csv`
       );
-      
       toast.success(`Successfully exported ${selectedData.length} tasks`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export tasks");
     }
+  };
+
+  // Helper to get display value for filter conditions
+  const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
+    if (!field || !value) return value;
+    
+    if (field.type === 'select' && field.options) {
+      const option = field.options.find(opt => opt.value === value);
+      if (option) return option.label;
+    }
+    
+    return value;
   };
 
   // Filter chips data
@@ -492,7 +527,7 @@ export default function TasksPage() {
       chips.push({
         id: 'status-filter',
         label: 'Status',
-        value: statusFilter,
+        value: STATUS_DISPLAY[statusFilter] || statusFilter,
         color: 'primary',
       });
     }
@@ -500,10 +535,11 @@ export default function TasksPage() {
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
+        const displayValue = getFilterDisplayValue(field, condition.value);
         chips.push({
           id: `advanced-filter-${index}`,
           label: field?.label || condition.field,
-          value: `${condition.operator}: ${condition.value}`,
+          value: `${condition.operator}: ${displayValue}`,
           color: 'secondary',
         });
       });
@@ -538,62 +574,98 @@ export default function TasksPage() {
     clearModuleFilters('tasks');
   };
 
-  // Get priority color helper
-  const getPriorityColor = (priority: string) => {
-    const colors = {
-      Urgent: "bg-destructive/10 text-destructive",
-      High: "bg-orange-50 text-orange-600",
-      Medium: "bg-accent/10 text-accent",
-      Low: "bg-muted text-muted-foreground",
-    };
-    return colors[priority as keyof typeof colors] || "bg-muted text-muted-foreground";
+  // Edit handler — fetches full task details from API before opening form
+  const handleEditTask = async (task: TaskViewModel) => {
+    setFormMode("edit");
+    
+    try {
+      const fullTask = await tasksApi.getById(task.id);
+      
+      setEditingTask({
+        id: fullTask.id,
+        subject: fullTask.subject,
+        description: fullTask.description,
+        priority: fullTask.priority,
+        status: fullTask.status,
+        dueDate: toDateInputValue(fullTask.dueDate),
+        startTime: toDateTimeLocalValue(fullTask.startTime),
+        endTime: toDateTimeLocalValue(fullTask.endTime),
+        durationMinutes: fullTask.durationMinutes,
+        assignedTo: fullTask.assignedTo,
+        contactId: fullTask.contact?.id,
+        companyId: fullTask.company?.id,
+        dealId: fullTask.deal?.id,
+        leadId: fullTask.lead?.id,
+        reminderAt: toDateTimeLocalValue(fullTask.reminderAt),
+      });
+    } catch (error) {
+      console.error("Failed to fetch task details:", error);
+      toast.error("Failed to load task details");
+      // Fallback to minimal data from list
+      setEditingTask({
+        id: task.id,
+        subject: task.subject,
+        description: task.description,
+        priority: task.priority,
+        status: task.status,
+        dueDate: toDateInputValue(task.dueDate),
+        assignedTo: task.assignedTo,
+      });
+    }
+    setFormDrawerOpen(true);
   };
 
-  // Get status color helper
-  const getStatusColor = (status: string) => {
-    const colors = {
-      Completed: "bg-primary/10 text-primary",
-      "In Progress": "bg-accent/10 text-accent",
-      "Not Started": "bg-muted text-muted-foreground",
-    };
-    return colors[status as keyof typeof colors] || "bg-muted text-muted-foreground";
+  // Handle form submission
+  const handleFormSubmit = async (data: Partial<Task>) => {
+    try {
+      const taskData: TaskFormData = {
+        subject: data.subject || "",
+        description: data.description,
+        priority: data.priority as TaskFormData['priority'],
+        status: data.status as TaskFormData['status'],
+        dueDate: data.dueDate,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        durationMinutes: data.durationMinutes,
+        contactId: data.contactId,
+        companyId: data.companyId,
+        dealId: data.dealId,
+        leadId: data.leadId,
+        assignedTo: data.assignedTo,
+        reminderAt: data.reminderAt,
+      };
+
+      if (formMode === "edit" && editingTask?.id) {
+        await updateTask.mutateAsync({ id: editingTask.id, data: taskData });
+      } else {
+        await createTask.mutateAsync(taskData);
+      }
+      
+      setFormDrawerOpen(false);
+      setEditingTask(null);
+    } catch (error) {
+      throw error;
+    }
   };
 
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    shortcuts: [
-      {
-        key: "n",
-        meta: true,
-        ctrl: true,
-        description: "New task",
-        action: () => {
-          setEditingTask(null);
-          setFormMode("add");
-          setDefaultView("quick");
-          setFormDrawerOpen(true);
-        },
-      },
-    ],
-  });
-
-  // Table columns
-  const columns = [
+  // Table columns - no sorting (matches leads pattern)
+  const columns = useMemo(() => [
     {
-      key: "title",
+      key: "subject",
       label: "Task",
-      sortable: true,
-      render: (_value: unknown, row: typeof tasks[0]) => (
+      render: (_value: unknown, row: TaskViewModel) => (
         <div 
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
           onClick={() => router.push(`/activities/tasks/${row.id}`)}
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-xs font-semibold">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
             {row.initials}
           </div>
           <div>
-            <div className="font-semibold text-foreground">{row.title}</div>
-            <div className="text-sm text-muted-foreground">{row.description}</div>
+            <div className="font-semibold text-foreground">{row.subject}</div>
+            {row.description && (
+              <div className="text-sm text-muted-foreground line-clamp-1">{row.description}</div>
+            )}
           </div>
         </div>
       ),
@@ -601,54 +673,61 @@ export default function TasksPage() {
     {
       key: "priority",
       label: "Priority",
-      sortable: true,
       render: (value: string) => (
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(value)}`}>
-          {value}
+          {PRIORITY_DISPLAY[value] || value}
         </span>
       ),
     },
     {
       key: "status",
       label: "Status",
-      sortable: true,
       render: (value: string) => (
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value}
+          {STATUS_DISPLAY[value] || value}
         </span>
       ),
     },
     {
       key: "dueDate",
       label: "Due Date",
-      sortable: true,
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          {value}
+          {formatDate(value)}
         </div>
       ),
     },
     {
-      key: "assignedTo",
-      label: "Assigned To",
-      sortable: true,
+      key: "relatedTo",
+      label: "Related To",
+      render: (_value: unknown, row: TaskViewModel) => (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {row.relatedTo ? (
+            <>
+              <Flag className="h-4 w-4" />
+              <span>{row.relatedTo}</span>
+              {row.relatedToType && (
+                <span className="text-xs text-muted-foreground/60">({row.relatedToType})</span>
+              )}
+            </>
+          ) : (
+            <span className="text-muted-foreground/50">—</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "createdAt",
+      label: "Created",
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <User className="h-4 w-4" />
-          {value}
+          <Calendar className="h-4 w-4" />
+          {formatDate(value)}
         </div>
       ),
     },
-    {
-      key: "category",
-      label: "Category",
-      sortable: true,
-      render: (value: string) => (
-        <span className="text-sm text-muted-foreground">{value}</span>
-      ),
-    },
-  ];
+  ], [router]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -658,8 +737,8 @@ export default function TasksPage() {
         icon={CheckSquare}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${tasks.length} tasks`}
-        searchPlaceholder="Search tasks by title, description, or related entity..."
+        subtitle={`${totalItems} tasks`}
+        searchPlaceholder="Search tasks by title or description..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         actions={
@@ -763,15 +842,20 @@ export default function TasksPage() {
             </Button>
 
             <ExportButton
-              data={filteredTasks}
+              data={tasks}
               columns={exportColumns}
-              filename="tasks-export"
+              filename={`tasks-${new Date().toISOString().split('T')[0]}`}
               title="Tasks Export"
             />
             <Button 
+              onClick={() => {
+                setFormMode("add");
+                setEditingTask(null);
+                setDefaultView("quick");
+                setFormDrawerOpen(true);
+              }}
               className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
               title="Add a new task"
-              onClick={handleAddTask}
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Task
@@ -779,11 +863,6 @@ export default function TasksPage() {
           </>
         }
       />
-
-      {/* Stats Cards */}
-      <AnimatePresence>
-        {showStats && <StatsCards stats={stats} columns={4} />}
-      </AnimatePresence>
 
       {/* Filter Chips */}
       {filterChips.length > 0 && (
@@ -794,39 +873,63 @@ export default function TasksPage() {
         />
       )}
 
+      {/* Advanced Filter Drawer */}
+      <AdvancedFilter
+        fields={filterFields}
+        onApply={(group) => {
+          setFilterGroup(group);
+          setCurrentPage(1);
+        }}
+        onClear={() => {
+          setFilterGroup(null);
+          setCurrentPage(1);
+        }}
+        initialGroup={filterGroup || undefined}
+        presets={presets}
+        onSavePreset={addPreset}
+        onLoadPreset={(preset) => {
+          setFilterGroup(preset.group);
+          setCurrentPage(1);
+        }}
+        onDeletePreset={deletePreset}
+        isDrawer={true}
+        isOpen={showAdvancedFilter}
+        onClose={() => setShowAdvancedFilter(false)}
+        drawerPosition="right"
+      />
+
       {/* Bulk Actions Toolbar */}
+      {selectedTasks.length > 0 && (
+        <BulkActionsToolbar
+          selectedCount={selectedTasks.length}
+          totalCount={totalItems}
+          onSelectAll={handleSelectAllTasks}
+          onDeselectAll={handleDeselectAll}
+          onDelete={() => setShowBulkDelete(true)}
+          onExport={handleBulkExport}
+          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          isProcessing={isBulkProcessing}
+        />
+      )}
+
+      {/* Stats Cards */}
       <AnimatePresence>
-        {selectedTasks.length > 0 && (
-          <BulkActionsToolbar
-            selectedCount={selectedTasks.length}
-            totalCount={filteredTasks.length}
-            onSelectAll={handleSelectAllTasks}
-            onDeselectAll={handleDeselectAll}
-            onDelete={() => setShowBulkDelete(true)}
-            onExport={handleBulkExport}
-            onUpdateStatus={() => setShowBulkUpdateStatus(true)}
-            statusLabel="Status"
-            isProcessing={isBulkProcessing}
-          />
-        )}
+        {showStats && <StatsCards stats={stats} columns={4} />}
       </AnimatePresence>
 
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedTasks}
+          data={tasks}
           columns={columns}
           selectedIds={selectedTasks}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
-          onSort={handleSort}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
           showSelection={true}
           loading={isLoading}
           emptyMessage="No tasks found"
           emptyDescription="Try adjusting your search or filters, or add a new task"
-          renderActions={(row) => (
+          renderActions={(row: TaskViewModel) => (
             <ActionMenu
               items={[
                 {
@@ -842,7 +945,7 @@ export default function TasksPage() {
                 {
                   label: "Mark Complete",
                   icon: Check,
-                  onClick: () => row.id && updateTask.mutateAsync({ id: row.id, data: { status: "Completed" } }),
+                  onClick: () => completeTask.mutateAsync(row.id),
                 },
                 { divider: true, label: "", onClick: () => {} },
                 {
@@ -858,7 +961,7 @@ export default function TasksPage() {
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedTasks.map((task, index) => (
+          {tasks.map((task, index) => (
             <motion.div
               key={task.id}
               initial={{ opacity: 0, y: 20 }}
@@ -873,11 +976,13 @@ export default function TasksPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">
-                        {task.title}
+                        {task.subject}
                       </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {task.category}
-                      </p>
+                      {task.relatedTo && (
+                        <p className="text-sm text-muted-foreground">
+                          {task.relatedTo}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
@@ -896,7 +1001,7 @@ export default function TasksPage() {
                         {
                           label: "Mark Complete",
                           icon: Check,
-                          onClick: () => task.id && updateTask.mutateAsync({ id: task.id, data: { status: "Completed" } }),
+                          onClick: () => completeTask.mutateAsync(task.id),
                         },
                         { divider: true, label: "", onClick: () => {} },
                         {
@@ -909,29 +1014,29 @@ export default function TasksPage() {
                     />
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                  {task.description}
-                </p>
+                {task.description && (
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+                    {task.description}
+                  </p>
+                )}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>Due: {task.dueDate}</span>
+                    <span>Due: {formatDate(task.dueDate)}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-4 w-4" />
-                    <span>{task.assignedTo}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Flag className="h-4 w-4" />
-                    <span>{task.relatedTo}</span>
-                  </div>
+                  {task.relatedTo && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Flag className="h-4 w-4" />
+                      <span>{task.relatedTo}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-4 flex items-center gap-2">
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                    {task.status}
+                    {STATUS_DISPLAY[task.status] || task.status}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                    {task.priority}
+                    {PRIORITY_DISPLAY[task.priority] || task.priority}
                   </span>
                 </div>
               </Card>
@@ -944,7 +1049,7 @@ export default function TasksPage() {
       <DataPagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredTasks.length}
+        totalItems={totalItems}
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
@@ -956,7 +1061,7 @@ export default function TasksPage() {
           setSelectedTasks([]);
         }}
         filterInfo={
-          statusFilter ? `filtered by ${statusFilter}` : undefined
+          statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined
         }
       />
 
@@ -967,10 +1072,23 @@ export default function TasksPage() {
         onConfirm={handleDeleteConfirm}
         title="Delete Task"
         description="Are you sure you want to delete this task? This will permanently remove it from your CRM and cannot be undone."
-        itemName={taskToDelete?.title}
+        itemName={taskToDelete?.subject}
         itemType="Task"
         icon={CheckSquare}
-        isDeleting={deleteTask.isPending}
+        isDeleting={isDeleting}
+      />
+
+      {/* Task Form Drawer */}
+      <TaskFormDrawer
+        isOpen={formDrawerOpen}
+        onClose={() => {
+          setFormDrawerOpen(false);
+          setEditingTask(null);
+        }}
+        onSubmit={handleFormSubmit}
+        initialData={editingTask}
+        mode={formMode}
+        defaultView={defaultView}
       />
 
       {/* Bulk Delete Modal */}
@@ -988,53 +1106,14 @@ export default function TasksPage() {
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
         itemCount={selectedTasks.length}
-        title="Update Status"
-        field="status"
+        title="Update Task Status"
+        field="Status"
         options={[
-          { label: 'Not Started', value: 'Not Started' },
-          { label: 'In Progress', value: 'In Progress' },
-          { label: 'Completed', value: 'Completed' },
+          { label: 'Pending', value: 'pending' },
+          { label: 'In Progress', value: 'in_progress' },
+          { label: 'Completed', value: 'completed' },
+          { label: 'Cancelled', value: 'cancelled' },
         ]}
-      />
-
-      {/* Advanced Filter Modal */}
-      <AdvancedFilter
-        fields={filterFields}
-        onApply={(group) => {
-          setFilterGroup(group);
-          setCurrentPage(1);
-        }}
-        onClear={() => {
-          setFilterGroup(null);
-          setCurrentPage(1);
-        }}
-        initialGroup={filterGroup || undefined}
-        presets={filterPresets}
-        onSavePreset={(preset) => {
-          addPreset(preset);
-        }}
-        onLoadPreset={(preset) => {
-          setFilterGroup(preset.group);
-          setCurrentPage(1);
-        }}
-        onDeletePreset={deletePreset}
-        isDrawer={true}
-        isOpen={showAdvancedFilter}
-        onClose={() => setShowAdvancedFilter(false)}
-        drawerPosition="right"
-      />
-
-      {/* Task Form Drawer */}
-      <TaskFormDrawer
-        isOpen={formDrawerOpen}
-        onClose={() => {
-          setFormDrawerOpen(false);
-          setEditingTask(null);
-        }}
-        onSubmit={handleFormSubmit}
-        initialData={editingTask}
-        mode={formMode}
-        defaultView={defaultView}
       />
     </div>
   );

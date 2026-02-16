@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback} from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
@@ -37,6 +37,27 @@ export function FormDrawer<T = any>({
     reValidateMode: "onChange",
     defaultValues: config.defaultValues,
   });
+
+  // Collect field names shown in quick mode so we can register the rest hidden
+  const quickFieldNames = useMemo(() => {
+    if (!config.quickFormSections) return new Set<string>();
+    return new Set(config.quickFormSections.flatMap(s => s.fields));
+  }, [config.quickFormSections]);
+
+  // All unique fields across all sections
+  const allFields = useMemo(() => {
+    const seen = new Set<string>();
+    return config.detailedSections.flatMap(s => s.fields).filter(f => {
+      if (seen.has(f.name)) return false;
+      seen.add(f.name);
+      return true;
+    });
+  }, [config.detailedSections]);
+
+  // Fields not in quick mode that need hidden registration
+  const hiddenQuickFields = useMemo(() => {
+    return allFields.filter(f => !quickFieldNames.has(f.name) && f.type !== "tags" && f.type !== "profile");
+  }, [allFields, quickFieldNames]);
 
   // Sanitize data: convert null values to undefined for form compatibility
   const sanitizeFormData = useCallback((data: Record<string, any>): Record<string, any> => {
@@ -361,6 +382,12 @@ export function FormDrawer<T = any>({
                           </div>
                         </div>
                       )}
+                      {/* Hidden fields: register non-quick fields so they're included in form data */}
+                      {hiddenQuickFields.length > 0 && (
+                        <div className="hidden" aria-hidden="true">
+                          {renderFields(hiddenQuickFields)}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ) : (
@@ -424,61 +451,56 @@ export function FormDrawer<T = any>({
 
                     {/* Form Content */}
                     <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6">
-                      <AnimatePresence mode="wait">
-                        {config.detailedSections.map((section) => {
-                          if (activeSection !== section.id) return null;
-                          
-                          return (
-                            <motion.div
-                              key={section.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -10 }}
-                              transition={{ duration: 0.15 }}
-                              className="space-y-6"
-                            >
-                              <div className="flex items-center gap-2">
-                                {section.icon}
-                                <h3 className="text-lg font-semibold text-foreground">{section.label}</h3>
+                      {config.detailedSections.map((section) => {
+                        const isActive = activeSection === section.id;
+                        
+                        return (
+                          <div
+                            key={section.id}
+                            className={isActive ? "space-y-6" : "hidden"}
+                            aria-hidden={!isActive}
+                          >
+                            <div className="flex items-center gap-2">
+                              {section.icon}
+                              <h3 className="text-lg font-semibold text-foreground">{section.label}</h3>
+                            </div>
+
+                            {section.layout ? (
+                              /* Render with custom layout */
+                              <>
+                                {section.layout.map((group, idx) => (
+                                  <div key={idx} className={`grid ${group.gridClass}`}>
+                                    {group.fields.map((fieldRef, fieldIdx) => {
+                                      if (fieldRef.isPlaceholder) {
+                                        return <div key={fieldIdx} className="hidden lg:block" />;
+                                      }
+                                      
+                                      const field = section.fields.find(f => f.name === fieldRef.name);
+                                      if (!field) return null;
+
+                                      const wrapperClass = fieldRef.colSpan || "";
+                                      const renderedField = renderFields([field])[0];
+
+                                      return wrapperClass ? (
+                                        <div key={fieldIdx} className={wrapperClass}>
+                                          {renderedField}
+                                        </div>
+                                      ) : (
+                                        <div key={fieldIdx}>{renderedField}</div>
+                                      );
+                                    })}
+                                  </div>
+                                ))}
+                              </>
+                            ) : (
+                              /* Render without custom layout */
+                              <div className="space-y-4">
+                                {renderFields(section.fields)}
                               </div>
-
-                              {section.layout ? (
-                                /* Render with custom layout */
-                                <>
-                                  {section.layout.map((group, idx) => (
-                                    <div key={idx} className={`grid ${group.gridClass}`}>
-                                      {group.fields.map((fieldRef, fieldIdx) => {
-                                        if (fieldRef.isPlaceholder) {
-                                          return <div key={fieldIdx} className="hidden lg:block" />;
-                                        }
-                                        
-                                        const field = section.fields.find(f => f.name === fieldRef.name);
-                                        if (!field) return null;
-
-                                        const wrapperClass = fieldRef.colSpan || "";
-                                        const renderedField = renderFields([field])[0];
-
-                                        return wrapperClass ? (
-                                          <div key={fieldIdx} className={wrapperClass}>
-                                            {renderedField}
-                                          </div>
-                                        ) : (
-                                          <div key={fieldIdx}>{renderedField}</div>
-                                        );
-                                      })}
-                                    </div>
-                                  ))}
-                                </>
-                              ) : (
-                                /* Render without custom layout */
-                                <div className="space-y-4">
-                                  {renderFields(section.fields)}
-                                </div>
-                              )}
-                            </motion.div>
-                          );
-                        })}
-                      </AnimatePresence>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </motion.div>
                 )}

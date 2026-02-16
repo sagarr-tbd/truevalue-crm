@@ -116,8 +116,7 @@ const navigation: NavigationItem[] = [
     icon: CheckSquare,
     type: "section",
     children: [
-      // Phase 2: Calendar view
-      // { name: "Calendar", href: "/activities/calendar", icon: Calendar },
+      { name: "Calendar", href: "/activities/calendar", icon: Calendar },
       { name: "Tasks", href: "/activities/tasks", icon: CheckSquare },
       { name: "Meetings", href: "/activities/meetings", icon: Calendar },
       { name: "Calls", href: "/activities/calls", icon: Phone },

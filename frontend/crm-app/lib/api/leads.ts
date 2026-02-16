@@ -630,6 +630,17 @@ export const leadsApi = {
   },
 
   /**
+   * Get leads as select options (for dropdowns)
+   */
+  getAsOptions: async (): Promise<Array<{ value: string; label: string }>> => {
+    const response = await leadsApi.getAll({ page_size: 100 });
+    return response.data.map(lead => ({
+      value: lead.id,
+      label: lead.fullName || `${lead.firstName} ${lead.lastName}`.trim(),
+    }));
+  },
+
+  /**
    * Get unique lead sources for the organization
    */
   getSources: async (): Promise<string[]> => {

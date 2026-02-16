@@ -617,16 +617,23 @@ class ActivitySerializer(serializers.ModelSerializer):
 
 
 class ActivityListSerializer(serializers.ModelSerializer):
-    """Minimal serializer for Activity listings."""
+    """Serializer for Activity listings — includes all fields needed by list views."""
     contact = ContactMinimalSerializer(read_only=True)
+    company = CompanyMinimalSerializer(read_only=True)
     deal = DealMinimalSerializer(read_only=True)
+    lead = LeadMinimalSerializer(read_only=True)
     
     class Meta:
         model = Activity
         fields = [
-            'id', 'activity_type', 'subject', 'status', 'priority',
+            'id', 'activity_type', 'subject', 'description',
+            'status', 'priority',
             'due_date', 'completed_at',
-            'contact', 'deal', 'owner_id', 'assigned_to', 'created_at'
+            'start_time', 'end_time', 'duration_minutes',
+            'call_direction', 'call_outcome',
+            'contact', 'company', 'deal', 'lead',
+            'owner_id', 'assigned_to',
+            'reminder_at', 'created_at',
         ]
 
 

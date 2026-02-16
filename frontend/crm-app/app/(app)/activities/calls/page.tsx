@@ -14,11 +14,13 @@ import {
   Trash2,
   FileText,
   Clock,
-  User,
-  PhoneIncoming,
-  PhoneOutgoing,
+  Flag,
   ChevronDown,
   Check,
+  AlertCircle,
+  Calendar,
+  PhoneIncoming,
+  PhoneOutgoing,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,24 +31,30 @@ import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
 import { CallFormDrawer } from "@/components/Forms/Activities";
-import type { CallDisplay } from "@/lib/api/mock/calls";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
 import { exportToCSV } from "@/lib/export";
-import { AdvancedFilter, FilterField, FilterGroup, filterData } from "@/components/AdvancedFilter";
+import { toSnakeCaseOperator } from "@/lib/utils";
+import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
-import { 
-  useCalls, 
+import {
+  useCalls,
   useCreateCall,
   useUpdateCall,
-  useDeleteCall, 
-  useBulkDeleteCalls, 
-  useBulkUpdateCalls 
+  useDeleteCall,
+  useCompleteCall,
+  useBulkDeleteCalls,
+  useBulkUpdateCalls,
+  type CallQueryParams,
+  type CallViewModel,
+  type CallFormData,
 } from "@/lib/queries/useCalls";
+import { callsApi } from "@/lib/api/calls";
 import { useUIStore } from "@/stores";
+import type { Call } from "@/lib/types";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -64,62 +72,154 @@ const BulkUpdateModal = dynamic(
   { ssr: false }
 ) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
 
+// ============================================================================
+// DISPLAY HELPERS
+// ============================================================================
+
+const STATUS_DISPLAY: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const DIRECTION_DISPLAY: Record<string, string> = {
+  inbound: "Inbound",
+  outbound: "Outbound",
+};
+
+const OUTCOME_DISPLAY: Record<string, string> = {
+  answered: "Answered",
+  voicemail: "Voicemail",
+  no_answer: "No Answer",
+  busy: "Busy",
+  failed: "Failed",
+};
+
+const getStatusColor = (status: string) => {
+  const colors: Record<string, string> = {
+    completed: "bg-primary/10 text-primary",
+    in_progress: "bg-accent/10 text-accent",
+    pending: "bg-muted text-muted-foreground",
+    cancelled: "bg-destructive/10 text-destructive",
+  };
+  return colors[status] || "bg-muted text-muted-foreground";
+};
+
+const getDirectionIcon = (direction?: string) => {
+  return direction === "inbound" ? PhoneIncoming : PhoneOutgoing;
+};
+
+function formatDate(isoDate?: string): string {
+  if (!isoDate) return "—";
+  try {
+    return new Date(isoDate).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return isoDate;
+  }
+}
+
+function toDateInputValue(iso?: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toISOString().split("T")[0];
+  } catch {
+    return iso.split("T")[0] || "";
+  }
+}
+
+function toDateTimeLocalValue(iso?: string): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return iso.slice(0, 16) || "";
+  }
+}
+
+// ============================================================================
+// PAGE COMPONENT
+// ============================================================================
+
 export default function CallsPage() {
   const router = useRouter();
-  
-  // React Query (server/mock data)
-  const { data: calls = [], isLoading } = useCalls();
-  const createCall = useCreateCall();
-  const updateCall = useUpdateCall();
-  const deleteCall = useDeleteCall();
-  const bulkDelete = useBulkDeleteCalls();
-  const bulkUpdate = useBulkUpdateCalls();
-  
+
   // Zustand (UI state)
-  const { 
-    viewMode, 
-    showStats, 
-    setViewMode, 
+  const {
+    viewMode,
+    showStats,
+    setViewMode,
     toggleStats,
     filters,
     setModuleFilters,
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
-  
-  // Initialize filters from store
+
   const callsFilters = filters.calls || {};
-  
+
   // State management
   const [searchQuery, setSearchQuery] = useState(callsFilters.search || "");
   const [statusFilter, setStatusFilter] = useState<string | null>(callsFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedCalls, setSelectedCalls] = useState<number[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [selectedCalls, setSelectedCalls] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  
-  // Bulk operations state
-  const [showBulkDelete, setShowBulkDelete] = useState(false);
-  const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-  
-  // Advanced filter state
+
+  // Debounce search query for API calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Advanced Filter state
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
-  
-  // Filter presets
-  const {
-    presets: filterPresets,
-    addPreset,
-    deletePreset,
-  } = useFilterPresets("calls");
-  
-  // Debounce search query
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // Save filters to store when they change
+  const { presets, addPreset, deletePreset } = useFilterPresets("calls");
+
+  // Build query params for server-side pagination
+  const queryParams: CallQueryParams = useMemo(() => {
+    const params: CallQueryParams = {
+      page: currentPage,
+      page_size: itemsPerPage,
+      search: debouncedSearchQuery || undefined,
+      status: statusFilter as CallQueryParams['status'] || undefined,
+    };
+
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      params.filters = {
+        logic: (filterGroup.logic?.toLowerCase() || 'and') as 'and' | 'or',
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      };
+    }
+
+    return params;
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
+
+  // React Query (server data) - with pagination
+  const { data: callsResponse, isLoading } = useCalls(queryParams);
+  const calls = useMemo(() => callsResponse?.data ?? [], [callsResponse?.data]);
+  const totalItems = callsResponse?.meta?.total ?? 0;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+  // Stats from API response
+  const apiStats = callsResponse?.meta?.stats;
+
+  const createCall = useCreateCall();
+  const updateCall = useUpdateCall();
+  const deleteCall = useDeleteCall();
+  const completeCall = useCompleteCall();
+  const bulkDelete = useBulkDeleteCalls();
+  const bulkUpdate = useBulkUpdateCalls();
+
+  // Save filters to store
   useEffect(() => {
     setModuleFilters('calls', {
       search: searchQuery,
@@ -127,167 +227,96 @@ export default function CallsPage() {
     });
   }, [searchQuery, statusFilter, setModuleFilters]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [callToDelete, setCallToDelete] = useState<typeof calls[0] | null>(null);
+  const [callToDelete, setCallToDelete] = useState<CallViewModel | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
-  const [editingCall, setEditingCall] = useState<Partial<CallDisplay> | null>(null);
+  const [editingCall, setEditingCall] = useState<Partial<Call> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
-  // Export columns configuration
-  const exportColumns: ExportColumn<typeof calls[0]>[] = useMemo(() => [
+  // Bulk operations state
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  // Filter dropdown ref
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Export columns
+  const exportColumns: ExportColumn<CallViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
     { key: 'subject', label: 'Subject' },
     { key: 'description', label: 'Description' },
-    { key: 'direction', label: 'Direction' },
-    { key: 'status', label: 'Status' },
-    { key: 'duration', label: 'Duration' },
-    { key: 'date', label: 'Date' },
-    { key: 'time', label: 'Time' },
-    { key: 'contactName', label: 'Contact Name' },
-    { key: 'contactPhone', label: 'Contact Phone' },
+    { key: 'callDirection', label: 'Direction', format: (v) => v ? DIRECTION_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'callOutcome', label: 'Outcome', format: (v) => v ? OUTCOME_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'dueDate', label: 'Date', format: (v) => v ? formatDate(String(v)) : '' },
+    { key: 'durationMinutes', label: 'Duration (min)' },
     { key: 'relatedTo', label: 'Related To' },
-    { key: 'callBy', label: 'Call By' },
-    { key: 'outcome', label: 'Outcome' },
-    { key: 'created', label: 'Created Date' },
+    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
   ], []);
 
   // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
     {
-      key: 'subject',
-      label: 'Subject',
-      type: 'text',
-    },
-    {
       key: 'status',
       label: 'Status',
       type: 'select',
       options: [
-        { label: 'Scheduled', value: 'Scheduled' },
-        { label: 'Completed', value: 'Completed' },
-        { label: 'Missed', value: 'Missed' },
+        { label: 'Pending', value: 'pending' },
+        { label: 'In Progress', value: 'in_progress' },
+        { label: 'Completed', value: 'completed' },
+        { label: 'Cancelled', value: 'cancelled' },
       ],
     },
     {
-      key: 'direction',
+      key: 'subject',
+      label: 'Subject',
+      type: 'text',
+      placeholder: 'Enter call subject...',
+    },
+    {
+      key: 'call_direction',
       label: 'Direction',
       type: 'select',
       options: [
-        { label: 'Incoming', value: 'Incoming' },
-        { label: 'Outgoing', value: 'Outgoing' },
+        { label: 'Inbound', value: 'inbound' },
+        { label: 'Outbound', value: 'outbound' },
       ],
     },
     {
-      key: 'contactName',
-      label: 'Contact Name',
-      type: 'text',
+      key: 'call_outcome',
+      label: 'Outcome',
+      type: 'select',
+      options: [
+        { label: 'Answered', value: 'answered' },
+        { label: 'Voicemail', value: 'voicemail' },
+        { label: 'No Answer', value: 'no_answer' },
+        { label: 'Busy', value: 'busy' },
+        { label: 'Failed', value: 'failed' },
+      ],
     },
     {
-      key: 'relatedTo',
-      label: 'Related To',
-      type: 'text',
+      key: 'priority',
+      label: 'Priority',
+      type: 'select',
+      options: [
+        { label: 'Urgent', value: 'urgent' },
+        { label: 'High', value: 'high' },
+        { label: 'Normal', value: 'normal' },
+        { label: 'Low', value: 'low' },
+      ],
     },
   ], []);
-
-  // Filter & sort logic (using debounced search query)
-  const filteredCalls = useMemo(() => {
-    let filtered = calls;
-
-    // Search filter (debounced)
-    if (debouncedSearchQuery) {
-      filtered = filtered.filter(
-        (call) =>
-          call.subject?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          call.description?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          call.contactName?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-          call.relatedTo?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      );
-    }
-
-    // Status filter
-    if (statusFilter) {
-      filtered = filtered.filter((call) => call.status === statusFilter);
-    }
-
-    // Advanced filter
-    if (filterGroup && filterGroup.conditions.length > 0) {
-      filtered = filterData(filtered, filterGroup);
-    }
-
-    // Sorting
-    if (sortColumn) {
-      filtered = [...filtered].sort((a, b) => {
-        const aValue = a[sortColumn as keyof typeof a];
-        const bValue = b[sortColumn as keyof typeof b];
-
-        // Handle null/undefined values
-        if (aValue == null && bValue == null) return 0;
-        if (aValue == null) return 1;
-        if (bValue == null) return -1;
-
-        if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [calls, debouncedSearchQuery, statusFilter, filterGroup, sortColumn, sortDirection]);
-
-  // Pagination
-  const paginatedCalls = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredCalls.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredCalls, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredCalls.length / itemsPerPage);
-
-  // Stats calculations
-  const stats = useMemo(() => {
-    const totalCalls = calls.length;
-    const scheduled = calls.filter((c) => c.status === "Scheduled").length;
-    const completed = calls.filter((c) => c.status === "Completed").length;
-    const missed = calls.filter((c) => c.status === "Missed").length;
-
-    return [
-      {
-        label: "Total Calls",
-        value: totalCalls,
-        icon: Phone,
-        iconBgColor: "bg-primary/10",
-        iconColor: "text-primary",
-      },
-      {
-        label: "Scheduled",
-        value: scheduled,
-        icon: Clock,
-        iconBgColor: "bg-accent/10",
-        iconColor: "text-accent",
-      },
-      {
-        label: "Completed",
-        value: completed,
-        icon: Check,
-        iconBgColor: "bg-primary/20",
-        iconColor: "text-primary",
-        trend: { value: 15, isPositive: true },
-      },
-      {
-        label: "Missed",
-        value: missed,
-        icon: PhoneIncoming,
-        iconBgColor: "bg-destructive/10",
-        iconColor: "text-destructive",
-      },
-    ];
-  }, [calls]);
-
-  // Filter dropdown ref for click outside
-  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -308,72 +337,129 @@ export default function CallsPage() {
     };
   }, [showFilterDropdown]);
 
-  // Filter options
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    shortcuts: [
+      {
+        key: "n",
+        meta: true,
+        ctrl: true,
+        description: "New call",
+        action: () => {
+          setEditingCall(null);
+          setFormMode("add");
+          setDefaultView("quick");
+          setFormDrawerOpen(true);
+        },
+      },
+    ],
+  });
+
+  // Filter options for quick dropdown
   const filterOptions = useMemo(() => [
     {
       label: "All Calls",
       value: null,
-      count: calls.length,
+      count: apiStats?.total ?? totalItems,
     },
     {
-      label: "Scheduled",
-      value: "Scheduled",
-      count: calls.filter((c) => c.status === "Scheduled").length,
+      label: "Pending",
+      value: "pending",
+      count: apiStats?.byStatus?.['pending'] ?? 0,
+    },
+    {
+      label: "In Progress",
+      value: "in_progress",
+      count: apiStats?.byStatus?.['in_progress'] ?? 0,
     },
     {
       label: "Completed",
-      value: "Completed",
-      count: calls.filter((c) => c.status === "Completed").length,
+      value: "completed",
+      count: apiStats?.byStatus?.['completed'] ?? 0,
     },
     {
-      label: "Missed",
-      value: "Missed",
-      count: calls.filter((c) => c.status === "Missed").length,
+      label: "Cancelled",
+      value: "cancelled",
+      count: apiStats?.byStatus?.['cancelled'] ?? 0,
     },
-  ], [calls]);
+  ], [apiStats, totalItems]);
+
+  // Stats cards
+  const stats = useMemo(() => {
+    const totalCalls = apiStats?.total ?? totalItems;
+    const inProgress = apiStats?.byStatus?.['in_progress'] ?? 0;
+    const completed = apiStats?.byStatus?.['completed'] ?? 0;
+    const overdue = apiStats?.overdue ?? 0;
+
+    return [
+      {
+        label: "Total Calls",
+        value: totalCalls,
+        icon: Phone,
+        iconBgColor: "bg-primary/10",
+        iconColor: "text-primary",
+      },
+      {
+        label: "In Progress",
+        value: inProgress,
+        icon: Clock,
+        iconBgColor: "bg-accent/10",
+        iconColor: "text-accent",
+      },
+      {
+        label: "Completed",
+        value: completed,
+        icon: Check,
+        iconBgColor: "bg-primary/20",
+        iconColor: "text-primary",
+      },
+      {
+        label: "Overdue",
+        value: overdue,
+        icon: AlertCircle,
+        iconBgColor: "bg-destructive/10",
+        iconColor: "text-destructive",
+      },
+    ];
+  }, [apiStats, totalItems]);
 
   // Handlers
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("asc");
-    }
-  };
-
   const handleSelectAll = () => {
-    if (selectedCalls.length === paginatedCalls.length) {
+    if (selectedCalls.length === calls.length) {
       setSelectedCalls([]);
     } else {
-      setSelectedCalls(paginatedCalls.map((c) => c.id));
+      setSelectedCalls(calls.map((c) => c.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
-    const numId = typeof id === "string" ? parseInt(id) : id;
-    if (selectedCalls.includes(numId)) {
-      setSelectedCalls(selectedCalls.filter((cId) => cId !== numId));
+    const strId = String(id);
+    if (selectedCalls.includes(strId)) {
+      setSelectedCalls(selectedCalls.filter((cId) => cId !== strId));
     } else {
-      setSelectedCalls([...selectedCalls, numId]);
+      setSelectedCalls([...selectedCalls, strId]);
     }
   };
 
   // Delete handlers
-  const handleDeleteClick = (call: typeof calls[0]) => {
+  const handleDeleteClick = (call: CallViewModel) => {
     setCallToDelete(call);
     setIsDeleteModalOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
     if (!callToDelete?.id) return;
-    
+
+    setIsDeleting(true);
+
     try {
       await deleteCall.mutateAsync(callToDelete.id);
       setIsDeleteModalOpen(false);
       setCallToDelete(null);
-    } catch {
-      // Error is handled by React Query hook
+    } catch (error) {
+      console.error("Error deleting call:", error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -382,58 +468,9 @@ export default function CallsPage() {
     setCallToDelete(null);
   };
 
-  // Form handlers
-  const handleAddCall = () => {
-    setFormMode("add");
-    setEditingCall(null);
-    setFormDrawerOpen(true);
-  };
-
-  const handleEditCall = (call: typeof calls[0]) => {
-    setFormMode("edit");
-    setEditingCall({
-      subject: call.subject,
-      description: call.description,
-      direction: call.direction,
-      status: call.status,
-      duration: call.duration,
-      date: call.date,
-      time: call.time,
-      contactName: call.contactName,
-      contactPhone: call.contactPhone,
-      relatedTo: call.relatedTo,
-      callBy: call.callBy,
-      outcome: call.outcome,
-    });
-    setFormDrawerOpen(true);
-  };
-
-  const handleFormSubmit = async (data: Partial<CallDisplay>) => {
-    try {
-      if (formMode === "add") {
-        await createCall.mutateAsync(data);
-      } else if (editingCall) {
-        // Find the call ID from the calls list
-        const callToUpdate = calls.find(c => 
-          c.subject === editingCall.subject ||
-          (c.date === editingCall.date && c.contactName === editingCall.contactName)
-        );
-        
-        if (callToUpdate?.id) {
-          await updateCall.mutateAsync({ id: callToUpdate.id, data });
-        }
-      }
-      
-      setFormDrawerOpen(false);
-      setEditingCall(null);
-    } catch (error) {
-      throw error; // Let FormDrawer handle the error toast
-    }
-  };
-
   // Bulk operation handlers
   const handleSelectAllCalls = () => {
-    setSelectedCalls(filteredCalls.map(c => c.id).filter((id): id is number => id !== undefined));
+    setSelectedCalls(calls.map(c => c.id));
   };
 
   const handleDeselectAll = () => {
@@ -446,8 +483,8 @@ export default function CallsPage() {
       await bulkDelete.mutateAsync(selectedCalls);
       setSelectedCalls([]);
       setShowBulkDelete(false);
-    } catch {
-      // Error is handled by React Query hook
+    } catch (error) {
+      console.error("Bulk delete error:", error);
     } finally {
       setIsBulkProcessing(false);
     }
@@ -456,19 +493,22 @@ export default function CallsPage() {
   const handleBulkUpdateStatus = async (status: string) => {
     setIsBulkProcessing(true);
     try {
-      await bulkUpdate.mutateAsync({ ids: selectedCalls, data: { status: status as "Scheduled" | "Completed" | "Missed" } });
+      await bulkUpdate.mutateAsync({
+        ids: selectedCalls,
+        data: { status: status as CallFormData['status'] }
+      });
       setSelectedCalls([]);
       setShowBulkUpdateStatus(false);
-    } catch {
-      // Error is handled by React Query hook
+    } catch (error) {
+      console.error("Bulk update error:", error);
     } finally {
       setIsBulkProcessing(false);
     }
   };
 
   const handleBulkExport = () => {
-    const selectedData = filteredCalls.filter(call => call.id !== undefined && selectedCalls.includes(call.id));
-    
+    const selectedData = calls.filter(call => selectedCalls.includes(call.id));
+
     if (selectedData.length === 0) {
       toast.error("No calls selected for export");
       return;
@@ -476,42 +516,52 @@ export default function CallsPage() {
 
     try {
       exportToCSV(
-        selectedData, 
-        exportColumns, 
+        selectedData,
+        exportColumns,
         `selected-calls-${new Date().toISOString().split('T')[0]}.csv`
       );
-      
       toast.success(`Successfully exported ${selectedData.length} calls`);
-    } catch {
+    } catch (error) {
+      console.error("Bulk export error:", error);
       toast.error("Failed to export calls");
     }
   };
 
-  // Filter chips data
+  // Filter chips
+  const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
+    if (!field || !value) return value;
+    if (field.type === 'select' && field.options) {
+      const option = field.options.find(opt => opt.value === value);
+      if (option) return option.label;
+    }
+    return value;
+  };
+
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
-    
+
     if (statusFilter) {
       chips.push({
         id: 'status-filter',
         label: 'Status',
-        value: statusFilter,
+        value: STATUS_DISPLAY[statusFilter] || statusFilter,
         color: 'primary',
       });
     }
-    
+
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
+        const displayValue = getFilterDisplayValue(field, condition.value);
         chips.push({
           id: `advanced-filter-${index}`,
           label: field?.label || condition.field,
-          value: `${condition.operator}: ${condition.value}`,
+          value: `${condition.operator}: ${displayValue}`,
           color: 'secondary',
         });
       });
     }
-    
+
     return chips;
   }, [statusFilter, filterGroup, filterFields]);
 
@@ -541,58 +591,117 @@ export default function CallsPage() {
     clearModuleFilters('calls');
   };
 
-  // Get status color helper
-  const getStatusColor = (status: string) => {
-    const colors = {
-      Completed: "bg-primary/10 text-primary",
-      Scheduled: "bg-accent/10 text-accent",
-      Missed: "bg-destructive/10 text-destructive",
-    };
-    return colors[status as keyof typeof colors] || "bg-muted text-muted-foreground";
+  // Edit handler — fetches full call details from API
+  const handleEditCall = async (call: CallViewModel) => {
+    setFormMode("edit");
+
+    try {
+      const fullCall = await callsApi.getById(call.id);
+
+      setEditingCall({
+        id: fullCall.id,
+        subject: fullCall.subject,
+        description: fullCall.description,
+        callDirection: fullCall.callDirection as Call["callDirection"],
+        callOutcome: fullCall.callOutcome as Call["callOutcome"],
+        status: fullCall.status,
+        priority: fullCall.priority,
+        dueDate: toDateInputValue(fullCall.dueDate),
+        startTime: toDateTimeLocalValue(fullCall.startTime),
+        endTime: toDateTimeLocalValue(fullCall.endTime),
+        durationMinutes: fullCall.durationMinutes,
+        assignedTo: fullCall.assignedTo,
+        contactId: fullCall.contact?.id,
+        companyId: fullCall.company?.id,
+        dealId: fullCall.deal?.id,
+        leadId: fullCall.lead?.id,
+        reminderAt: toDateTimeLocalValue(fullCall.reminderAt),
+      });
+    } catch (error) {
+      console.error("Failed to fetch call details:", error);
+      toast.error("Failed to load call details");
+      setEditingCall({
+        id: call.id,
+        subject: call.subject,
+        description: call.description,
+        callDirection: call.callDirection as Call["callDirection"],
+        callOutcome: call.callOutcome as Call["callOutcome"],
+        status: call.status,
+        priority: call.priority,
+        dueDate: toDateInputValue(call.dueDate),
+        durationMinutes: call.durationMinutes,
+        assignedTo: call.assignedTo,
+      });
+    }
+    setFormDrawerOpen(true);
   };
 
-  // Get direction icon helper
-  const getDirectionIcon = (direction: string) => {
-    return direction === "Incoming" ? PhoneIncoming : PhoneOutgoing;
+  // Handle form submission
+  const handleFormSubmit = async (data: Partial<Call>) => {
+    try {
+      const callData: CallFormData = {
+        subject: data.subject || "",
+        description: data.description,
+        callDirection: data.callDirection,
+        callOutcome: data.callOutcome,
+        status: data.status as CallFormData['status'],
+        priority: data.priority as CallFormData['priority'],
+        dueDate: data.dueDate,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        durationMinutes: data.durationMinutes,
+        contactId: data.contactId,
+        companyId: data.companyId,
+        dealId: data.dealId,
+        leadId: data.leadId,
+        assignedTo: data.assignedTo,
+        reminderAt: data.reminderAt,
+      };
+
+      if (formMode === "edit" && editingCall?.id) {
+        await updateCall.mutateAsync({ id: editingCall.id, data: callData });
+      } else {
+        await createCall.mutateAsync(callData);
+      }
+
+      setFormDrawerOpen(false);
+      setEditingCall(null);
+    } catch (error) {
+      throw error;
+    }
   };
 
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    shortcuts: [
-      {
-        key: "n",
-        meta: true,
-        ctrl: true,
-        description: "New call",
-        action: () => {
-          setEditingCall(null);
-          setFormMode("add");
-          setDefaultView("quick");
-          setFormDrawerOpen(true);
-        },
-      },
-    ],
-  });
-
-  // Table columns
-  const columns = [
+  // Table columns - no sorting (matches tasks pattern)
+  const columns = useMemo(() => [
     {
       key: "subject",
-      label: "Call Subject",
-      sortable: true,
-      render: (_value: unknown, row: typeof calls[0]) => {
+      label: "Call",
+      render: (_value: unknown, row: CallViewModel) => (
+        <div
+          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => router.push(`/activities/calls/${row.id}`)}
+        >
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
+            {row.initials}
+          </div>
+          <div>
+            <div className="font-semibold text-foreground">{row.subject}</div>
+            {row.description && (
+              <div className="text-sm text-muted-foreground line-clamp-1">{row.description}</div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "callDirection",
+      label: "Direction",
+      render: (value: string) => {
+        const DirectionIcon = getDirectionIcon(value);
         return (
-          <div 
-            className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => router.push(`/activities/calls/${row.id}`)}
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-xs font-semibold">
-              {row.initials}
-            </div>
-            <div>
-              <div className="font-semibold text-foreground">{row.subject}</div>
-              <div className="text-sm text-muted-foreground">{row.description}</div>
-            </div>
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <DirectionIcon className="h-4 w-4 text-muted-foreground" />
+            {DIRECTION_DISPLAY[value] || value || "—"}
           </div>
         );
       },
@@ -600,61 +709,61 @@ export default function CallsPage() {
     {
       key: "status",
       label: "Status",
-      sortable: true,
       render: (value: string) => (
         <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
-          {value}
+          {STATUS_DISPLAY[value] || value}
         </span>
       ),
     },
     {
-      key: "direction",
-      label: "Direction",
-      sortable: true,
-      render: (value: string) => {
-        const DirectionIcon = getDirectionIcon(value);
-        return (
-          <div className="flex items-center gap-2 text-sm text-foreground">
-            <DirectionIcon className="h-4 w-4 text-muted-foreground" />
-            {value}
-          </div>
-        );
-      },
-    },
-    {
-      key: "contactName",
-      label: "Contact",
-      sortable: true,
-      render: (_value: unknown, row: typeof calls[0]) => (
-        <div>
-          <div className="text-sm font-medium text-foreground">{row.contactName}</div>
-          <div className="text-xs text-muted-foreground">{row.contactPhone}</div>
-        </div>
-      ),
-    },
-    {
-      key: "date",
-      label: "Date & Time",
-      sortable: true,
-      render: (_value: unknown, row: typeof calls[0]) => (
-        <div>
-          <div className="text-sm text-foreground">{row.date}</div>
-          <div className="text-xs text-muted-foreground">{row.time}</div>
-        </div>
-      ),
-    },
-    {
-      key: "duration",
-      label: "Duration",
-      sortable: true,
+      key: "callOutcome",
+      label: "Outcome",
       render: (value: string) => (
+        <span className="text-sm text-foreground">
+          {value ? (OUTCOME_DISPLAY[value] || value) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "dueDate",
+      label: "Date",
+      render: (value: string) => (
+        <div className="flex items-center gap-2 text-sm text-foreground">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          {formatDate(value)}
+        </div>
+      ),
+    },
+    {
+      key: "durationMinutes",
+      label: "Duration",
+      render: (value: number) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="h-4 w-4" />
-          {value || "N/A"}
+          {value ? `${value} min` : "—"}
         </div>
       ),
     },
-  ];
+    {
+      key: "relatedTo",
+      label: "Related To",
+      render: (_value: unknown, row: CallViewModel) => (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          {row.relatedTo ? (
+            <>
+              <Flag className="h-4 w-4" />
+              <span>{row.relatedTo}</span>
+              {row.relatedToType && (
+                <span className="text-xs text-muted-foreground/60">({row.relatedToType})</span>
+              )}
+            </>
+          ) : (
+            <span className="text-muted-foreground/50">—</span>
+          )}
+        </div>
+      ),
+    },
+  ], [router]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -664,8 +773,8 @@ export default function CallsPage() {
         icon={Phone}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${calls.length} calls`}
-        searchPlaceholder="Search calls by subject, contact, or description..."
+        subtitle={`${totalItems} calls`}
+        searchPlaceholder="Search calls by subject or description..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         actions={
@@ -683,7 +792,7 @@ export default function CallsPage() {
               )}
             </Button>
             <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} />
-            
+
             {/* Mobile Advanced Filter Button */}
             <Button
               variant="outline"
@@ -699,7 +808,7 @@ export default function CallsPage() {
                 </span>
               )}
             </Button>
-            
+
             {/* Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
               <Button
@@ -769,15 +878,20 @@ export default function CallsPage() {
             </Button>
 
             <ExportButton
-              data={filteredCalls}
+              data={calls}
               columns={exportColumns}
-              filename="calls-export"
+              filename={`calls-${new Date().toISOString().split('T')[0]}`}
               title="Calls Export"
             />
-            <Button 
+            <Button
+              onClick={() => {
+                setFormMode("add");
+                setEditingCall(null);
+                setDefaultView("quick");
+                setFormDrawerOpen(true);
+              }}
               className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
               title="Log a new call"
-              onClick={handleAddCall}
             >
               <Plus className="h-4 w-4 mr-2" />
               Log Call
@@ -785,11 +899,6 @@ export default function CallsPage() {
           </>
         }
       />
-
-      {/* Stats Cards */}
-      <AnimatePresence>
-        {showStats && <StatsCards stats={stats} columns={4} />}
-      </AnimatePresence>
 
       {/* Filter Chips */}
       {filterChips.length > 0 && (
@@ -800,39 +909,63 @@ export default function CallsPage() {
         />
       )}
 
+      {/* Advanced Filter Drawer */}
+      <AdvancedFilter
+        fields={filterFields}
+        onApply={(group) => {
+          setFilterGroup(group);
+          setCurrentPage(1);
+        }}
+        onClear={() => {
+          setFilterGroup(null);
+          setCurrentPage(1);
+        }}
+        initialGroup={filterGroup || undefined}
+        presets={presets}
+        onSavePreset={addPreset}
+        onLoadPreset={(preset) => {
+          setFilterGroup(preset.group);
+          setCurrentPage(1);
+        }}
+        onDeletePreset={deletePreset}
+        isDrawer={true}
+        isOpen={showAdvancedFilter}
+        onClose={() => setShowAdvancedFilter(false)}
+        drawerPosition="right"
+      />
+
       {/* Bulk Actions Toolbar */}
+      {selectedCalls.length > 0 && (
+        <BulkActionsToolbar
+          selectedCount={selectedCalls.length}
+          totalCount={totalItems}
+          onSelectAll={handleSelectAllCalls}
+          onDeselectAll={handleDeselectAll}
+          onDelete={() => setShowBulkDelete(true)}
+          onExport={handleBulkExport}
+          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          isProcessing={isBulkProcessing}
+        />
+      )}
+
+      {/* Stats Cards */}
       <AnimatePresence>
-        {selectedCalls.length > 0 && (
-          <BulkActionsToolbar
-            selectedCount={selectedCalls.length}
-            totalCount={filteredCalls.length}
-            onSelectAll={handleSelectAllCalls}
-            onDeselectAll={handleDeselectAll}
-            onDelete={() => setShowBulkDelete(true)}
-            onExport={handleBulkExport}
-            onUpdateStatus={() => setShowBulkUpdateStatus(true)}
-            statusLabel="Status"
-            isProcessing={isBulkProcessing}
-          />
-        )}
+        {showStats && <StatsCards stats={stats} columns={4} />}
       </AnimatePresence>
 
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={paginatedCalls}
+          data={calls}
           columns={columns}
           selectedIds={selectedCalls}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
-          onSort={handleSort}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
           showSelection={true}
           loading={isLoading}
           emptyMessage="No calls found"
           emptyDescription="Try adjusting your search or filters, or log a new call"
-          renderActions={(row) => (
+          renderActions={(row: CallViewModel) => (
             <ActionMenu
               items={[
                 {
@@ -848,7 +981,7 @@ export default function CallsPage() {
                 {
                   label: "Mark Complete",
                   icon: Check,
-                  onClick: () => row.id && updateCall.mutateAsync({ id: row.id, data: { status: "Completed" } }),
+                  onClick: () => completeCall.mutateAsync(row.id),
                 },
                 { divider: true, label: "", onClick: () => {} },
                 {
@@ -864,7 +997,7 @@ export default function CallsPage() {
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {paginatedCalls.map((call, index) => (
+          {calls.map((call, index) => (
             <motion.div
               key={call.id}
               initial={{ opacity: 0, y: 20 }}
@@ -878,75 +1011,76 @@ export default function CallsPage() {
                       {call.initials}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground">
-                        {call.subject}
-                      </h3>
+                      <h3 className="font-semibold text-foreground">{call.subject}</h3>
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
-                        {call.direction === "Incoming" ? <PhoneIncoming className="h-3 w-3" /> : <PhoneOutgoing className="h-3 w-3" />}
-                        {call.direction}
+                        {call.callDirection === "inbound" ? <PhoneIncoming className="h-3 w-3" /> : <PhoneOutgoing className="h-3 w-3" />}
+                        {DIRECTION_DISPLAY[call.callDirection || ''] || call.callDirection}
                       </p>
                     </div>
                   </div>
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <ActionMenu
-                        items={[
-                          {
-                            label: "View Details",
-                            icon: FileText,
-                            onClick: () => router.push(`/activities/calls/${call.id}`),
-                          },
-                          {
-                            label: "Edit Call",
-                            icon: Edit,
-                            onClick: () => handleEditCall(call),
-                          },
-                          {
-                            label: "Mark Complete",
-                            icon: Check,
-                            onClick: () => call.id && updateCall.mutateAsync({ id: call.id, data: { status: "Completed" } }),
-                          },
-                          { divider: true, label: "", onClick: () => {} },
-                          {
-                            label: "Delete",
-                            icon: Trash2,
-                            variant: "danger",
-                            onClick: () => handleDeleteClick(call),
-                          },
-                        ]}
-                      />
-                    </div>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ActionMenu
+                      items={[
+                        {
+                          label: "View Details",
+                          icon: FileText,
+                          onClick: () => router.push(`/activities/calls/${call.id}`),
+                        },
+                        {
+                          label: "Edit Call",
+                          icon: Edit,
+                          onClick: () => handleEditCall(call),
+                        },
+                        {
+                          label: "Mark Complete",
+                          icon: Check,
+                          onClick: () => completeCall.mutateAsync(call.id),
+                        },
+                        { divider: true, label: "", onClick: () => {} },
+                        {
+                          label: "Delete",
+                          icon: Trash2,
+                          variant: "danger",
+                          onClick: () => handleDeleteClick(call),
+                        },
+                      ]}
+                    />
                   </div>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {call.description}
-                  </p>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <User className="h-4 w-4" />
-                      <span>{call.contactName}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Phone className="h-4 w-4" />
-                      <span>{call.contactPhone}</span>
-                    </div>
+                </div>
+                {call.description && (
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{call.description}</p>
+                )}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>Date: {formatDate(call.dueDate)}</span>
+                  </div>
+                  {call.durationMinutes && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Clock className="h-4 w-4" />
-                      <span>{call.date} at {call.time}</span>
+                      <span>{call.durationMinutes} min</span>
                     </div>
-                    {call.duration && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="h-4 w-4" />
-                        <span>{call.duration}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(call.status || "")}`}>
-                      {call.status}
+                  )}
+                  {call.relatedTo && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Flag className="h-4 w-4" />
+                      <span>{call.relatedTo}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(call.status)}`}>
+                    {STATUS_DISPLAY[call.status] || call.status}
+                  </span>
+                  {call.callOutcome && (
+                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                      {OUTCOME_DISPLAY[call.callOutcome] || call.callOutcome}
                     </span>
-                  </div>
-                </Card>
-              </motion.div>
-            ))}
+                  )}
+                </div>
+              </Card>
+            </motion.div>
+          ))}
         </div>
       )}
 
@@ -954,7 +1088,7 @@ export default function CallsPage() {
       <DataPagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredCalls.length}
+        totalItems={totalItems}
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
@@ -966,7 +1100,7 @@ export default function CallsPage() {
           setSelectedCalls([]);
         }}
         filterInfo={
-          statusFilter ? `filtered by ${statusFilter}` : undefined
+          statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined
         }
       />
 
@@ -980,7 +1114,20 @@ export default function CallsPage() {
         itemName={callToDelete?.subject}
         itemType="Call"
         icon={Phone}
-        isDeleting={deleteCall.isPending}
+        isDeleting={isDeleting}
+      />
+
+      {/* Call Form Drawer */}
+      <CallFormDrawer
+        isOpen={formDrawerOpen}
+        onClose={() => {
+          setFormDrawerOpen(false);
+          setEditingCall(null);
+        }}
+        onSubmit={handleFormSubmit}
+        initialData={editingCall}
+        mode={formMode}
+        defaultView={defaultView}
       />
 
       {/* Bulk Delete Modal */}
@@ -998,53 +1145,14 @@ export default function CallsPage() {
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
         itemCount={selectedCalls.length}
-        title="Update Status"
-        field="status"
+        title="Update Call Status"
+        field="Status"
         options={[
-          { label: 'Scheduled', value: 'Scheduled' },
-          { label: 'Completed', value: 'Completed' },
-          { label: 'Missed', value: 'Missed' },
+          { label: 'Pending', value: 'pending' },
+          { label: 'In Progress', value: 'in_progress' },
+          { label: 'Completed', value: 'completed' },
+          { label: 'Cancelled', value: 'cancelled' },
         ]}
-      />
-
-      {/* Advanced Filter Modal */}
-      <AdvancedFilter
-        fields={filterFields}
-        onApply={(group) => {
-          setFilterGroup(group);
-          setCurrentPage(1);
-        }}
-        onClear={() => {
-          setFilterGroup(null);
-          setCurrentPage(1);
-        }}
-        initialGroup={filterGroup || undefined}
-        presets={filterPresets}
-        onSavePreset={(preset) => {
-          addPreset(preset);
-        }}
-        onLoadPreset={(preset) => {
-          setFilterGroup(preset.group);
-          setCurrentPage(1);
-        }}
-        onDeletePreset={deletePreset}
-        isDrawer={true}
-        isOpen={showAdvancedFilter}
-        onClose={() => setShowAdvancedFilter(false)}
-        drawerPosition="right"
-      />
-
-      {/* Call Form Drawer */}
-      <CallFormDrawer
-        isOpen={formDrawerOpen}
-        onClose={() => {
-          setFormDrawerOpen(false);
-          setEditingCall(null);
-        }}
-        onSubmit={handleFormSubmit}
-        initialData={editingCall ?? undefined}
-        mode={formMode}
-        defaultView={defaultView}
       />
     </div>
   );

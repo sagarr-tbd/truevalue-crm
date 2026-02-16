@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityCalendar } from "@/components/Calendar";
 import { useTasks } from "@/lib/queries/useTasks";
+import type { TaskViewModel } from "@/lib/queries/useTasks";
 import { useCalls } from "@/lib/queries/useCalls";
 import { useMeetings } from "@/lib/queries/useMeetings";
 import { Card } from "@/components/ui/card";
@@ -12,9 +13,15 @@ import { motion } from "framer-motion";
 
 export default function CalendarPage() {
   const router = useRouter();
-  const { data: tasks = [] } = useTasks();
-  const { data: calls = [] } = useCalls();
-  const { data: meetings = [] } = useMeetings();
+  const { data: tasksResponse } = useTasks({ page_size: 100 });
+  const tasks: (TaskViewModel & { title?: string })[] = (tasksResponse?.data ?? []).map(t => ({
+    ...t,
+    title: t.subject, // Calendar component expects 'title'
+  }));
+  const { data: callsResponse } = useCalls({ page_size: 100 });
+  const calls = useMemo(() => callsResponse?.data ?? [], [callsResponse]);
+  const { data: meetingsResponse } = useMeetings({ page_size: 100 });
+  const meetings = useMemo(() => meetingsResponse?.data ?? [], [meetingsResponse]);
 
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
     new Set(["tasks", "calls", "meetings"])
@@ -61,10 +68,10 @@ export default function CalendarPage() {
       (t) => t.dueDate && new Date(t.dueDate) > now
     ).length;
     const upcomingCalls = calls.filter(
-      (c) => c.date && new Date(c.date) > now
+      (c) => c.dueDate && new Date(c.dueDate) > now
     ).length;
     const upcomingMeetings = meetings.filter(
-      (m) => m.date && new Date(m.date) > now
+      (m) => m.dueDate && new Date(m.dueDate) > now
     ).length;
 
     return {

@@ -725,6 +725,17 @@ export const dealsApi = {
     
     return response.data!;
   },
+
+  /**
+   * Get deals as select options (for dropdowns)
+   */
+  getAsOptions: async (): Promise<Array<{ value: string; label: string }>> => {
+    const response = await dealsApi.getAll({ page_size: 100 });
+    return response.data.map(deal => ({
+      value: deal.id,
+      label: deal.name,
+    }));
+  },
 };
 
 /**

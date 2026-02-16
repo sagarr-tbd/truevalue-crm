@@ -1,125 +1,173 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { callsApi } from "@/lib/api/calls";
-import type { CallDisplay } from "@/lib/api/mock/calls";
-import { toast } from "sonner";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  callsApi,
+  CallQueryParams,
+  CallFormData,
+  CallViewModel,
+} from '@/lib/api/calls';
+import type { ActivityStats } from '@/lib/api/activities';
+import { toast } from 'sonner';
 
-// Query Keys
+// Re-export types for convenience
+export type { CallQueryParams, CallFormData, CallViewModel, ActivityStats };
+
+// ============================================================================
+// QUERY KEYS
+// ============================================================================
+
 export const callKeys = {
-  all: ["calls"] as const,
-  lists: () => [...callKeys.all, "list"] as const,
-  detail: (id: number) => [...callKeys.all, "detail", id] as const,
+  all: ['calls'] as const,
+  lists: () => [...callKeys.all, 'list'] as const,
+  list: (params?: CallQueryParams) => [...callKeys.lists(), params] as const,
+  detail: (id: string) => [...callKeys.all, 'detail', id] as const,
 };
 
-// GET all calls
-export function useCalls() {
+// ============================================================================
+// QUERY HOOKS
+// ============================================================================
+
+/**
+ * Fetch calls with server-side pagination and filtering
+ */
+export function useCalls(params: CallQueryParams = {}) {
   return useQuery({
-    queryKey: callKeys.lists(),
-    queryFn: callsApi.getAll,
+    queryKey: callKeys.list(params),
+    queryFn: () => callsApi.getAll(params),
+    staleTime: 60 * 1000,
   });
 }
 
-// GET single call
-export function useCall(id: number) {
+/**
+ * Fetch single call by ID (UUID)
+ */
+export function useCall(id: string) {
   return useQuery({
     queryKey: callKeys.detail(id),
     queryFn: () => callsApi.getById(id),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000,
   });
 }
 
-// CREATE call
+// ============================================================================
+// MUTATION HOOKS
+// ============================================================================
+
+/**
+ * Create a new call
+ */
 export function useCreateCall() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: callsApi.create,
-    onMutate: async (newCall) => {
-      await queryClient.cancelQueries({ queryKey: callKeys.lists() });
-      const previous = queryClient.getQueryData(callKeys.lists());
-      
-      queryClient.setQueryData(callKeys.lists(), (old: CallDisplay[] = []) => [
-        { ...newCall, id: Date.now() } as CallDisplay,
-        ...old,
-      ]);
-      
-      return { previous };
-    },
-    onError: (err, newCall, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(callKeys.lists(), context.previous);
-      }
-      toast.error("Failed to create call");
-    },
+    mutationFn: (data: CallFormData) => callsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: callKeys.lists() });
-      toast.success("Call created successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Call logged successfully!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to log call');
     },
   });
 }
 
-// UPDATE call
+/**
+ * Update a call
+ */
 export function useUpdateCall() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<CallDisplay> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<CallFormData> }) =>
       callsApi.update(id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: callKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: callKeys.lists() });
-      toast.success("Call updated successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Call updated successfully!');
     },
-    onError: () => {
-      toast.error("Failed to update call");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update call');
     },
   });
 }
 
-// DELETE call
+/**
+ * Delete a call
+ */
 export function useDeleteCall() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: callsApi.delete,
-    onSuccess: () => {
+    mutationFn: (id: string) => callsApi.delete(id),
+    onSuccess: (_, id) => {
+      queryClient.removeQueries({ queryKey: callKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: callKeys.lists() });
-      toast.success("Call deleted successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Call deleted successfully!');
     },
-    onError: () => {
-      toast.error("Failed to delete call");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete call');
     },
   });
 }
 
-// BULK DELETE
+/**
+ * Complete a call
+ */
+export function useCompleteCall() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => callsApi.complete(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: callKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: callKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Call completed!');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to complete call');
+    },
+  });
+}
+
+/**
+ * Bulk delete calls
+ */
 export function useBulkDeleteCalls() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: callsApi.bulkDelete,
-    onSuccess: (_, ids) => {
+    mutationFn: (ids: string[]) => callsApi.bulkDelete(ids),
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: callKeys.lists() });
-      toast.success(`${ids.length} calls deleted successfully!`);
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success(`${result.success} calls deleted successfully!`);
     },
-    onError: () => {
-      toast.error("Failed to delete calls");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete calls');
     },
   });
 }
 
-// BULK UPDATE
+/**
+ * Bulk update calls
+ */
 export function useBulkUpdateCalls() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ ids, data }: { ids: number[]; data: Partial<CallDisplay> }) =>
+    mutationFn: ({ ids, data }: { ids: string[]; data: Partial<CallFormData> }) =>
       callsApi.bulkUpdate(ids, data),
-    onSuccess: (_, { ids }) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: callKeys.lists() });
-      toast.success(`${ids.length} calls updated successfully!`);
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success(`${result.success} calls updated successfully!`);
     },
-    onError: () => {
-      toast.error("Failed to update calls");
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update calls');
     },
   });
 }
