@@ -32,7 +32,19 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         'description': 'description',
         'assignedTo': 'assigned_to',
         'assigned_to': 'assigned_to',
+        'call_direction': 'call_direction',
+        'call_outcome': 'call_outcome',
+        'contact_id': 'contact_id',
+        'contactId': 'contact_id',
+        'company_id': 'company_id',
+        'companyId': 'company_id',
+        'deal_id': 'deal_id',
+        'dealId': 'deal_id',
+        'lead_id': 'lead_id',
+        'leadId': 'lead_id',
     }
+    
+    UUID_FIELDS = {'contact_id', 'company_id', 'deal_id', 'lead_id', 'assigned_to'}
     
     def list(
         self,

@@ -1,4 +1,4 @@
-import { apiClient, decodeJWT, TokenManager } from './client';
+import { apiClient, TokenManager, decodeJWT } from './client';
 
 /**
  * Organization member from API
@@ -26,14 +26,18 @@ export interface MemberOption {
 }
 
 /**
- * Paginated response
+ * Paginated response from Org Service
+ * API returns: { members: [...], pagination: { total, page, page_size, ... } }
  */
 interface PaginatedResponse {
-  data: OrganizationMember[];
-  meta: {
+  members: OrganizationMember[];
+  pagination: {
+    total: number;
     page: number;
     page_size: number;
-    total: number;
+    total_pages: number;
+    has_next: boolean;
+    has_previous: boolean;
   };
 }
 
@@ -58,7 +62,7 @@ export const membersApi = {
   getAll: async (params?: { page_size?: number; status?: string }): Promise<OrganizationMember[]> => {
     const orgId = getCurrentOrgId();
     if (!orgId) {
-      console.warn('No organization ID found in token');
+      console.warn('[MembersAPI] No organization ID found in token');
       return [];
     }
 
@@ -68,15 +72,15 @@ export const membersApi = {
     if (params?.status) {
       url += `&status=${params.status}`;
     }
-    
+
     const response = await apiClient.get<PaginatedResponse>(url);
     
     if (response.error) {
-      console.error('Failed to fetch members:', response.error);
+      console.error('[MembersAPI] Failed to fetch members:', response.error);
       return [];
     }
-    
-    return response.data?.data || [];
+
+    return response.data?.members || [];
   },
 
   /**
@@ -84,9 +88,12 @@ export const membersApi = {
    */
   getAsOptions: async (): Promise<MemberOption[]> => {
     const members = await membersApi.getAll({ status: 'active', page_size: 100 });
+
     return members.map(member => ({
       value: member.user_id,
-      label: member.display_name || `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown',
+      label: `${member.first_name || ''} ${member.last_name || ''}`.trim()
+        || member.display_name
+        || 'Unknown',
     }));
   },
 };

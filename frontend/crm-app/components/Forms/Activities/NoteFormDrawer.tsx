@@ -1,8 +1,8 @@
 "use client";
 import { useMemo } from "react";
 import { FormDrawer } from "@/components/Forms/FormDrawer";
-import { callFormConfig } from "@/components/Forms/configs";
-import type { Call } from "@/lib/types";
+import { noteFormConfig } from "@/components/Forms/configs";
+import type { Note } from "@/lib/types";
 import { useContactOptions } from "@/lib/queries/useContacts";
 import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
@@ -11,26 +11,24 @@ import { useMemberOptions } from "@/lib/queries/useMembers";
 import type { FormDrawerConfig } from "@/components/Forms/FormDrawer/types";
 import { cloneFormConfig, batchUpdateFieldOptions } from "@/lib/utils/formConfig";
 
-export interface CallFormDrawerProps {
+export interface NoteFormDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: Partial<Call>) => Promise<void>;
-  initialData?: Partial<Call> | null;
+  onSubmit: (data: Partial<Note>) => Promise<void>;
+  initialData?: Partial<Note> | null;
   mode?: "add" | "edit";
   defaultView?: "quick" | "detailed";
 }
 
-export function CallFormDrawer(props: CallFormDrawerProps) {
-  // Fetch dynamic options
+export function NoteFormDrawer(props: NoteFormDrawerProps) {
   const { data: contactOptions = [], isLoading: loadingContacts } = useContactOptions();
   const { data: companyOptions = [], isLoading: loadingCompanies } = useCompanyOptions();
   const { data: dealOptions = [], isLoading: loadingDeals } = useDealOptions();
   const { data: leadOptions = [], isLoading: loadingLeads } = useLeadOptions();
   const { data: memberOptions = [], isLoading: loadingMembers } = useMemberOptions();
 
-  // Build dynamic config with fetched options
   const dynamicConfig = useMemo<FormDrawerConfig>(() => {
-    const config = cloneFormConfig(callFormConfig);
+    const config = cloneFormConfig(noteFormConfig);
 
     batchUpdateFieldOptions(config, {
       contactId: contactOptions.length > 0
@@ -53,5 +51,5 @@ export function CallFormDrawer(props: CallFormDrawerProps) {
     return config;
   }, [contactOptions, companyOptions, dealOptions, leadOptions, memberOptions, loadingContacts, loadingCompanies, loadingDeals, loadingLeads, loadingMembers]);
 
-  return <FormDrawer<Call> {...props} config={dynamicConfig} />;
+  return <FormDrawer<Note> {...props} config={dynamicConfig} />;
 }

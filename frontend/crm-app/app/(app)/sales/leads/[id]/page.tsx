@@ -34,6 +34,9 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { LeadConversionModal, type ConversionParams } from "@/components/LeadConversionModal";
 import { Textarea } from "@/components/ui/textarea";
 import { LeadFormDrawer } from "@/components/Forms/Sales";
+import { TaskFormDrawer } from "@/components/Forms/Activities/TaskFormDrawer";
+import { MeetingFormDrawer } from "@/components/Forms/Activities/MeetingFormDrawer";
+import { CallFormDrawer } from "@/components/Forms/Activities/CallFormDrawer";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
 import {
@@ -45,7 +48,11 @@ import {
   type LeadFormData,
 } from "@/lib/queries/useLeads";
 import { useMembers } from "@/lib/queries/useMembers";
-import { useLeadActivities, useCreateActivity, type ActivityFormData, type ActivityType } from "@/lib/queries/useActivities";
+import { useLeadActivities, useCreateActivity, type ActivityType } from "@/lib/queries/useActivities";
+import { useCreateTask, type TaskFormData } from "@/lib/queries/useTasks";
+import { useCreateMeeting, type MeetingFormData } from "@/lib/queries/useMeetings";
+import { useCreateCall } from "@/lib/queries/useCalls";
+import type { Task, Meeting, Call } from "@/lib/types";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
 
 // Status color mapping - use centralized utility
@@ -64,16 +71,6 @@ const getScoreBgColor = (score: number | undefined) => {
   if (score >= 80) return THEME_COLORS.success.bg;
   if (score >= 50) return THEME_COLORS.warning.bg;
   return THEME_COLORS.error.bg;
-};
-
-// Format date helper
-const formatDate = (dateString: string | undefined) => {
-  if (!dateString) return "N/A";
-  return new Date(dateString).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 };
 
 // Calculate days since date
@@ -137,6 +134,9 @@ export default function LeadDetailPage() {
 
   // Form drawer state
   const [editFormOpen, setEditFormOpen] = useState(false);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
+  const [callDrawerOpen, setCallDrawerOpen] = useState(false);
 
   // Fetch lead from API
   const { data: lead, isLoading, error } = useLead(leadId);
@@ -148,9 +148,18 @@ export default function LeadDetailPage() {
   // Fetch all team members for owner name resolution
   const { data: members = [], isLoading: isMembersLoading } = useMembers();
   
-  // Fetch lead activities
+  // Fetch lead activities — notes derived from this, no extra API call
   const { data: activities = [], isLoading: isActivitiesLoading } = useLeadActivities(leadId);
   const createActivity = useCreateActivity();
+  const createTask = useCreateTask();
+  const createMeeting = useCreateMeeting();
+  const createCall = useCreateCall();
+
+  // Derive notes from already-fetched activities (zero-cost client filter)
+  const notes = useMemo(
+    () => activities.filter((a) => a.type === 'note'),
+    [activities]
+  );
 
   // Calculate days in pipeline
   const daysInPipeline = useMemo(() => {
@@ -163,7 +172,8 @@ export default function LeadDetailPage() {
     if (isMembersLoading) return { name: null, isLoading: true };
     const owner = members.find(m => m.user_id === lead.ownerId);
     if (owner) {
-      const name = owner.display_name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'Unknown';
+      const fullName = `${owner.first_name || ''} ${owner.last_name || ''}`.trim();
+      const name = fullName || owner.display_name || 'Unknown';
       return { name, isLoading: false };
     }
     return { name: null, isLoading: false };
@@ -245,10 +255,74 @@ export default function LeadDetailPage() {
     }
   };
   
-  // Filter notes from activities
-  const notes = useMemo(() => {
-    return activities.filter(a => a.type === 'note');
-  }, [activities]);
+  // Quick action submit handlers
+  const handleCreateTask = async (data: Partial<Task>) => {
+    await createTask.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      priority: data.priority as TaskFormData["priority"],
+      status: data.status as TaskFormData["status"],
+      dueDate: data.dueDate,
+      leadId: leadId,
+      contactId: data.contactId,
+      companyId: data.companyId,
+      dealId: data.dealId,
+      assignedTo: data.assignedTo,
+      reminderAt: data.reminderAt,
+    });
+    setTaskDrawerOpen(false);
+  };
+
+  const handleCreateMeeting = async (data: Partial<Meeting>) => {
+    await createMeeting.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      status: data.status as MeetingFormData["status"],
+      priority: data.priority as MeetingFormData["priority"],
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      leadId: leadId,
+      contactId: data.contactId,
+      companyId: data.companyId,
+      dealId: data.dealId,
+      assignedTo: data.assignedTo,
+      reminderAt: data.reminderAt,
+    });
+    setMeetingDrawerOpen(false);
+  };
+
+  const handleCreateCall = async (data: Partial<Call>) => {
+    await createCall.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      status: data.status as MeetingFormData["status"],
+      priority: data.priority as MeetingFormData["priority"],
+      callDirection: data.callDirection,
+      callOutcome: data.callOutcome,
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      leadId: leadId,
+      contactId: data.contactId,
+      companyId: data.companyId,
+      dealId: data.dealId,
+      assignedTo: data.assignedTo,
+    });
+    setCallDrawerOpen(false);
+  };
+
+  // Use formatDate for consistency with other detail pages
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return "N/A";
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
 
   // Loading state
   if (isLoading) {
@@ -922,27 +996,25 @@ export default function LeadDetailPage() {
                     {activeTab === "notes" && (
                       <motion.div
                         key="notes"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 20 }}
-                        className="space-y-6"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-4"
                       >
                         {/* Add Note Form */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-foreground">Add Note</label>
+                        <div className="border border-border rounded-lg p-4 bg-muted/30">
                           <Textarea
-                            placeholder="Enter your note here..."
                             value={newNote}
-                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewNote(e.target.value)}
-                            rows={4}
-                            className="resize-none"
+                            onChange={(e) => setNewNote(e.target.value)}
+                            placeholder="Add a note about this lead..."
+                            className="min-h-[100px] resize-none"
                           />
-                          <div className="flex justify-end">
+                          <div className="flex justify-end mt-3">
                             <Button
                               onClick={handleAddNote}
-                              disabled={!newNote.trim() || createActivity.isPending}
-                              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
                               size="sm"
+                              disabled={!newNote.trim() || createActivity.isPending}
                             >
                               {createActivity.isPending ? (
                                 <>
@@ -961,35 +1033,42 @@ export default function LeadDetailPage() {
 
                         {/* Notes List */}
                         {isActivitiesLoading ? (
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          <div className="space-y-4">
+                            {[1, 2].map((i) => (
+                              <Card key={i} className="border border-border">
+                                <CardContent className="p-4 animate-pulse space-y-2">
+                                  <div className="h-4 w-full rounded bg-muted" />
+                                  <div className="h-4 w-3/4 rounded bg-muted" />
+                                  <div className="h-3 w-1/4 rounded bg-muted mt-3" />
+                                </CardContent>
+                              </Card>
+                            ))}
                           </div>
-                        ) : notes.length === 0 ? (
-                          <div className="text-center py-8 text-muted-foreground">
-                            <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                            <p>No notes yet</p>
-                            <p className="text-sm">Add your first note above</p>
-                          </div>
-                        ) : (
+                        ) : notes.length > 0 ? (
                           <div className="space-y-4">
                             {notes.map((note) => (
-                              <div
-                                key={note.id}
-                                className="p-4 bg-muted/30 rounded-lg border border-border"
-                              >
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                                      {note.description || note.subject}
-                                    </p>
+                              <Card key={note.id} className="border border-border">
+                                <CardContent className="p-4">
+                                  <p className="text-sm text-foreground whitespace-pre-wrap">
+                                    {note.description || note.subject}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                                    <span className="text-xs text-muted-foreground">
+                                      {note.contact?.name || 'System'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {formatDate(note.createdAt)}
+                                    </span>
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
-                                  <Clock className="h-3 w-3" />
-                                  <span>{formatDateTime(note.createdAt)}</span>
-                                </div>
-                              </div>
+                                </CardContent>
+                              </Card>
                             ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p>No notes yet</p>
+                            <p className="text-sm mt-1">Add a note above to get started</p>
                           </div>
                         )}
                       </motion.div>
@@ -1070,15 +1149,17 @@ export default function LeadDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => window.location.href = `mailto:${lead.email}`}
-                >
-                  <Mail className="h-4 w-4" />
-                  Send Email
-                </Button>
+                {lead.email && (
+                  <Button
+                    className="w-full justify-start gap-2"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.location.href = `mailto:${lead.email}`}
+                  >
+                    <Mail className="h-4 w-4" />
+                    Send Email
+                  </Button>
+                )}
                 {lead.phone && (
                   <Button
                     className="w-full justify-start gap-2"
@@ -1090,12 +1171,43 @@ export default function LeadDetailPage() {
                     Call
                   </Button>
                 )}
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
-                  <Calendar className="h-4 w-4" />
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTaskDrawerOpen(true)}
+                  disabled={isConverted || isUnqualified}
+                >
+                  <FileText className="h-4 w-4" />
+                  Create Task
+                </Button>
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMeetingDrawerOpen(true)}
+                  disabled={isConverted || isUnqualified}
+                >
+                  <Video className="h-4 w-4" />
                   Schedule Meeting
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
-                  <FileText className="h-4 w-4" />
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCallDrawerOpen(true)}
+                  disabled={isConverted || isUnqualified}
+                >
+                  <Phone className="h-4 w-4" />
+                  Log Call
+                </Button>
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab("notes")}
+                >
+                  <MessageSquare className="h-4 w-4" />
                   Add Note
                 </Button>
               </CardContent>
@@ -1191,6 +1303,29 @@ export default function LeadDetailPage() {
         initialData={leadFormData}
         mode="edit"
         defaultView="detailed"
+      />
+
+      {/* Quick Action Form Drawers */}
+      <TaskFormDrawer
+        isOpen={taskDrawerOpen}
+        onClose={() => setTaskDrawerOpen(false)}
+        onSubmit={handleCreateTask}
+        initialData={{ leadId }}
+        mode="add"
+      />
+      <MeetingFormDrawer
+        isOpen={meetingDrawerOpen}
+        onClose={() => setMeetingDrawerOpen(false)}
+        onSubmit={handleCreateMeeting}
+        initialData={{ leadId }}
+        mode="add"
+      />
+      <CallFormDrawer
+        isOpen={callDrawerOpen}
+        onClose={() => setCallDrawerOpen(false)}
+        onSubmit={handleCreateCall}
+        initialData={{ leadId }}
+        mode="add"
       />
 
       {/* Conversion Modal */}

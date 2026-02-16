@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -32,11 +32,16 @@ import type { Account as AccountType } from "@/lib/types";
 import { useAccount, useUpdateAccount, useDeleteAccount, useAccounts, useUnlinkContactFromAccount } from "@/lib/queries/useAccounts";
 import { useContacts } from "@/lib/queries/useContacts";
 import { useDeals } from "@/lib/queries/useDeals";
+import { useCompanyActivities, useCreateActivity } from "@/lib/queries/useActivities";
+import { useCreateMeeting, type MeetingFormData } from "@/lib/queries/useMeetings";
+import { MeetingFormDrawer } from "@/components/Forms/Activities/MeetingFormDrawer";
+import type { Meeting } from "@/lib/types";
 import { companiesApi, getSizeDisplayLabel } from "@/lib/api/companies";
 import { THEME_COLORS, getStatusColor, getDealStageColor } from "@/lib/utils";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
-import { Users, X, Unlink } from "lucide-react";
+import { Users, X, Unlink, Clock, Loader2, Video } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import LinkContactModal from "@/components/LinkContactModal/LinkContactModal";
 
 // Format date helper
@@ -75,8 +80,41 @@ const getSizeColors = (size: string) => {
   return colors[size] || "bg-muted text-muted-foreground";
 };
 
-// Notes placeholder - TODO: Integrate with Notes API when available
-const mockNotes: Array<{ id: string; content: string; author: string; date: string; time: string }> = [];
+// Activity type helpers
+const getActivityIcon = (type: string) => {
+  const icons: Record<string, React.ElementType> = {
+    task: FileText,
+    call: Phone,
+    email: Mail,
+    meeting: Video,
+    note: MessageSquare,
+  };
+  return icons[type] || Activity;
+};
+
+const getActivityColor = (type: string) => {
+  const colors: Record<string, string> = {
+    task: `${THEME_COLORS.info.bg} ${THEME_COLORS.info.text}`,
+    call: `${THEME_COLORS.success.bg} ${THEME_COLORS.success.text}`,
+    email: "bg-brand-purple/10 text-brand-purple",
+    meeting: `${THEME_COLORS.warning.bg} ${THEME_COLORS.warning.text}`,
+    note: THEME_COLORS.neutral.badge,
+  };
+  return colors[type] || THEME_COLORS.neutral.badge;
+};
+
+const getStatusBadge = (status: string) => getStatusColor(status, 'generic');
+
+const formatDateTime = (dateString: string | undefined) => {
+  if (!dateString) return "N/A";
+  return new Date(dateString).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
 
 type TabType = "details" | "contacts" | "deals" | "activity" | "notes";
 
@@ -94,12 +132,24 @@ export default function AccountDetailPage() {
 
   // Link contact state
   const [showLinkContactModal, setShowLinkContactModal] = useState(false);
+  const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
 
   // Fetch account from API
   const { data: account, isLoading, error } = useAccount(id);
   const deleteAccountMutation = useDeleteAccount();
   const updateAccountMutation = useUpdateAccount();
   const unlinkContact = useUnlinkContactFromAccount();
+
+  // Fetch activities for this company — notes derived from this, no extra API call
+  const { data: activities = [], isLoading: isActivitiesLoading } = useCompanyActivities(id);
+  const createActivity = useCreateActivity();
+  const createMeeting = useCreateMeeting();
+
+  // Derive notes from already-fetched activities (zero-cost client filter)
+  const notes = useMemo(
+    () => activities.filter((a) => a.type === 'note'),
+    [activities]
+  );
 
   // Fetch related accounts from same industry
   const { data: relatedAccountsResponse } = useAccounts(
@@ -173,6 +223,25 @@ export default function AccountDetailPage() {
   };
 
   // Form handlers
+  const handleCreateMeeting = async (data: Partial<Meeting>) => {
+    await createMeeting.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      status: data.status as MeetingFormData["status"],
+      priority: data.priority as MeetingFormData["priority"],
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      companyId: id,
+      contactId: data.contactId,
+      dealId: data.dealId,
+      assignedTo: data.assignedTo,
+      reminderAt: data.reminderAt,
+    });
+    setMeetingDrawerOpen(false);
+  };
+
   const handleEditAccount = async () => {
     if (!account) return;
 
@@ -253,12 +322,21 @@ export default function AccountDetailPage() {
     }
   };
 
-  const handleAddNote = () => {
-    if (!newNote.trim()) return;
-    // TODO: Implement note creation via API
-    console.log("Adding note:", newNote);
-    toast.success("Note added");
-    setNewNote("");
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !account) return;
+    try {
+      await createActivity.mutateAsync({
+        activityType: 'note',
+        subject: newNote.trim().slice(0, 100),
+        description: newNote.trim(),
+        companyId: account.id,
+      });
+      toast.success("Note added successfully");
+      setNewNote("");
+    } catch (error) {
+      console.error("Failed to add note:", error);
+      toast.error("Failed to add note");
+    }
   };
 
   // Loading state
@@ -942,12 +1020,81 @@ export default function AccountDetailPage() {
                         transition={{ duration: 0.2 }}
                         className="space-y-4"
                       >
-                        {/* Activity tab - TODO: Integrate with Activity API when available */}
-                        <div className="text-center py-8 text-muted-foreground">
-                          <Activity className="h-12 w-12 mx-auto mb-3" />
-                          <p>Activity tracking coming soon</p>
-                          <p className="text-xs mt-2">Activities will be logged automatically when you interact with this account</p>
+                        {/* Activity Header */}
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold text-foreground">Activity Timeline</h3>
+                          <span className="text-xs text-muted-foreground">
+                            {activities.length} {activities.length === 1 ? "activity" : "activities"}
+                          </span>
                         </div>
+
+                        {/* Activity List */}
+                        {isActivitiesLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : activities.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No activities yet</p>
+                            <p className="text-sm">Activities will appear here when created</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {activities.map((activity, index) => {
+                              const ActivityIcon = getActivityIcon(activity.type);
+                              return (
+                                <div
+                                  key={activity.id}
+                                  className="relative flex gap-4 pb-4 last:pb-0"
+                                >
+                                  {/* Timeline line */}
+                                  {index < activities.length - 1 && (
+                                    <div className="absolute left-5 top-10 bottom-0 w-px bg-border" />
+                                  )}
+                                  
+                                  {/* Icon */}
+                                  <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${getActivityColor(activity.type)}`}>
+                                    <ActivityIcon className="h-5 w-5" />
+                                  </div>
+                                  
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <p className="font-medium text-sm text-foreground">
+                                          {activity.subject}
+                                        </p>
+                                        {activity.description && (
+                                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                                            {activity.description}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusBadge(activity.status)}`}>
+                                        {activity.status.replace("_", " ")}
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        {formatDateTime(activity.createdAt)}
+                                      </span>
+                                      {activity.dueDate && (
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="h-3 w-3" />
+                                          Due: {formatDate(activity.dueDate)}
+                                        </span>
+                                      )}
+                                      <span className="capitalize">{activity.type}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </motion.div>
                     )}
 
@@ -961,43 +1108,74 @@ export default function AccountDetailPage() {
                         className="space-y-4"
                       >
                         {/* Add Note Form */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-foreground">Add Note</label>
-                          <textarea
+                        <div className="border border-border rounded-lg p-4 bg-muted/30">
+                          <Textarea
                             value={newNote}
                             onChange={(e) => setNewNote(e.target.value)}
-                            placeholder="Enter your note here..."
-                            className="w-full min-h-[100px] p-3 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none bg-background"
+                            placeholder="Add a note about this account..."
+                            className="min-h-[100px] resize-none"
                           />
-                          <div className="flex justify-end">
-                            <Button onClick={handleAddNote} size="sm" disabled={!newNote.trim()}>
-                              <Plus className="h-4 w-4 mr-2" />
-                              Add Note
+                          <div className="flex justify-end mt-3">
+                            <Button
+                              onClick={handleAddNote}
+                              size="sm"
+                              disabled={!newNote.trim() || createActivity.isPending}
+                            >
+                              {createActivity.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Adding...
+                                </>
+                              ) : (
+                                <>
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Add Note
+                                </>
+                              )}
                             </Button>
                           </div>
                         </div>
 
                         {/* Notes List */}
-                        <div className="space-y-4">
-                          <h3 className="text-sm font-semibold text-foreground">Previous Notes</h3>
-                          {mockNotes.length > 0 ? (
-                            mockNotes.map((note) => (
-                              <div key={note.id} className="p-4 bg-muted/50 rounded-lg border border-border">
-                                <p className="text-sm text-foreground mb-2 whitespace-pre-wrap">{note.content}</p>
-                                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                  <span>{note.author}</span>
-                                  <span>
-                                    {note.date} at {note.time}
-                                  </span>
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="text-center py-4 text-muted-foreground">
-                              <p>No notes yet</p>
-                            </div>
-                          )}
-                        </div>
+                        {isActivitiesLoading ? (
+                          <div className="space-y-4">
+                            {[1, 2].map((i) => (
+                              <Card key={i} className="border border-border">
+                                <CardContent className="p-4 animate-pulse space-y-2">
+                                  <div className="h-4 w-full rounded bg-muted" />
+                                  <div className="h-4 w-3/4 rounded bg-muted" />
+                                  <div className="h-3 w-1/4 rounded bg-muted mt-3" />
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        ) : notes.length > 0 ? (
+                          <div className="space-y-4">
+                            {notes.map((note) => (
+                              <Card key={note.id} className="border border-border">
+                                <CardContent className="p-4">
+                                  <p className="text-sm text-foreground whitespace-pre-wrap">
+                                    {note.description || note.subject}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                                    <span className="text-xs text-muted-foreground">
+                                      {note.contact?.name || 'System'}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {formatDate(note.createdAt)}
+                                    </span>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p>No notes yet</p>
+                            <p className="text-sm mt-1">Add a note above to get started</p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1037,7 +1215,8 @@ export default function AccountDetailPage() {
                 <Button
                   className="w-full justify-start gap-2"
                   variant="outline"
-                  onClick={() => toast.info("Schedule meeting feature coming soon")}
+                  size="sm"
+                  onClick={() => setMeetingDrawerOpen(true)}
                 >
                   <Calendar className="h-4 w-4" />
                   Schedule Meeting
@@ -1134,6 +1313,15 @@ export default function AccountDetailPage() {
         companyId={id}
         companyName={account.accountName}
         existingContactIds={linkedContacts.map((c) => c.id)}
+      />
+
+      {/* Quick Action: Meeting Form Drawer */}
+      <MeetingFormDrawer
+        isOpen={meetingDrawerOpen}
+        onClose={() => setMeetingDrawerOpen(false)}
+        onSubmit={handleCreateMeeting}
+        initialData={{ companyId: id }}
+        mode="add"
       />
     </div>
   );

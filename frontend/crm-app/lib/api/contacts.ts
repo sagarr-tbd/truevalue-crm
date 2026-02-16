@@ -305,6 +305,7 @@ function toContactViewModel(response: ContactListApiResponse): ContactViewModel 
     source: nullToUndefined(response.source),
     created: formatDate(response.created_at),
     initials: getInitials(response.first_name, response.last_name),
+    tags: response.tags,
     dealCount: response.deal_count,
     activityCount: response.activity_count,
     lastActivityAt: nullToUndefined(response.last_activity_at),

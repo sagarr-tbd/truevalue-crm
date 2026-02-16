@@ -6,6 +6,7 @@ import type { Meeting } from "@/lib/types";
 import { useContactOptions } from "@/lib/queries/useContacts";
 import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
+import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useMemberOptions } from "@/lib/queries/useMembers";
 import type { FormDrawerConfig } from "@/components/Forms/FormDrawer/types";
 import { cloneFormConfig, batchUpdateFieldOptions } from "@/lib/utils/formConfig";
@@ -23,6 +24,7 @@ export function MeetingFormDrawer(props: MeetingFormDrawerProps) {
   const { data: contactOptions = [], isLoading: loadingContacts } = useContactOptions();
   const { data: companyOptions = [], isLoading: loadingCompanies } = useCompanyOptions();
   const { data: dealOptions = [], isLoading: loadingDeals } = useDealOptions();
+  const { data: leadOptions = [], isLoading: loadingLeads } = useLeadOptions();
   const { data: memberOptions = [], isLoading: loadingMembers } = useMemberOptions();
 
   const dynamicConfig = useMemo<FormDrawerConfig>(() => {
@@ -38,13 +40,16 @@ export function MeetingFormDrawer(props: MeetingFormDrawerProps) {
       dealId: dealOptions.length > 0
         ? dealOptions
         : [{ value: "", label: loadingDeals ? "Loading..." : "No deals found" }],
+      leadId: leadOptions.length > 0
+        ? leadOptions
+        : [{ value: "", label: loadingLeads ? "Loading..." : "No leads found" }],
       assignedTo: memberOptions.length > 0
         ? memberOptions
         : [{ value: "", label: loadingMembers ? "Loading..." : "No members found" }],
     });
 
     return config;
-  }, [contactOptions, companyOptions, dealOptions, memberOptions, loadingContacts, loadingCompanies, loadingDeals, loadingMembers]);
+  }, [contactOptions, companyOptions, dealOptions, leadOptions, memberOptions, loadingContacts, loadingCompanies, loadingDeals, loadingLeads, loadingMembers]);
 
   return <FormDrawer<Meeting> {...props} config={dynamicConfig} />;
 }

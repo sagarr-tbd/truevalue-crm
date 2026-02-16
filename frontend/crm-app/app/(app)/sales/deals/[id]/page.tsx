@@ -44,6 +44,11 @@ import {
   DealFormData,
 } from "@/lib/queries/useDeals";
 import { useActivities, useCreateActivity } from "@/lib/queries/useActivities";
+import { useCreateMeeting, type MeetingFormData } from "@/lib/queries/useMeetings";
+import { useCreateCall } from "@/lib/queries/useCalls";
+import { MeetingFormDrawer } from "@/components/Forms/Activities/MeetingFormDrawer";
+import { CallFormDrawer } from "@/components/Forms/Activities/CallFormDrawer";
+import type { Meeting, Call } from "@/lib/types";
 import { useContact } from "@/lib/queries/useContacts";
 import { toast } from "sonner";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
@@ -73,6 +78,10 @@ export default function DealDetailPage() {
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Partial<DealType> | null>(null);
 
+  // Quick action drawers
+  const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
+  const [callDrawerOpen, setCallDrawerOpen] = useState(false);
+
   // API hooks
   const { data: deal, isLoading: isDealLoading, isError } = useDeal(id);
   const updateDeal = useUpdateDeal();
@@ -82,20 +91,22 @@ export default function DealDetailPage() {
   const reopenDeal = useReopenDeal();
 
   // Activities for this deal (all types)
+  // Fetch all deal activities — notes derived from this, no extra API call
   const { data: dealActivitiesData, isLoading: activitiesLoading } = useActivities({
     deal_id: id,
     page_size: 50,
   });
 
-  // Notes for this deal (activity_type = note)
-  const { data: dealNotesData, isLoading: notesLoading } = useActivities({
-    deal_id: id,
-    activity_type: 'note',
-    page_size: 50,
-  });
-
   // Create activity mutation (for adding notes)
   const createActivity = useCreateActivity();
+  const createMeeting = useCreateMeeting();
+  const createCall = useCreateCall();
+
+  // Derive notes from already-fetched activities (zero-cost client filter)
+  const dealNotes = useMemo(
+    () => (dealActivitiesData?.data ?? []).filter((a) => a.type === 'note'),
+    [dealActivitiesData]
+  );
 
   // Primary contact for this deal
   const { data: primaryContact, isLoading: contactLoading } = useContact(deal?.contactId || '');
@@ -224,11 +235,49 @@ export default function DealDetailPage() {
         contactId: deal.contactId,
         companyId: deal.companyId,
       });
-      toast.success("Note added");
+      toast.success("Note added successfully");
       setNewNote("");
     } catch (error) {
+      console.error("Failed to add note:", error);
       toast.error("Failed to add note");
     }
+  };
+
+  const handleCreateMeeting = async (data: Partial<Meeting>) => {
+    await createMeeting.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      status: data.status as MeetingFormData["status"],
+      priority: data.priority as MeetingFormData["priority"],
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      dealId: id,
+      contactId: deal?.contactId,
+      companyId: deal?.companyId,
+      assignedTo: data.assignedTo,
+      reminderAt: data.reminderAt,
+    });
+    setMeetingDrawerOpen(false);
+  };
+
+  const handleCreateCall = async (data: Partial<Call>) => {
+    await createCall.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      callDirection: data.callDirection,
+      callOutcome: data.callOutcome,
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      dealId: id,
+      contactId: deal?.contactId,
+      companyId: deal?.companyId,
+      assignedTo: data.assignedTo,
+    });
+    setCallDrawerOpen(false);
   };
 
   // Form handlers
@@ -1020,7 +1069,7 @@ export default function DealDetailPage() {
                         </div>
 
                         {/* Notes List */}
-                        {notesLoading ? (
+                        {activitiesLoading ? (
                           <div className="space-y-4">
                             {[1, 2].map((i) => (
                               <Card key={i} className="border border-border">
@@ -1032,9 +1081,9 @@ export default function DealDetailPage() {
                               </Card>
                             ))}
                           </div>
-                        ) : (dealNotesData?.data?.length || 0) > 0 ? (
+                        ) : dealNotes.length > 0 ? (
                           <div className="space-y-4">
-                            {dealNotesData!.data.map((note) => (
+                            {dealNotes.map((note) => (
                               <Card key={note.id} className="border border-border">
                                 <CardContent className="p-4">
                                   <p className="text-sm text-foreground whitespace-pre-wrap">
@@ -1146,15 +1195,32 @@ export default function DealDetailPage() {
                     Send Email
                   </Button>
                 )}
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCallDrawerOpen(true)}
+                  disabled={!isOpen}
+                >
                   <Phone className="h-4 w-4" />
                   Log Call
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMeetingDrawerOpen(true)}
+                  disabled={!isOpen}
+                >
                   <Calendar className="h-4 w-4" />
                   Schedule Meeting
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm">
+                <Button
+                  className="w-full justify-start gap-2"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setActiveTab("notes")}
+                >
                   <FileText className="h-4 w-4" />
                   Add Note
                 </Button>
@@ -1335,6 +1401,24 @@ export default function DealDetailPage() {
         initialData={editingDeal}
         mode="edit"
         defaultView="detailed"
+      />
+
+      {/* Quick Action: Meeting Form Drawer */}
+      <MeetingFormDrawer
+        isOpen={meetingDrawerOpen}
+        onClose={() => setMeetingDrawerOpen(false)}
+        onSubmit={handleCreateMeeting}
+        initialData={{ dealId: id, contactId: deal?.contactId, companyId: deal?.companyId }}
+        mode="add"
+      />
+
+      {/* Quick Action: Call Form Drawer */}
+      <CallFormDrawer
+        isOpen={callDrawerOpen}
+        onClose={() => setCallDrawerOpen(false)}
+        onSubmit={handleCreateCall}
+        initialData={{ dealId: id, contactId: deal?.contactId, companyId: deal?.companyId }}
+        mode="add"
       />
     </div>
   );

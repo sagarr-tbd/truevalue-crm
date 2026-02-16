@@ -12,26 +12,23 @@ import {
 // ============================================================================
 
 /**
- * Task view model — a filtered view of ActivityViewModel where type='task'
- * Uses the same shape with computed display helpers
+ * Email view model — a filtered view of ActivityViewModel where type='email'
  */
-export interface TaskViewModel extends ActivityViewModel {
-  /** Computed initials from subject (first 2 chars) */
+export interface EmailViewModel extends ActivityViewModel {
   initials: string;
-  /** Computed related entity name for display */
   relatedTo?: string;
-  /** Computed related entity type (contact/company/deal/lead) */
   relatedToType?: string;
 }
 
 /**
- * Task form data — wraps ActivityFormData, auto-sets activityType='task'
+ * Email form data — wraps ActivityFormData, auto-sets activityType='email'
  */
-export interface TaskFormData {
+export interface EmailFormData {
   subject: string;
   description?: string;
   status?: ActivityStatus;
   priority?: ActivityPriority;
+  emailDirection?: string;
   dueDate?: string;
   contactId?: string;
   companyId?: string;
@@ -59,16 +56,15 @@ export interface FilterGroup {
 }
 
 /**
- * Query params for the tasks list endpoint
+ * Query params for the emails list endpoint
  */
-export interface TaskQueryParams {
+export interface EmailQueryParams {
   page?: number;
   page_size?: number;
   status?: ActivityStatus;
   priority?: string;
   search?: string;
   order_by?: string;
-  overdue?: boolean;
   filters?: FilterGroup;
 }
 
@@ -76,9 +72,8 @@ export interface TaskQueryParams {
 // HELPERS
 // ============================================================================
 
-/** Map ActivityViewModel → TaskViewModel with computed display fields */
-function toTaskViewModel(activity: ActivityViewModel): TaskViewModel {
-  // Determine related entity for display
+/** Map ActivityViewModel → EmailViewModel with computed display fields */
+function toEmailViewModel(activity: ActivityViewModel): EmailViewModel {
   let relatedTo: string | undefined;
   let relatedToType: string | undefined;
 
@@ -96,11 +91,10 @@ function toTaskViewModel(activity: ActivityViewModel): TaskViewModel {
     relatedToType = 'Lead';
   }
 
-  // Compute initials from subject
   const words = (activity.subject || '').split(' ').filter(Boolean);
   const initials = words.length >= 2
     ? (words[0][0] + words[1][0]).toUpperCase()
-    : (activity.subject || 'T').substring(0, 2).toUpperCase();
+    : (activity.subject || 'E').substring(0, 2).toUpperCase();
 
   return {
     ...activity,
@@ -110,14 +104,15 @@ function toTaskViewModel(activity: ActivityViewModel): TaskViewModel {
   };
 }
 
-/** Convert TaskFormData → ActivityFormData (adds activityType='task') */
-function toActivityFormData(data: TaskFormData): ActivityFormData {
+/** Convert EmailFormData → ActivityFormData (adds activityType='email') */
+function toActivityFormData(data: EmailFormData): ActivityFormData {
   return {
-    activityType: 'task',
+    activityType: 'email',
     subject: data.subject,
     description: data.description,
     status: data.status,
     priority: data.priority,
+    emailDirection: data.emailDirection,
     dueDate: data.dueDate,
     contactId: data.contactId,
     companyId: data.companyId,
@@ -132,21 +127,20 @@ function toActivityFormData(data: TaskFormData): ActivityFormData {
 // API
 // ============================================================================
 
-export const tasksApi = {
+export const emailsApi = {
   /**
-   * Get tasks (activities with type='task') with server-side pagination
+   * Get emails (activities with type='email') with server-side pagination
    */
-  getAll: async (params?: TaskQueryParams): Promise<{
-    data: TaskViewModel[];
+  getAll: async (params?: EmailQueryParams): Promise<{
+    data: EmailViewModel[];
     meta: { total: number; page: number; page_size: number; stats?: ActivityStats };
   }> => {
-    // Serialize advanced filters to JSON string (matching leads pattern)
     const filtersJson = params?.filters && params.filters.conditions.length > 0
       ? JSON.stringify(params.filters)
       : undefined;
 
     const result = await activitiesApi.getAll({
-      activity_type: 'task',
+      activity_type: 'email',
       page: params?.page,
       page_size: params?.page_size,
       status: params?.status as ActivityStatus | undefined,
@@ -155,55 +149,55 @@ export const tasksApi = {
     });
 
     return {
-      data: result.data.map(toTaskViewModel),
+      data: result.data.map(toEmailViewModel),
       meta: result.meta,
     };
   },
 
   /**
-   * Get single task by ID
+   * Get single email by ID
    */
-  getById: async (id: string): Promise<TaskViewModel> => {
+  getById: async (id: string): Promise<EmailViewModel> => {
     const activity = await activitiesApi.getById(id);
-    return toTaskViewModel(activity);
+    return toEmailViewModel(activity);
   },
 
   /**
-   * Create a new task
+   * Create a new email log
    */
-  create: async (data: TaskFormData): Promise<TaskViewModel> => {
+  create: async (data: EmailFormData): Promise<EmailViewModel> => {
     const activity = await activitiesApi.create(toActivityFormData(data));
-    return toTaskViewModel(activity);
+    return toEmailViewModel(activity);
   },
 
   /**
-   * Update a task
+   * Update an email log
    */
-  update: async (id: string, data: Partial<TaskFormData>): Promise<TaskViewModel> => {
+  update: async (id: string, data: Partial<EmailFormData>): Promise<EmailViewModel> => {
     const activity = await activitiesApi.update(id, {
       ...data,
-      activityType: 'task',
+      activityType: 'email',
     });
-    return toTaskViewModel(activity);
+    return toEmailViewModel(activity);
   },
 
   /**
-   * Delete a task
+   * Delete an email log
    */
   delete: async (id: string): Promise<void> => {
     await activitiesApi.delete(id);
   },
 
   /**
-   * Mark task as completed
+   * Mark email as completed
    */
-  complete: async (id: string): Promise<TaskViewModel> => {
+  complete: async (id: string): Promise<EmailViewModel> => {
     const activity = await activitiesApi.complete(id);
-    return toTaskViewModel(activity);
+    return toEmailViewModel(activity);
   },
 
   /**
-   * Bulk delete tasks (sequential, no bulk endpoint on backend)
+   * Bulk delete emails
    */
   bulkDelete: async (ids: string[]): Promise<{ success: number; failed: number }> => {
     let success = 0;
@@ -224,11 +218,11 @@ export const tasksApi = {
   },
 
   /**
-   * Bulk update tasks (sequential, no bulk endpoint on backend)
+   * Bulk update emails
    */
   bulkUpdate: async (
     ids: string[],
-    data: Partial<TaskFormData>
+    data: Partial<EmailFormData>
   ): Promise<{ success: number; failed: number }> => {
     let success = 0;
     let failed = 0;
@@ -238,7 +232,7 @@ export const tasksApi = {
         try {
           await activitiesApi.update(id, {
             ...data,
-            activityType: 'task',
+            activityType: 'email',
           });
           success++;
         } catch {

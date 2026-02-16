@@ -1,8 +1,8 @@
 "use client";
 import { useMemo } from "react";
 import { FormDrawer } from "@/components/Forms/FormDrawer";
-import { callFormConfig } from "@/components/Forms/configs";
-import type { Call } from "@/lib/types";
+import { emailFormConfig } from "@/components/Forms/configs";
+import type { Email } from "@/lib/types";
 import { useContactOptions } from "@/lib/queries/useContacts";
 import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
@@ -11,16 +11,16 @@ import { useMemberOptions } from "@/lib/queries/useMembers";
 import type { FormDrawerConfig } from "@/components/Forms/FormDrawer/types";
 import { cloneFormConfig, batchUpdateFieldOptions } from "@/lib/utils/formConfig";
 
-export interface CallFormDrawerProps {
+export interface EmailFormDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: Partial<Call>) => Promise<void>;
-  initialData?: Partial<Call> | null;
+  onSubmit: (data: Partial<Email>) => Promise<void>;
+  initialData?: Partial<Email> | null;
   mode?: "add" | "edit";
   defaultView?: "quick" | "detailed";
 }
 
-export function CallFormDrawer(props: CallFormDrawerProps) {
+export function EmailFormDrawer(props: EmailFormDrawerProps) {
   // Fetch dynamic options
   const { data: contactOptions = [], isLoading: loadingContacts } = useContactOptions();
   const { data: companyOptions = [], isLoading: loadingCompanies } = useCompanyOptions();
@@ -30,7 +30,7 @@ export function CallFormDrawer(props: CallFormDrawerProps) {
 
   // Build dynamic config with fetched options
   const dynamicConfig = useMemo<FormDrawerConfig>(() => {
-    const config = cloneFormConfig(callFormConfig);
+    const config = cloneFormConfig(emailFormConfig);
 
     batchUpdateFieldOptions(config, {
       contactId: contactOptions.length > 0
@@ -53,5 +53,5 @@ export function CallFormDrawer(props: CallFormDrawerProps) {
     return config;
   }, [contactOptions, companyOptions, dealOptions, leadOptions, memberOptions, loadingContacts, loadingCompanies, loadingDeals, loadingLeads, loadingMembers]);
 
-  return <FormDrawer<Call> {...props} config={dynamicConfig} />;
+  return <FormDrawer<Email> {...props} config={dynamicConfig} />;
 }

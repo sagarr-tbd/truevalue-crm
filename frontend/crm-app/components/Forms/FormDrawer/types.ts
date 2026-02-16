@@ -53,6 +53,11 @@ export interface QuickFormSection {
   fields: string[]; // field names
 }
 
+export interface ComputedFieldConfig {
+  dependsOn: string[];
+  compute: (values: Record<string, any>) => any;
+}
+
 export interface FormDrawerConfig<T = any> {
   entity: string;
   entityIcon: ReactNode;
@@ -61,6 +66,7 @@ export interface FormDrawerConfig<T = any> {
   quickFormFields?: string[]; // Legacy - for backward compatibility
   quickFormSections?: QuickFormSection[]; // New - sections with headers
   detailedSections: FormSection[];
+  computedFields?: Record<string, ComputedFieldConfig>;
 }
 
 export interface FormDrawerProps<T = any> {

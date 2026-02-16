@@ -4,21 +4,21 @@ import { z } from "zod";
 // Lead validation schema - aligned with backend API
 export const leadSchema = z.object({
   // Personal Information (required)
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().min(1, "Email is required").email("Invalid email format"),
+  firstName: z.string().min(1, "First name is required").max(100, "Max 100 characters"),
+  lastName: z.string().min(1, "Last name is required").max(100, "Max 100 characters"),
+  email: z.string().min(1, "Email is required").email("Invalid email format").max(254, "Max 254 characters"),
   
   // Contact Information (optional)
   phone: z.preprocess(
     (val) => (val === null || val === "" ? undefined : val),
-    z.string().optional().refine((val) => {
+    z.string().max(50, "Max 50 characters").optional().refine((val) => {
       if (!val) return true;
       return /^[\d\s\-\+\(\)]+$/.test(val);
     }, "Invalid phone format")
   ),
   mobile: z.preprocess(
     (val) => (val === null || val === "" ? undefined : val),
-    z.string().optional().refine((val) => {
+    z.string().max(50, "Max 50 characters").optional().refine((val) => {
       if (!val) return true;
       return /^[\d\s\-\+\(\)]+$/.test(val);
     }, "Invalid phone format")
@@ -27,15 +27,15 @@ export const leadSchema = z.object({
   // Company Information
   companyName: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(255, "Max 255 characters").optional()
   ),
   title: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(100, "Max 100 characters").optional()
   ),
   website: z.preprocess(
     (val) => (val === null || val === "" ? undefined : val),
-    z.string().optional().refine((val) => {
+    z.string().max(500, "Max 500 characters").optional().refine((val) => {
       if (!val) return true;
       try {
         new URL(val.startsWith('http') ? val : `https://${val}`);
@@ -56,14 +56,14 @@ export const leadSchema = z.object({
   ),
   source: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().min(1, "Source is required")
+    z.string().min(1, "Source is required").max(50, "Max 50 characters")
   ),
   sourceDetail: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(255, "Max 255 characters").optional()
   ),
   
-  // Lead Score (0-100, replaces rating)
+  // Lead Score (0-100)
   score: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
@@ -82,23 +82,23 @@ export const leadSchema = z.object({
   // Address
   addressLine1: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(255, "Max 255 characters").optional()
   ),
   city: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(100, "Max 100 characters").optional()
   ),
   state: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(100, "Max 100 characters").optional()
   ),
   postalCode: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(20, "Max 20 characters").optional()
   ),
   country: z.preprocess(
     (val) => (val === null ? undefined : val),
-    z.string().optional()
+    z.string().max(100, "Max 100 characters").optional()
   ),
   
   // Description/Notes
@@ -127,22 +127,23 @@ export const leadSchema = z.object({
 // Account validation schema
 export const accountSchema = z.object({
   // Basic info
-  accountName: z.string().min(1, "Account name is required"),
+  accountName: z.string().min(1, "Account name is required").max(255, "Max 255 characters"),
   website: z
     .string()
+    .max(500, "Max 500 characters")
     .optional()
     .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
       message: "Invalid URL format",
     }),
-  phone: z.string().optional().refine((val) => {
+  phone: z.string().max(50, "Max 50 characters").optional().refine((val) => {
     if (!val) return true;
     return /^[\d\s\-\+\(\)]+$/.test(val);
   }, "Invalid phone format"),
-  email: z.string().optional().refine((val) => {
+  email: z.string().max(254, "Max 254 characters").optional().refine((val) => {
     if (!val) return true;
     return z.string().email().safeParse(val).success;
   }, "Invalid email format"),
-  industry: z.string().optional(),
+  industry: z.string().max(100, "Max 100 characters").optional(),
   type: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
     z.enum(["1", "2-10", "11-50", "51-200", "201-500", "501-1000", "1000+"]).optional()
@@ -173,32 +174,35 @@ export const accountSchema = z.object({
       }
       return undefined;
     },
-    z.number().positive("Must be a positive number").optional()
+    z.number().min(0, "Must be zero or positive").optional()
   ),
-  // Address fields (matching backend API snake_case names)
-  addressLine1: z.string().optional(),
-  addressLine2: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  postalCode: z.string().optional(),
-  country: z.string().optional(),
+  // Address fields
+  addressLine1: z.string().max(255, "Max 255 characters").optional(),
+  addressLine2: z.string().max(255, "Max 255 characters").optional(),
+  city: z.string().max(100, "Max 100 characters").optional(),
+  state: z.string().max(100, "Max 100 characters").optional(),
+  postalCode: z.string().max(20, "Max 20 characters").optional(),
+  country: z.string().max(100, "Max 100 characters").optional(),
   // Business info
   description: z.string().optional(),
   // Social URLs
   linkedinUrl: z
     .string()
+    .max(500, "Max 500 characters")
     .optional()
     .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
       message: "Invalid URL format",
     }),
   twitterUrl: z
     .string()
+    .max(500, "Max 500 characters")
     .optional()
     .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
       message: "Invalid URL format",
     }),
   facebookUrl: z
     .string()
+    .max(500, "Max 500 characters")
     .optional()
     .refine((val) => !val || val === "" || z.string().url().safeParse(val).success, {
       message: "Invalid URL format",
@@ -223,7 +227,7 @@ const optionalBoolean = z.preprocess(
 // Helper: Optional email with null handling
 const optionalEmail = z.preprocess(
   (val) => (val === null || val === "" ? undefined : val),
-  z.string().optional().refine((val) => {
+  z.string().max(254, "Max 254 characters").optional().refine((val) => {
     if (!val) return true;
     return z.string().email().safeParse(val).success;
   }, "Invalid email format")
@@ -232,7 +236,7 @@ const optionalEmail = z.preprocess(
 // Helper: Optional phone with null handling
 const optionalPhone = z.preprocess(
   (val) => (val === null || val === "" ? undefined : val),
-  z.string().optional().refine((val) => {
+  z.string().max(50, "Max 50 characters").optional().refine((val) => {
     if (!val) return true;
     return /^[\d\s\-\+\(\)]+$/.test(val);
   }, "Invalid phone format")
@@ -241,7 +245,7 @@ const optionalPhone = z.preprocess(
 // Helper: Optional URL with null handling
 const optionalUrl = z.preprocess(
   (val) => (val === null || val === "" ? undefined : val),
-  z.string().optional().refine((val) => {
+  z.string().max(500, "Max 500 characters").optional().refine((val) => {
     if (!val) return true;
     try {
       new URL(val);
@@ -255,38 +259,74 @@ const optionalUrl = z.preprocess(
 
 export const contactSchema = z.object({
   // Personal Information
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
+  firstName: z.string().min(1, "First name is required").max(100, "Max 100 characters"),
+  lastName: z.string().min(1, "Last name is required").max(100, "Max 100 characters"),
   
   // Contact Information
-  email: z.string().min(1, "Email is required").email("Invalid email format"),
+  email: z.string().min(1, "Email is required").email("Invalid email format").max(254, "Max 254 characters"),
   secondaryEmail: optionalEmail,
   phone: optionalPhone,
   mobile: optionalPhone,
   
   // Organization
   primaryCompanyId: optionalString,
-  title: optionalString,
-  department: optionalString,
+  title: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(100, "Max 100 characters").optional()
+  ),
+  department: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(100, "Max 100 characters").optional()
+  ),
   ownerId: optionalString,
   
   // Address
-  addressLine1: optionalString,
-  addressLine2: optionalString,
-  city: optionalString,
-  state: optionalString,
-  postalCode: optionalString,
-  country: optionalString,
+  addressLine1: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(255, "Max 255 characters").optional()
+  ),
+  addressLine2: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(255, "Max 255 characters").optional()
+  ),
+  city: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(100, "Max 100 characters").optional()
+  ),
+  state: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(100, "Max 100 characters").optional()
+  ),
+  postalCode: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(20, "Max 20 characters").optional()
+  ),
+  country: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(100, "Max 100 characters").optional()
+  ),
   
   // Social
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
-  avatarUrl: optionalString,
+  avatarUrl: z.preprocess(
+    (val) => (val === null || val === "" ? undefined : val),
+    z.string().max(500, "Max 500 characters").optional()
+  ),
   
   // Status & Source
-  status: optionalString,
-  source: optionalString,
-  sourceDetail: optionalString,
+  status: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["active", "inactive", "bounced", "unsubscribed", "archived"]).optional()
+  ),
+  source: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(50, "Max 50 characters").optional()
+  ),
+  sourceDetail: z.preprocess(
+    (val) => (val === null ? undefined : val),
+    z.string().max(255, "Max 255 characters").optional()
+  ),
   
   // Preferences
   doNotCall: optionalBoolean,
@@ -303,13 +343,13 @@ export const contactSchema = z.object({
 // Deal validation schema
 export const dealSchema = z.object({
   // Required fields
-  name: z.string().min(1, "Deal name is required"),
+  name: z.string().min(1, "Deal name is required").max(255, "Max 255 characters"),
   
   // Pipeline and Stage (stage_id is required)
   pipelineId: z.string().optional(), // Uses default pipeline if not provided
   stageId: z.string().min(1, "Stage is required"),
   
-  // Deal value
+  // Deal value — backend allows 0 (free trials, partnerships)
   value: z.preprocess(
     (val) => {
       if (!val || val === "" || val === null || val === undefined) return undefined;
@@ -322,11 +362,11 @@ export const dealSchema = z.object({
       }
       return undefined;
     },
-    z.number().positive("Deal value must be a positive number").optional()
+    z.number().min(0, "Deal value must be zero or positive").optional()
   ),
   
   // Currency
-  currency: z.string().optional(),
+  currency: z.string().max(3, "Max 3 characters").optional(),
   
   // Win probability (0-100)
   probability: z.preprocess(
@@ -356,8 +396,9 @@ export const dealSchema = z.object({
   companyId: z.string().uuid("Invalid company ID").optional().or(z.literal('')),
   ownerId: z.string().uuid("Invalid owner ID").optional().or(z.literal('')),
   
-  // Additional info
+  // Additional info — backend is unlimited TextField, keep a reasonable client limit
   description: z.string().max(5000, "Description too long").optional(),
+  lossReason: z.string().max(100, "Max 100 characters").optional(),
   
   // Tags - validate UUIDs
   tagIds: z.array(z.string().uuid("Invalid tag ID")).optional(),
@@ -516,8 +557,21 @@ export const documentSchema = z.object({
 });
 
 // Task validation schema
+const requireAtLeastOneEntity = (data: { contactId?: string; companyId?: string; dealId?: string; leadId?: string }, ctx: z.RefinementCtx) => {
+  const hasEntity = [data.contactId, data.companyId, data.dealId, data.leadId].some(
+    (v) => v && v.trim() !== ""
+  );
+  if (!hasEntity) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "At least one entity (Contact, Company, Deal, or Lead) must be linked",
+      path: ["contactId"],
+    });
+  }
+};
+
 export const taskSchema = z.object({
-  subject: z.string().min(1, "Task title is required"),
+  subject: z.string().min(1, "Task title is required").max(255, "Max 255 characters"),
   description: z.string().optional(),
   priority: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
@@ -534,30 +588,30 @@ export const taskSchema = z.object({
     })
   ),
   dueDate: z.string().optional(),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  durationMinutes: z.preprocess(
-    (val) => {
-      if (!val || val === "" || val === null || val === undefined) return undefined;
-      if (typeof val === "string") {
-        const num = parseInt(val);
-        return isNaN(num) ? undefined : num;
-      }
-      return typeof val === "number" ? val : undefined;
-    },
-    z.number().min(0).optional()
-  ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
   dealId: z.string().optional(),
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the due date",
+        path: ["reminderAt"],
+      });
+    }
+  }
 });
 
 // Call validation schema
 export const callSchema = z.object({
-  subject: z.string().min(1, "Subject is required"),
+  subject: z.string().min(1, "Subject is required").max(255, "Max 255 characters"),
   description: z.string().optional(),
   callDirection: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
@@ -590,7 +644,7 @@ export const callSchema = z.object({
       }
       return typeof val === "number" ? val : undefined;
     },
-    z.number().min(0).optional()
+    z.number().min(0).max(1440, "Duration cannot exceed 24 hours").optional()
   ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
@@ -598,11 +652,35 @@ export const callSchema = z.object({
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.startTime && data.endTime) {
+    const start = new Date(data.startTime);
+    const end = new Date(data.endTime);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "End time must be after start time",
+        path: ["endTime"],
+      });
+    }
+  }
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the call date",
+        path: ["reminderAt"],
+      });
+    }
+  }
 });
 
 // Meeting validation schema
 export const meetingSchema = z.object({
-  subject: z.string().min(1, "Meeting title is required"),
+  subject: z.string().min(1, "Meeting title is required").max(255, "Max 255 characters"),
   description: z.string().optional(),
   status: z.preprocess(
     (val) => (val === "" || val === null || val === undefined ? undefined : val),
@@ -624,7 +702,7 @@ export const meetingSchema = z.object({
       }
       return typeof val === "number" ? val : undefined;
     },
-    z.number().min(0).optional()
+    z.number().min(0).max(1440, "Duration cannot exceed 24 hours").optional()
   ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
@@ -632,6 +710,78 @@ export const meetingSchema = z.object({
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.startTime && data.endTime) {
+    const start = new Date(data.startTime);
+    const end = new Date(data.endTime);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "End time must be after start time",
+        path: ["endTime"],
+      });
+    }
+  }
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the meeting date",
+        path: ["reminderAt"],
+      });
+    }
+  }
+});
+
+// Note validation schema
+export const noteSchema = z.object({
+  subject: z.string().min(1, "Note title is required").max(255, "Max 255 characters"),
+  description: z.string().optional(),
+  status: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
+  ),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"]).optional()
+  ),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedTo: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+});
+
+// Email validation schema
+export const emailSchema = z.object({
+  subject: z.string().min(1, "Subject is required").max(255, "Max 255 characters"),
+  description: z.string().optional(),
+  emailDirection: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["sent", "received"]).optional()
+  ),
+  status: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
+  ),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"]).optional()
+  ),
+  dueDate: z.string().optional(),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedTo: z.string().optional(),
+  reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
 });
 
 // Product validation schema

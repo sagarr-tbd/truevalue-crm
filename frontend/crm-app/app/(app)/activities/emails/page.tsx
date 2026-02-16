@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  CheckSquare,
+  Mail,
   Plus,
   Filter,
   Eye,
@@ -19,6 +19,8 @@ import {
   Check,
   AlertCircle,
   Calendar,
+  Send,
+  Inbox,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +30,7 @@ import DataTable from "@/components/DataTable";
 import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
-import { TaskFormDrawer } from "@/components/Forms/Activities";
+import { EmailFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
@@ -38,27 +40,27 @@ import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedF
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
-import { 
-  useTasks, 
-  useCreateTask,
-  useUpdateTask,
-  useDeleteTask,
-  useCompleteTask,
-  useBulkDeleteTasks, 
-  useBulkUpdateTasks,
-  type TaskQueryParams,
-  type TaskViewModel,
-  type TaskFormData,
-} from "@/lib/queries/useTasks";
-import { tasksApi } from "@/lib/api/tasks";
+import {
+  useEmails,
+  useCreateEmail,
+  useUpdateEmail,
+  useDeleteEmail,
+  useCompleteEmail,
+  useBulkDeleteEmails,
+  useBulkUpdateEmails,
+  type EmailQueryParams,
+  type EmailViewModel,
+  type EmailFormData,
+} from "@/lib/queries/useEmails";
+import { emailsApi } from "@/lib/api/emails";
 import { useContactOptions } from "@/lib/queries/useContacts";
 import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
-import type { Task } from "@/lib/types";
+import type { Email } from "@/lib/types";
 
-// Lazy load heavy components that are only used conditionally
+// Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
   () => import("@/components/DeleteConfirmationModal"),
   { ssr: false }
@@ -78,13 +80,6 @@ const BulkUpdateModal = dynamic(
 // DISPLAY HELPERS
 // ============================================================================
 
-const PRIORITY_DISPLAY: Record<string, string> = {
-  urgent: "Urgent",
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
-
 const STATUS_DISPLAY: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
@@ -92,14 +87,9 @@ const STATUS_DISPLAY: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-const getPriorityColor = (priority: string) => {
-  const colors: Record<string, string> = {
-    urgent: "bg-destructive/10 text-destructive",
-    high: "bg-orange-50 text-orange-600",
-    normal: "bg-accent/10 text-accent",
-    low: "bg-muted text-muted-foreground",
-  };
-  return colors[priority] || "bg-muted text-muted-foreground";
+const DIRECTION_DISPLAY: Record<string, string> = {
+  sent: "Sent",
+  received: "Received",
 };
 
 const getStatusColor = (status: string) => {
@@ -110,6 +100,10 @@ const getStatusColor = (status: string) => {
     cancelled: "bg-destructive/10 text-destructive",
   };
   return colors[status] || "bg-muted text-muted-foreground";
+};
+
+const getDirectionIcon = (direction?: string) => {
+  return direction === "received" ? Inbox : Send;
 };
 
 function formatDate(isoDate?: string): string {
@@ -125,7 +119,6 @@ function formatDate(isoDate?: string): string {
   }
 }
 
-/** Convert ISO string → YYYY-MM-DD for <input type="date"> */
 function toDateInputValue(iso?: string): string {
   if (!iso) return "";
   try {
@@ -135,7 +128,6 @@ function toDateInputValue(iso?: string): string {
   }
 }
 
-/** Convert ISO string → YYYY-MM-DDTHH:MM for <input type="datetime-local"> */
 function toDateTimeLocalValue(iso?: string): string {
   if (!iso) return "";
   try {
@@ -151,39 +143,38 @@ function toDateTimeLocalValue(iso?: string): string {
 // PAGE COMPONENT
 // ============================================================================
 
-export default function TasksPage() {
+export default function EmailsPage() {
   const router = useRouter();
-  
+
   // Zustand (UI state)
-  const { 
-    viewMode, 
-    showStats, 
-    setViewMode, 
+  const {
+    viewMode,
+    showStats,
+    setViewMode,
     toggleStats,
     filters,
     setModuleFilters,
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
-  
-  // Initialize filters from store
-  const tasksFilters = filters.tasks || {};
-  
+
+  const emailsFilters = filters.emails || {};
+
   // State management
-  const [searchQuery, setSearchQuery] = useState(tasksFilters.search || "");
-  const [statusFilter, setStatusFilter] = useState<string | null>(tasksFilters.status || null);
+  const [searchQuery, setSearchQuery] = useState(emailsFilters.search || "");
+  const [statusFilter, setStatusFilter] = useState<string | null>(emailsFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  
+
   // Debounce search query for API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
+
   // Advanced Filter state
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
-  const { presets, addPreset, deletePreset } = useFilterPresets("tasks");
+  const { presets, addPreset, deletePreset } = useFilterPresets("emails");
 
   // Entity options for advanced filters
   const { data: contactOptions = [] } = useContactOptions();
@@ -191,16 +182,15 @@ export default function TasksPage() {
   const { data: dealOptions = [] } = useDealOptions();
   const { data: leadOptions = [] } = useLeadOptions();
 
-  // Build query params for server-side pagination (including advanced filters)
-  const queryParams: TaskQueryParams = useMemo(() => {
-    const params: TaskQueryParams = {
+  // Build query params for server-side pagination
+  const queryParams: EmailQueryParams = useMemo(() => {
+    const params: EmailQueryParams = {
       page: currentPage,
       page_size: itemsPerPage,
       search: debouncedSearchQuery || undefined,
-      status: statusFilter as TaskQueryParams['status'] || undefined,
+      status: statusFilter as EmailQueryParams['status'] || undefined,
     };
-    
-    // Add advanced filters if present
+
     if (filterGroup && filterGroup.conditions.length > 0) {
       params.filters = {
         logic: (filterGroup.logic?.toLowerCase() || 'and') as 'and' | 'or',
@@ -211,29 +201,29 @@ export default function TasksPage() {
         })),
       };
     }
-    
+
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
   // React Query (server data) - with pagination
-  const { data: tasksResponse, isLoading } = useTasks(queryParams);
-  const tasks = useMemo(() => tasksResponse?.data ?? [], [tasksResponse?.data]);
-  const totalItems = tasksResponse?.meta?.total ?? 0;
+  const { data: emailsResponse, isLoading } = useEmails(queryParams);
+  const emails = useMemo(() => emailsResponse?.data ?? [], [emailsResponse?.data]);
+  const totalItems = emailsResponse?.meta?.total ?? 0;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
-  
-  // Stats from API response (includes all tasks, not just current page)
-  const apiStats = tasksResponse?.meta?.stats;
 
-  const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
-  const completeTask = useCompleteTask();
-  const bulkDelete = useBulkDeleteTasks();
-  const bulkUpdate = useBulkUpdateTasks();
-  
-  // Save filters to store when they change
+  // Stats from API response
+  const apiStats = emailsResponse?.meta?.stats;
+
+  const createEmail = useCreateEmail();
+  const updateEmail = useUpdateEmail();
+  const deleteEmail = useDeleteEmail();
+  const completeEmail = useCompleteEmail();
+  const bulkDelete = useBulkDeleteEmails();
+  const bulkUpdate = useBulkUpdateEmails();
+
+  // Save filters to store
   useEffect(() => {
-    setModuleFilters('tasks', {
+    setModuleFilters('emails', {
       search: searchQuery,
       status: statusFilter,
     });
@@ -246,12 +236,12 @@ export default function TasksPage() {
 
   // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [taskToDelete, setTaskToDelete] = useState<TaskViewModel | null>(null);
+  const [emailToDelete, setEmailToDelete] = useState<EmailViewModel | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Partial<Task> | null>(null);
+  const [editingEmail, setEditingEmail] = useState<Partial<Email> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
@@ -260,23 +250,22 @@ export default function TasksPage() {
   const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
-  // Filter dropdown ref for click outside
+  // Filter dropdown ref
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Export columns configuration
-  const exportColumns: ExportColumn<TaskViewModel>[] = useMemo(() => [
+  // Export columns
+  const exportColumns: ExportColumn<EmailViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Title' },
+    { key: 'subject', label: 'Subject' },
     { key: 'description', label: 'Description' },
-    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'emailDirection', label: 'Direction', format: (v) => v ? DIRECTION_DISPLAY[String(v)] || String(v) : '' },
     { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Due Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'assignedTo', label: 'Assigned To' },
+    { key: 'dueDate', label: 'Date', format: (v) => v ? formatDate(String(v)) : '' },
     { key: 'relatedTo', label: 'Related To' },
     { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
   ], []);
 
-  // Advanced filter fields configuration
+  // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
     {
       key: 'status',
@@ -291,9 +280,18 @@ export default function TasksPage() {
     },
     {
       key: 'subject',
-      label: 'Title',
+      label: 'Subject',
       type: 'text',
-      placeholder: 'Enter task title...',
+      placeholder: 'Enter email subject...',
+    },
+    {
+      key: 'email_direction',
+      label: 'Direction',
+      type: 'select',
+      options: [
+        { label: 'Sent', value: 'sent' },
+        { label: 'Received', value: 'received' },
+      ],
     },
     {
       key: 'priority',
@@ -351,16 +349,16 @@ export default function TasksPage() {
     };
   }, [showFilterDropdown]);
 
-  // Page-specific keyboard shortcuts
+  // Keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: [
       {
         key: "n",
         meta: true,
         ctrl: true,
-        description: "New task",
+        description: "New email",
         action: () => {
-          setEditingTask(null);
+          setEditingEmail(null);
           setFormMode("add");
           setDefaultView("quick");
           setFormDrawerOpen(true);
@@ -369,10 +367,10 @@ export default function TasksPage() {
     ],
   });
 
-  // Filter options for quick dropdown (using API stats for counts)
+  // Filter options for quick dropdown
   const filterOptions = useMemo(() => [
     {
-      label: "All Tasks",
+      label: "All Emails",
       value: null,
       count: apiStats?.total ?? totalItems,
     },
@@ -398,18 +396,18 @@ export default function TasksPage() {
     },
   ], [apiStats, totalItems]);
 
-  // Stats calculations using API stats (includes all tasks, not just current page)
+  // Stats cards
   const stats = useMemo(() => {
-    const totalTasks = apiStats?.total ?? totalItems;
+    const totalEmails = apiStats?.total ?? totalItems;
     const inProgress = apiStats?.byStatus?.['in_progress'] ?? 0;
     const completed = apiStats?.byStatus?.['completed'] ?? 0;
     const overdue = apiStats?.overdue ?? 0;
 
     return [
       {
-        label: "Total Tasks",
-        value: totalTasks,
-        icon: CheckSquare,
+        label: "Total Emails",
+        value: totalEmails,
+        icon: Mail,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
       },
@@ -439,39 +437,39 @@ export default function TasksPage() {
 
   // Handlers
   const handleSelectAll = () => {
-    if (selectedTasks.length === tasks.length) {
-      setSelectedTasks([]);
+    if (selectedEmails.length === emails.length) {
+      setSelectedEmails([]);
     } else {
-      setSelectedTasks(tasks.map((t) => t.id));
+      setSelectedEmails(emails.map((e) => e.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
     const strId = String(id);
-    if (selectedTasks.includes(strId)) {
-      setSelectedTasks(selectedTasks.filter((tId) => tId !== strId));
+    if (selectedEmails.includes(strId)) {
+      setSelectedEmails(selectedEmails.filter((eId) => eId !== strId));
     } else {
-      setSelectedTasks([...selectedTasks, strId]);
+      setSelectedEmails([...selectedEmails, strId]);
     }
   };
 
   // Delete handlers
-  const handleDeleteClick = (task: TaskViewModel) => {
-    setTaskToDelete(task);
+  const handleDeleteClick = (email: EmailViewModel) => {
+    setEmailToDelete(email);
     setIsDeleteModalOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!taskToDelete?.id) return;
-    
+    if (!emailToDelete?.id) return;
+
     setIsDeleting(true);
-    
+
     try {
-      await deleteTask.mutateAsync(taskToDelete.id);
+      await deleteEmail.mutateAsync(emailToDelete.id);
       setIsDeleteModalOpen(false);
-      setTaskToDelete(null);
+      setEmailToDelete(null);
     } catch (error) {
-      console.error("Error deleting task:", error);
+      console.error("Error deleting email:", error);
     } finally {
       setIsDeleting(false);
     }
@@ -479,23 +477,23 @@ export default function TasksPage() {
 
   const handleDeleteCancel = () => {
     setIsDeleteModalOpen(false);
-    setTaskToDelete(null);
+    setEmailToDelete(null);
   };
 
   // Bulk operation handlers
-  const handleSelectAllTasks = () => {
-    setSelectedTasks(tasks.map(t => t.id));
+  const handleSelectAllEmails = () => {
+    setSelectedEmails(emails.map(e => e.id));
   };
 
   const handleDeselectAll = () => {
-    setSelectedTasks([]);
+    setSelectedEmails([]);
   };
 
   const handleBulkDelete = async () => {
     setIsBulkProcessing(true);
     try {
-      await bulkDelete.mutateAsync(selectedTasks);
-      setSelectedTasks([]);
+      await bulkDelete.mutateAsync(selectedEmails);
+      setSelectedEmails([]);
       setShowBulkDelete(false);
     } catch (error) {
       console.error("Bulk delete error:", error);
@@ -507,11 +505,11 @@ export default function TasksPage() {
   const handleBulkUpdateStatus = async (status: string) => {
     setIsBulkProcessing(true);
     try {
-      await bulkUpdate.mutateAsync({ 
-        ids: selectedTasks, 
-        data: { status: status as TaskFormData['status'] } 
+      await bulkUpdate.mutateAsync({
+        ids: selectedEmails,
+        data: { status: status as EmailFormData['status'] }
       });
-      setSelectedTasks([]);
+      setSelectedEmails([]);
       setShowBulkUpdateStatus(false);
     } catch (error) {
       console.error("Bulk update error:", error);
@@ -521,42 +519,39 @@ export default function TasksPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = tasks.filter(task => selectedTasks.includes(task.id));
-    
+    const selectedData = emails.filter(email => selectedEmails.includes(email.id));
+
     if (selectedData.length === 0) {
-      toast.error("No tasks selected for export");
+      toast.error("No emails selected for export");
       return;
     }
 
     try {
       exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-tasks-${new Date().toISOString().split('T')[0]}.csv`
+        selectedData,
+        exportColumns,
+        `selected-emails-${new Date().toISOString().split('T')[0]}.csv`
       );
-      toast.success(`Successfully exported ${selectedData.length} tasks`);
+      toast.success(`Successfully exported ${selectedData.length} emails`);
     } catch (error) {
       console.error("Bulk export error:", error);
-      toast.error("Failed to export tasks");
+      toast.error("Failed to export emails");
     }
   };
 
-  // Helper to get display value for filter conditions
+  // Filter chips
   const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
     if (!field || !value) return value;
-    
     if (field.type === 'select' && field.options) {
       const option = field.options.find(opt => opt.value === value);
       if (option) return option.label;
     }
-    
     return value;
   };
 
-  // Filter chips data
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
-    
+
     if (statusFilter) {
       chips.push({
         id: 'status-filter',
@@ -565,7 +560,7 @@ export default function TasksPage() {
         color: 'primary',
       });
     }
-    
+
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
@@ -578,7 +573,7 @@ export default function TasksPage() {
         });
       });
     }
-    
+
     return chips;
   }, [statusFilter, filterGroup, filterFields]);
 
@@ -605,55 +600,57 @@ export default function TasksPage() {
     setStatusFilter(null);
     setSearchQuery('');
     setFilterGroup(null);
-    clearModuleFilters('tasks');
+    clearModuleFilters('emails');
   };
 
-  // Edit handler — fetches full task details from API before opening form
-  const handleEditTask = async (task: TaskViewModel) => {
+  // Edit handler — fetches full email details from API
+  const handleEditEmail = async (email: EmailViewModel) => {
     setFormMode("edit");
-    
+
     try {
-      const fullTask = await tasksApi.getById(task.id);
-      
-      setEditingTask({
-        id: fullTask.id,
-        subject: fullTask.subject,
-        description: fullTask.description,
-        priority: fullTask.priority,
-        status: fullTask.status,
-        dueDate: toDateInputValue(fullTask.dueDate),
-        assignedTo: fullTask.assignedTo,
-        contactId: fullTask.contact?.id,
-        companyId: fullTask.company?.id,
-        dealId: fullTask.deal?.id,
-        leadId: fullTask.lead?.id,
-        reminderAt: toDateTimeLocalValue(fullTask.reminderAt),
+      const fullEmail = await emailsApi.getById(email.id);
+
+      setEditingEmail({
+        id: fullEmail.id,
+        subject: fullEmail.subject,
+        description: fullEmail.description,
+        emailDirection: fullEmail.emailDirection as Email["emailDirection"],
+        status: fullEmail.status,
+        priority: fullEmail.priority,
+        dueDate: toDateInputValue(fullEmail.dueDate),
+        contactId: fullEmail.contact?.id,
+        companyId: fullEmail.company?.id,
+        dealId: fullEmail.deal?.id,
+        leadId: fullEmail.lead?.id,
+        assignedTo: fullEmail.assignedTo,
+        reminderAt: toDateTimeLocalValue(fullEmail.reminderAt),
       });
     } catch (error) {
-      console.error("Failed to fetch task details:", error);
-      toast.error("Failed to load task details");
-      // Fallback to minimal data from list
-      setEditingTask({
-        id: task.id,
-        subject: task.subject,
-        description: task.description,
-        priority: task.priority,
-        status: task.status,
-        dueDate: toDateInputValue(task.dueDate),
-        assignedTo: task.assignedTo,
+      console.error("Failed to fetch email details:", error);
+      toast.error("Failed to load email details");
+      setEditingEmail({
+        id: email.id,
+        subject: email.subject,
+        description: email.description,
+        emailDirection: email.emailDirection as Email["emailDirection"],
+        status: email.status,
+        priority: email.priority,
+        dueDate: toDateInputValue(email.dueDate),
+        assignedTo: email.assignedTo,
       });
     }
     setFormDrawerOpen(true);
   };
 
   // Handle form submission
-  const handleFormSubmit = async (data: Partial<Task>) => {
+  const handleFormSubmit = async (data: Partial<Email>) => {
     try {
-      const taskData: TaskFormData = {
+      const emailData: EmailFormData = {
         subject: data.subject || "",
         description: data.description,
-        priority: data.priority as TaskFormData['priority'],
-        status: data.status as TaskFormData['status'],
+        emailDirection: data.emailDirection,
+        status: data.status as EmailFormData['status'],
+        priority: data.priority as EmailFormData['priority'],
         dueDate: data.dueDate,
         contactId: data.contactId,
         companyId: data.companyId,
@@ -663,28 +660,28 @@ export default function TasksPage() {
         reminderAt: data.reminderAt,
       };
 
-      if (formMode === "edit" && editingTask?.id) {
-        await updateTask.mutateAsync({ id: editingTask.id, data: taskData });
+      if (formMode === "edit" && editingEmail?.id) {
+        await updateEmail.mutateAsync({ id: editingEmail.id, data: emailData });
       } else {
-        await createTask.mutateAsync(taskData);
+        await createEmail.mutateAsync(emailData);
       }
-      
+
       setFormDrawerOpen(false);
-      setEditingTask(null);
+      setEditingEmail(null);
     } catch (error) {
       throw error;
     }
   };
 
-  // Table columns - no sorting (matches leads pattern)
+  // Table columns
   const columns = useMemo(() => [
     {
       key: "subject",
-      label: "Task",
-      render: (_value: unknown, row: TaskViewModel) => (
-        <div 
+      label: "Email",
+      render: (_value: unknown, row: EmailViewModel) => (
+        <div
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => router.push(`/activities/tasks/${row.id}`)}
+          onClick={() => handleEditEmail(row)}
         >
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
             {row.initials}
@@ -699,13 +696,17 @@ export default function TasksPage() {
       ),
     },
     {
-      key: "priority",
-      label: "Priority",
-      render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(value)}`}>
-          {PRIORITY_DISPLAY[value] || value}
-        </span>
-      ),
+      key: "emailDirection",
+      label: "Direction",
+      render: (value: string) => {
+        const DirectionIcon = getDirectionIcon(value);
+        return (
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <DirectionIcon className="h-4 w-4 text-muted-foreground" />
+            {DIRECTION_DISPLAY[value] || value || "—"}
+          </div>
+        );
+      },
     },
     {
       key: "status",
@@ -718,7 +719,7 @@ export default function TasksPage() {
     },
     {
       key: "dueDate",
-      label: "Due Date",
+      label: "Date",
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -729,7 +730,7 @@ export default function TasksPage() {
     {
       key: "relatedTo",
       label: "Related To",
-      render: (_value: unknown, row: TaskViewModel) => (
+      render: (_value: unknown, row: EmailViewModel) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           {row.relatedTo ? (
             <>
@@ -749,24 +750,21 @@ export default function TasksPage() {
       key: "createdAt",
       label: "Created",
       render: (value: string) => (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Calendar className="h-4 w-4" />
-          {formatDate(value)}
-        </div>
+        <span className="text-sm text-muted-foreground">{formatDate(value)}</span>
       ),
     },
-  ], [router]);
+  ], []);
 
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <PageHeader
-        title="Tasks"
-        icon={CheckSquare}
+        title="Emails"
+        icon={Mail}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${totalItems} tasks`}
-        searchPlaceholder="Search tasks by title or description..."
+        subtitle={`${totalItems} emails`}
+        searchPlaceholder="Search emails by subject or description..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         actions={
@@ -784,7 +782,7 @@ export default function TasksPage() {
               )}
             </Button>
             <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} />
-            
+
             {/* Mobile Advanced Filter Button */}
             <Button
               variant="outline"
@@ -800,19 +798,19 @@ export default function TasksPage() {
                 </span>
               )}
             </Button>
-            
+
             {/* Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                title="Filter tasks by status"
+                title="Filter emails by status"
               >
                 <Filter className="h-4 w-4 mr-2" />
                 {statusFilter
                   ? filterOptions.find((f) => f.value === statusFilter)?.label
-                  : "All Tasks"}
+                  : "All Emails"}
                 <ChevronDown className="h-4 w-4 ml-2" />
               </Button>
 
@@ -870,23 +868,23 @@ export default function TasksPage() {
             </Button>
 
             <ExportButton
-              data={tasks}
+              data={emails}
               columns={exportColumns}
-              filename={`tasks-${new Date().toISOString().split('T')[0]}`}
-              title="Tasks Export"
+              filename={`emails-${new Date().toISOString().split('T')[0]}`}
+              title="Emails Export"
             />
-            <Button 
+            <Button
               onClick={() => {
                 setFormMode("add");
-                setEditingTask(null);
+                setEditingEmail(null);
                 setDefaultView("quick");
                 setFormDrawerOpen(true);
               }}
               className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new task"
+              title="Log a new email"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Task
+              Log Email
             </Button>
           </>
         }
@@ -927,11 +925,11 @@ export default function TasksPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedTasks.length > 0 && (
+      {selectedEmails.length > 0 && (
         <BulkActionsToolbar
-          selectedCount={selectedTasks.length}
+          selectedCount={selectedEmails.length}
           totalCount={totalItems}
-          onSelectAll={handleSelectAllTasks}
+          onSelectAll={handleSelectAllEmails}
           onDeselectAll={handleDeselectAll}
           onDelete={() => setShowBulkDelete(true)}
           onExport={handleBulkExport}
@@ -948,32 +946,27 @@ export default function TasksPage() {
       {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={tasks}
+          data={emails}
           columns={columns}
-          selectedIds={selectedTasks}
+          selectedIds={selectedEmails}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
           showSelection={true}
           loading={isLoading}
-          emptyMessage="No tasks found"
-          emptyDescription="Try adjusting your search or filters, or add a new task"
-          renderActions={(row: TaskViewModel) => (
+          emptyMessage="No emails found"
+          emptyDescription="Try adjusting your search or filters, or log a new email"
+          renderActions={(row: EmailViewModel) => (
             <ActionMenu
               items={[
                 {
-                  label: "View Details",
-                  icon: FileText,
-                  onClick: () => router.push(`/activities/tasks/${row.id}`),
-                },
-                {
-                  label: "Edit Task",
+                  label: "Edit Email",
                   icon: Edit,
-                  onClick: () => handleEditTask(row),
+                  onClick: () => handleEditEmail(row),
                 },
                 {
                   label: "Mark Complete",
                   icon: Check,
-                  onClick: () => completeTask.mutateAsync(row.id),
+                  onClick: () => completeEmail.mutateAsync(row.id),
                 },
                 { divider: true, label: "", onClick: () => {} },
                 {
@@ -989,82 +982,69 @@ export default function TasksPage() {
       ) : (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tasks.map((task, index) => (
+          {emails.map((email, index) => (
             <motion.div
-              key={task.id}
+              key={email.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
-              <Card className="border border-border hover:shadow-lg transition-shadow p-6 cursor-pointer" onClick={() => router.push(`/activities/tasks/${task.id}`)}>
+              <Card className="border border-border hover:shadow-lg transition-shadow p-6 cursor-pointer" onClick={() => handleEditEmail(email)}>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
-                      {task.initials}
+                      {email.initials}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground">
-                        {task.subject}
-                      </h3>
-                      {task.relatedTo && (
-                        <p className="text-sm text-muted-foreground">
-                          {task.relatedTo}
-                        </p>
-                      )}
+                      <h3 className="font-semibold text-foreground">{email.subject}</h3>
+                      <p className="text-sm text-muted-foreground flex items-center gap-1">
+                        {email.emailDirection === "received" ? <Inbox className="h-3 w-3" /> : <Send className="h-3 w-3" />}
+                        {DIRECTION_DISPLAY[email.emailDirection || ''] || email.emailDirection || '—'}
+                      </p>
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
                     <ActionMenu
                       items={[
                         {
-                          label: "View Details",
-                          icon: FileText,
-                          onClick: () => router.push(`/activities/tasks/${task.id}`),
-                        },
-                        {
-                          label: "Edit Task",
+                          label: "Edit Email",
                           icon: Edit,
-                          onClick: () => handleEditTask(task),
+                          onClick: () => handleEditEmail(email),
                         },
                         {
                           label: "Mark Complete",
                           icon: Check,
-                          onClick: () => completeTask.mutateAsync(task.id),
+                          onClick: () => completeEmail.mutateAsync(email.id),
                         },
                         { divider: true, label: "", onClick: () => {} },
                         {
                           label: "Delete",
                           icon: Trash2,
                           variant: "danger",
-                          onClick: () => handleDeleteClick(task),
+                          onClick: () => handleDeleteClick(email),
                         },
                       ]}
                     />
                   </div>
                 </div>
-                {task.description && (
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {task.description}
-                  </p>
+                {email.description && (
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{email.description}</p>
                 )}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>Due: {formatDate(task.dueDate)}</span>
+                    <span>Date: {formatDate(email.dueDate)}</span>
                   </div>
-                  {task.relatedTo && (
+                  {email.relatedTo && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Flag className="h-4 w-4" />
-                      <span>{task.relatedTo}</span>
+                      <span>{email.relatedTo}</span>
                     </div>
                   )}
                 </div>
                 <div className="mt-4 flex items-center gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                    {STATUS_DISPLAY[task.status] || task.status}
-                  </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                    {PRIORITY_DISPLAY[task.priority] || task.priority}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(email.status)}`}>
+                    {STATUS_DISPLAY[email.status] || email.status}
                   </span>
                 </div>
               </Card>
@@ -1081,12 +1061,12 @@ export default function TasksPage() {
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
-          setSelectedTasks([]);
+          setSelectedEmails([]);
         }}
         onItemsPerPageChange={(items) => {
           setItemsPerPage(items);
           setCurrentPage(1);
-          setSelectedTasks([]);
+          setSelectedEmails([]);
         }}
         filterInfo={
           statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined
@@ -1098,23 +1078,23 @@ export default function TasksPage() {
         isOpen={isDeleteModalOpen}
         onClose={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
-        title="Delete Task"
-        description="Are you sure you want to delete this task? This will permanently remove it from your CRM and cannot be undone."
-        itemName={taskToDelete?.subject}
-        itemType="Task"
-        icon={CheckSquare}
+        title="Delete Email"
+        description="Are you sure you want to delete this email log? This will permanently remove it from your CRM and cannot be undone."
+        itemName={emailToDelete?.subject}
+        itemType="Email"
+        icon={Mail}
         isDeleting={isDeleting}
       />
 
-      {/* Task Form Drawer */}
-      <TaskFormDrawer
+      {/* Email Form Drawer */}
+      <EmailFormDrawer
         isOpen={formDrawerOpen}
         onClose={() => {
           setFormDrawerOpen(false);
-          setEditingTask(null);
+          setEditingEmail(null);
         }}
         onSubmit={handleFormSubmit}
-        initialData={editingTask}
+        initialData={editingEmail}
         mode={formMode}
         defaultView={defaultView}
       />
@@ -1124,8 +1104,8 @@ export default function TasksPage() {
         isOpen={showBulkDelete}
         onClose={() => setShowBulkDelete(false)}
         onConfirm={handleBulkDelete}
-        itemCount={selectedTasks.length}
-        itemName="task"
+        itemCount={selectedEmails.length}
+        itemName="email"
       />
 
       {/* Bulk Update Status Modal */}
@@ -1133,8 +1113,8 @@ export default function TasksPage() {
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
-        itemCount={selectedTasks.length}
-        title="Update Task Status"
+        itemCount={selectedEmails.length}
+        title="Update Email Status"
         field="Status"
         options={[
           { label: 'Pending', value: 'pending' },

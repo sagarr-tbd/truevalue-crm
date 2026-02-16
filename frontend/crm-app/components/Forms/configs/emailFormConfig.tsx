@@ -1,39 +1,27 @@
 import {
+  Mail,
+  MailOpen,
   Calendar,
-  Clock,
   User,
   Link2,
   Flag,
-  Users,
   Bell,
-  Timer,
 } from "lucide-react";
-import { meetingSchema } from "@/lib/schemas";
+import { emailSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
 
-function computeDuration(values: Record<string, any>): number | undefined {
-  if (!values.startTime || !values.endTime) return undefined;
-  const start = new Date(values.startTime);
-  const end = new Date(values.endTime);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return undefined;
-  const diffMs = end.getTime() - start.getTime();
-  return diffMs > 0 ? Math.round(diffMs / 60000) : undefined;
-}
+export const emailFormConfig: FormDrawerConfig = {
+  entity: "Email",
+  entityIcon: <Mail className="h-5 w-5 text-primary" />,
+  schema: emailSchema,
 
-export const meetingFormConfig: FormDrawerConfig = {
-  entity: "Meeting",
-  entityIcon: <Users className="h-5 w-5 text-primary" />,
-  schema: meetingSchema,
-  
   defaultValues: {
     subject: "",
     description: "",
+    emailDirection: undefined,
     status: undefined,
     priority: undefined,
     dueDate: "",
-    startTime: "",
-    endTime: "",
-    durationMinutes: undefined,
     contactId: "",
     companyId: "",
     dealId: "",
@@ -42,23 +30,16 @@ export const meetingFormConfig: FormDrawerConfig = {
     reminderAt: "",
   },
 
-  computedFields: {
-    durationMinutes: {
-      dependsOn: ["startTime", "endTime"],
-      compute: computeDuration,
-    },
-  },
-
   quickFormSections: [
     {
-      label: "Meeting Details",
-      icon: <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["subject", "description", "status", "priority"],
+      label: "Email Information",
+      icon: <Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
+      fields: ["subject", "description", "emailDirection", "status"],
     },
     {
       label: "Schedule",
       icon: <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["dueDate", "startTime", "endTime"],
+      fields: ["dueDate"],
     },
     {
       label: "Assignment",
@@ -70,21 +51,32 @@ export const meetingFormConfig: FormDrawerConfig = {
   detailedSections: [
     {
       id: "details",
-      label: "Meeting Details",
-      icon: <Users className="h-4 w-4" />,
+      label: "Email Details",
+      icon: <Mail className="h-4 w-4" />,
       fields: [
         {
           name: "subject",
-          label: "Meeting Title",
+          label: "Email Subject",
           type: "text",
           required: true,
-          placeholder: "Enter meeting title...",
+          placeholder: "Enter email subject...",
         },
         {
           name: "description",
-          label: "Description",
+          label: "Body / Notes",
           type: "textarea",
-          placeholder: "Meeting description and agenda...",
+          placeholder: "Email body or notes...",
+        },
+        {
+          name: "emailDirection",
+          label: "Direction",
+          type: "select",
+          options: [
+            { label: "Sent", value: "sent" },
+            { label: "Received", value: "received" },
+          ],
+          placeholder: "Select direction...",
+          icon: <MailOpen className="h-4 w-4" />,
         },
         {
           name: "status",
@@ -124,68 +116,40 @@ export const meetingFormConfig: FormDrawerConfig = {
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
+            { name: "emailDirection" },
             { name: "status" },
-            { name: "priority" },
           ],
+        },
+        {
+          gridClass: "grid-cols-1 gap-4",
+          fields: [{ name: "priority" }],
         },
       ],
     },
     {
       id: "schedule",
-      label: "Schedule & Duration",
+      label: "Schedule",
       icon: <Calendar className="h-4 w-4" />,
       fields: [
         {
           name: "dueDate",
-          label: "Meeting Date",
+          label: "Date",
           type: "date",
           icon: <Calendar className="h-4 w-4" />,
-        },
-        {
-          name: "startTime",
-          label: "Start Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "endTime",
-          label: "End Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "durationMinutes",
-          label: "Duration (minutes)",
-          type: "number",
-          disabled: true,
-          placeholder: "Auto-calculated",
-          icon: <Timer className="h-4 w-4" />,
-          helperText: "Auto-calculated from start and end times",
         },
         {
           name: "reminderAt",
           label: "Reminder",
           type: "datetime-local",
           icon: <Bell className="h-4 w-4" />,
-          helperText: "Must be before the meeting date",
+          helperText: "Must be before the email date",
         },
       ],
       layout: [
         {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "dueDate" }],
-        },
-        {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
-            { name: "startTime" },
-            { name: "endTime" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "durationMinutes" },
+            { name: "dueDate" },
             { name: "reminderAt" },
           ],
         },

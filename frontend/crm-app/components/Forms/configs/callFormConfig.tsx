@@ -6,9 +6,20 @@ import {
   User,
   Link2,
   Flag,
+  Bell,
+  Timer,
 } from "lucide-react";
 import { callSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
+
+function computeDuration(values: Record<string, any>): number | undefined {
+  if (!values.startTime || !values.endTime) return undefined;
+  const start = new Date(values.startTime);
+  const end = new Date(values.endTime);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return undefined;
+  const diffMs = end.getTime() - start.getTime();
+  return diffMs > 0 ? Math.round(diffMs / 60000) : undefined;
+}
 
 export const callFormConfig: FormDrawerConfig = {
   entity: "Call",
@@ -34,6 +45,13 @@ export const callFormConfig: FormDrawerConfig = {
     reminderAt: "",
   },
 
+  computedFields: {
+    durationMinutes: {
+      dependsOn: ["startTime", "endTime"],
+      compute: computeDuration,
+    },
+  },
+
   quickFormSections: [
     {
       label: "Call Information",
@@ -43,7 +61,7 @@ export const callFormConfig: FormDrawerConfig = {
     {
       label: "Schedule",
       icon: <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["dueDate", "durationMinutes"],
+      fields: ["dueDate", "startTime", "endTime"],
     },
     {
       label: "Assignment",
@@ -174,25 +192,23 @@ export const callFormConfig: FormDrawerConfig = {
           name: "durationMinutes",
           label: "Duration (minutes)",
           type: "number",
-          placeholder: "e.g., 30",
-          icon: <Clock className="h-4 w-4" />,
-          helperText: "Call duration in minutes",
+          disabled: true,
+          placeholder: "Auto-calculated",
+          icon: <Timer className="h-4 w-4" />,
+          helperText: "Auto-calculated from start and end times",
         },
         {
           name: "reminderAt",
           label: "Reminder",
           type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-          helperText: "Set a reminder notification",
+          icon: <Bell className="h-4 w-4" />,
+          helperText: "Must be before the call date",
         },
       ],
       layout: [
         {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "dueDate" },
-            { name: "durationMinutes" },
-          ],
+          gridClass: "grid-cols-1 gap-4",
+          fields: [{ name: "dueDate" }],
         },
         {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
@@ -202,8 +218,11 @@ export const callFormConfig: FormDrawerConfig = {
           ],
         },
         {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "reminderAt" }],
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
+            { name: "durationMinutes" },
+            { name: "reminderAt" },
+          ],
         },
       ],
     },
@@ -234,6 +253,13 @@ export const callFormConfig: FormDrawerConfig = {
           placeholder: "Select deal...",
         },
         {
+          name: "leadId",
+          label: "Lead",
+          type: "select",
+          options: [],
+          placeholder: "Select lead...",
+        },
+        {
           name: "assignedTo",
           label: "Assigned To",
           type: "select",
@@ -254,6 +280,12 @@ export const callFormConfig: FormDrawerConfig = {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
             { name: "dealId" },
+            { name: "leadId" },
+          ],
+        },
+        {
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
             { name: "assignedTo" },
           ],
         },

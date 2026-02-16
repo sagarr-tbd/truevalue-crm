@@ -28,8 +28,8 @@ import {
   CheckSquare,
   Calendar,
   Phone,
+  FileText,
   // Phase 2 Icons - Uncomment when enabling Phase 2 features
-  // FileText,
   // LineChart,
   // FolderOpen,
   // Megaphone,
@@ -43,7 +43,7 @@ import {
   // Store,
   // Ticket,
   // Lightbulb,
-  // Mail,
+  Mail,
   // Share2,
   // MapPin,
   // Wrench,
@@ -120,6 +120,8 @@ const navigation: NavigationItem[] = [
       { name: "Tasks", href: "/activities/tasks", icon: CheckSquare },
       { name: "Meetings", href: "/activities/meetings", icon: Calendar },
       { name: "Calls", href: "/activities/calls", icon: Phone },
+      { name: "Emails", href: "/activities/emails", icon: Mail },
+      { name: "Notes", href: "/activities/notes", icon: FileText },
     ],
   },
   // Phase 2: Inventory Management
@@ -487,7 +489,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Area - Responsive */}
       <div
-        className="flex-1 min-h-screen transition-all duration-300 lg:ml-[var(--sidebar-width)]"
+        className="flex-1 min-h-screen transition-all duration-300 lg:ml-[var(--sidebar-width)] overflow-x-hidden"
         style={{ 
           '--sidebar-width': `${sidebarWidth}px`
         } as React.CSSProperties}
@@ -626,7 +628,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content - Responsive padding */}
-        <main className="p-3 sm:p-4 md:p-6 max-w-full">
+        <main className="p-3 sm:p-4 md:p-6 max-w-full overflow-x-hidden">
           <ErrorBoundary>
             {children}
           </ErrorBoundary>
