@@ -1,5 +1,5 @@
 // Type definitions for the CRM application
-import type { leadSchema, accountSchema, contactSchema, dealSchema, forecastSchema, campaignSchema, documentSchema, taskSchema, callSchema, meetingSchema, productSchema, vendorSchema, invoiceSchema, quoteSchema, salesOrderSchema, purchaseOrderSchema, priceBookSchema, caseSchema, solutionSchema, serviceSchema, projectSchema } from "./schemas";
+import type { leadSchema, accountSchema, contactSchema, dealSchema, forecastSchema, campaignSchema, documentSchema, taskSchema, callSchema, meetingSchema, noteSchema, productSchema, vendorSchema, invoiceSchema, quoteSchema, salesOrderSchema, purchaseOrderSchema, priceBookSchema, caseSchema, solutionSchema, serviceSchema, projectSchema } from "./schemas";
 import type { z } from "zod";
 
 // Infer types from Zod schemas
@@ -118,6 +118,13 @@ export type Meeting = z.infer<typeof meetingSchema> & {
   createdAt?: string;
   updatedAt?: string;
   completedAt?: string;
+  initials?: string;
+};
+
+export type Note = z.infer<typeof noteSchema> & {
+  id?: string;
+  createdAt?: string;
+  updatedAt?: string;
   initials?: string;
 };
 

@@ -95,6 +95,10 @@ interface UIStore {
       status?: string | null;
       search?: string;
     };
+    notes?: {
+      status?: string | null;
+      search?: string;
+    };
     cases?: {
       status?: string | null;
       search?: string;

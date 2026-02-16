@@ -31,12 +31,31 @@ export function FormDrawer<T = any>({
     formState: { errors, isSubmitting },
     reset,
     watch,
+    setValue,
   } = useForm({
     resolver: zodResolver(config.schema),
     mode: "onChange",
     reValidateMode: "onChange",
     defaultValues: config.defaultValues,
   });
+
+  // Auto-compute derived fields when their dependencies change
+  useEffect(() => {
+    if (!config.computedFields) return;
+
+    const subscription = watch((values, { name }) => {
+      if (!name || !config.computedFields) return;
+
+      for (const [fieldName, computed] of Object.entries(config.computedFields)) {
+        if (computed.dependsOn.includes(name)) {
+          const result = computed.compute(values as Record<string, any>);
+          setValue(fieldName, result, { shouldValidate: false });
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [config.computedFields, watch, setValue]);
 
   // Collect field names shown in quick mode so we can register the rest hidden
   const quickFieldNames = useMemo(() => {

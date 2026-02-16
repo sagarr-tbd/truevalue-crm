@@ -32,10 +32,15 @@ import { useContact, useDeleteContact, useUpdateContact, useContacts, useCheckDu
 import { useDeals } from "@/lib/queries/useDeals";
 import { MergeContactModal } from "@/components/MergeContactModal";
 import { useContactTimeline, useCreateActivity } from "@/lib/queries/useActivities";
+import { useCreateMeeting, type MeetingFormData } from "@/lib/queries/useMeetings";
+import { MeetingFormDrawer } from "@/components/Forms/Activities/MeetingFormDrawer";
+import type { Meeting } from "@/lib/types";
 import LinkCompanyModal from "@/components/LinkCompanyModal/LinkCompanyModal";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
 import { THEME_COLORS, getStatusColor, getDealStageColor } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2 } from "lucide-react";
 
 // Activity type icon mapping
 const getActivityIcon = (type: string) => {
@@ -104,6 +109,9 @@ export default function ContactDetailPage() {
   // Link company state
   const [showLinkCompanyModal, setShowLinkCompanyModal] = useState(false);
 
+  // Quick action drawers
+  const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
+
   // Fetch contact from API
   const { data: contact, isLoading, error } = useContact(id);
   const deleteContactMutation = useDeleteContact();
@@ -121,9 +129,16 @@ export default function ContactDetailPage() {
     { enabled: !!contact?.primaryCompanyId }
   );
   
-  // Fetch contact timeline (activities)
+  // Fetch contact timeline (activities) — notes derived from this, no extra API call
   const { data: activities = [], isLoading: isLoadingActivities } = useContactTimeline(id);
   const createActivity = useCreateActivity();
+  const createMeeting = useCreateMeeting();
+
+  // Derive notes from already-fetched activities (zero-cost client filter)
+  const notes = useMemo(
+    () => activities.filter((a) => a.type === 'note'),
+    [activities]
+  );
 
   // Fetch deals linked to this contact
   const { data: linkedDealsResponse } = useDeals({
@@ -170,20 +185,39 @@ export default function ContactDetailPage() {
 
   const handleAddNote = async () => {
     if (!newNote.trim() || !contact) return;
-    
     try {
       await createActivity.mutateAsync({
         activityType: 'note',
-        subject: 'Note added',
-        description: newNote,
+        subject: newNote.trim().slice(0, 100),
+        description: newNote.trim(),
         contactId: contact.id,
+        companyId: contact.primaryCompanyId,
       });
-      setNewNote("");
       toast.success("Note added successfully");
+      setNewNote("");
     } catch (error) {
-      console.error("Error adding note:", error);
+      console.error("Failed to add note:", error);
       toast.error("Failed to add note");
     }
+  };
+
+  const handleCreateMeeting = async (data: Partial<Meeting>) => {
+    await createMeeting.mutateAsync({
+      subject: data.subject || "",
+      description: data.description,
+      status: data.status as MeetingFormData["status"],
+      priority: data.priority as MeetingFormData["priority"],
+      dueDate: data.dueDate,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      durationMinutes: data.durationMinutes,
+      contactId: id,
+      companyId: contact?.primaryCompanyId,
+      dealId: data.dealId,
+      assignedTo: data.assignedTo,
+      reminderAt: data.reminderAt,
+    });
+    setMeetingDrawerOpen(false);
   };
 
   // Form handlers
@@ -1122,33 +1156,49 @@ export default function ContactDetailPage() {
                   >
                     {/* Add Note Form */}
                     <div className="border border-border rounded-lg p-4 bg-muted/30">
-                      <textarea
+                      <Textarea
                         value={newNote}
                         onChange={(e) => setNewNote(e.target.value)}
                         placeholder="Add a note about this contact..."
-                        className="w-full min-h-[100px] p-3 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none bg-background"
+                        className="min-h-[100px] resize-none"
                       />
                       <div className="flex justify-end mt-3">
-                        <Button 
-                          onClick={handleAddNote} 
+                        <Button
+                          onClick={handleAddNote}
                           size="sm"
                           disabled={!newNote.trim() || createActivity.isPending}
                         >
                           {createActivity.isPending ? (
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Adding...
+                            </>
                           ) : (
-                            <Plus className="h-4 w-4 mr-2" />
+                            <>
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add Note
+                            </>
                           )}
-                          Add Note
                         </Button>
                       </div>
                     </div>
 
                     {/* Notes List */}
-                    <div className="space-y-4">
-                      {activities
-                        .filter(a => a.type === 'note')
-                        .map((note) => (
+                    {isLoadingActivities ? (
+                      <div className="space-y-4">
+                        {[1, 2].map((i) => (
+                          <Card key={i} className="border border-border">
+                            <CardContent className="p-4 animate-pulse space-y-2">
+                              <div className="h-4 w-full rounded bg-muted" />
+                              <div className="h-4 w-3/4 rounded bg-muted" />
+                              <div className="h-3 w-1/4 rounded bg-muted mt-3" />
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : notes.length > 0 ? (
+                      <div className="space-y-4">
+                        {notes.map((note) => (
                           <Card key={note.id} className="border border-border">
                             <CardContent className="p-4">
                               <p className="text-sm text-foreground whitespace-pre-wrap">
@@ -1156,23 +1206,23 @@ export default function ContactDetailPage() {
                               </p>
                               <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                                 <span className="text-xs text-muted-foreground">
-                                  {note.subject !== 'Note added' ? note.subject : 'Note'}
+                                  {note.contact?.name || 'System'}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
-                                  {formatActivityDate(note.createdAt)} at {formatActivityTime(note.createdAt)}
+                                  {formatActivityDate(note.createdAt)}
                                 </span>
                               </div>
                             </CardContent>
                           </Card>
                         ))}
-                      {activities.filter(a => a.type === 'note').length === 0 && (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-40" />
-                          <p className="font-medium">No notes yet</p>
-                          <p className="text-sm">Add a note above to keep track of important information</p>
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                        <p>No notes yet</p>
+                        <p className="text-sm mt-1">Add a note above to get started</p>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1189,15 +1239,17 @@ export default function ContactDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => window.location.href = `mailto:${contact.email}`}>
+                <Button className="w-full justify-start gap-2" variant="outline" size="sm" onClick={() => window.location.href = `mailto:${contact.email}`}>
                   <Mail className="h-4 w-4" />
                   Send Email
                 </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => window.location.href = `tel:${contact.phone}`}>
-                  <Phone className="h-4 w-4" />
-                  Make Call
-                </Button>
-                <Button className="w-full justify-start gap-2" variant="outline" onClick={() => console.log("Schedule meeting")}>
+                {contact.phone && contact.phone !== "-" && (
+                  <Button className="w-full justify-start gap-2" variant="outline" size="sm" onClick={() => window.location.href = `tel:${contact.phone}`}>
+                    <Phone className="h-4 w-4" />
+                    Make Call
+                  </Button>
+                )}
+                <Button className="w-full justify-start gap-2" variant="outline" size="sm" onClick={() => setMeetingDrawerOpen(true)}>
                   <Calendar className="h-4 w-4" />
                   Schedule Meeting
                 </Button>
@@ -1321,6 +1373,15 @@ export default function ContactDetailPage() {
         contactId={id}
         contactName={contact.name}
         existingCompanyIds={contact.companies?.map((c) => c.companyId) ?? []}
+      />
+
+      {/* Quick Action: Meeting Form Drawer */}
+      <MeetingFormDrawer
+        isOpen={meetingDrawerOpen}
+        onClose={() => setMeetingDrawerOpen(false)}
+        onSubmit={handleCreateMeeting}
+        initialData={{ contactId: id, companyId: contact.primaryCompanyId }}
+        mode="add"
       />
     </div>
   );

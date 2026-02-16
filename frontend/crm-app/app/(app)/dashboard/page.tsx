@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import {
   Users,
@@ -33,7 +33,9 @@ import { useContacts } from "@/lib/queries/useContacts";
 import { useLeads } from "@/lib/queries/useLeads";
 import { useDeals, useDealForecast } from "@/lib/queries/useDeals";
 import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
-import { useActivities, useUpcomingActivities, useActivityTrend } from "@/lib/queries/useActivities";
+import { useActivities, useUpcomingActivities, useActivityTrend, useCompleteActivity } from "@/lib/queries/useActivities";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 // ============================================================================
 // HELPERS
@@ -141,8 +143,18 @@ function ListItemSkeleton() {
 // DASHBOARD PAGE
 // ============================================================================
 
+const ACTIVITY_TYPE_PATH: Record<string, string> = {
+  task: '/activities/tasks',
+  call: '/activities/calls',
+  meeting: '/activities/meetings',
+  note: '/activities/notes',
+  email: '/activities/tasks',
+};
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
+  const completeActivity = useCompleteActivity();
 
   // Data hooks
   const { data: contactsData, isLoading: contactsLoading } = useContacts({ page_size: 1 });
@@ -211,6 +223,7 @@ export default function DashboardPage() {
       const mapping = ACTIVITY_ICONS[a.type] || { icon: Activity, color: "text-muted-foreground" };
       return {
         id: a.id,
+        rawType: a.type,
         type: a.type.charAt(0).toUpperCase() + a.type.slice(1),
         name: a.subject,
         time: a.createdAt ? formatTimeAgo(a.createdAt) : "",
@@ -494,6 +507,10 @@ export default function DashboardPage() {
                       transition={{ delay: 0.4 + index * 0.04 }}
                       whileHover={{ x: 3 }}
                       className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-all cursor-pointer"
+                      onClick={() => {
+                        const basePath = ACTIVITY_TYPE_PATH[activity.rawType] || '/activities/tasks';
+                        router.push(`${basePath}/${activity.id}`);
+                      }}
                     >
                       <div className="p-1.5 rounded-md bg-muted">
                         <activity.icon className={`h-3.5 w-3.5 ${activity.color}`} />
@@ -544,8 +561,19 @@ export default function DashboardPage() {
                       transition={{ delay: 0.45 + index * 0.04 }}
                       whileHover={{ scale: 1.01 }}
                       className="flex items-start gap-3 p-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-muted/30 transition-all cursor-pointer"
+                      onClick={() => router.push(`/activities/tasks/${task.id}`)}
                     >
-                      <input type="checkbox" className="mt-0.5 w-4 h-4 rounded border-border" />
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 w-4 h-4 rounded border-border"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          completeActivity.mutate(task.id, {
+                            onSuccess: () => toast.success("Task completed"),
+                            onError: () => toast.error("Failed to complete task"),
+                          });
+                        }}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground">{task.title}</p>
                         <div className="flex items-center gap-1.5 mt-0.5">

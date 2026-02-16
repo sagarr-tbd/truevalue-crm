@@ -1,64 +1,34 @@
 import {
-  Calendar,
-  Clock,
+  FileText,
   User,
   Link2,
   Flag,
-  Users,
-  Bell,
-  Timer,
 } from "lucide-react";
-import { meetingSchema } from "@/lib/schemas";
+import { noteSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
 
-function computeDuration(values: Record<string, any>): number | undefined {
-  if (!values.startTime || !values.endTime) return undefined;
-  const start = new Date(values.startTime);
-  const end = new Date(values.endTime);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return undefined;
-  const diffMs = end.getTime() - start.getTime();
-  return diffMs > 0 ? Math.round(diffMs / 60000) : undefined;
-}
+export const noteFormConfig: FormDrawerConfig = {
+  entity: "Note",
+  entityIcon: <FileText className="h-5 w-5 text-primary" />,
+  schema: noteSchema,
 
-export const meetingFormConfig: FormDrawerConfig = {
-  entity: "Meeting",
-  entityIcon: <Users className="h-5 w-5 text-primary" />,
-  schema: meetingSchema,
-  
   defaultValues: {
     subject: "",
     description: "",
     status: undefined,
     priority: undefined,
-    dueDate: "",
-    startTime: "",
-    endTime: "",
-    durationMinutes: undefined,
     contactId: "",
     companyId: "",
     dealId: "",
     leadId: "",
     assignedTo: "",
-    reminderAt: "",
-  },
-
-  computedFields: {
-    durationMinutes: {
-      dependsOn: ["startTime", "endTime"],
-      compute: computeDuration,
-    },
   },
 
   quickFormSections: [
     {
-      label: "Meeting Details",
-      icon: <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["subject", "description", "status", "priority"],
-    },
-    {
-      label: "Schedule",
-      icon: <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
-      fields: ["dueDate", "startTime", "endTime"],
+      label: "Note Information",
+      icon: <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />,
+      fields: ["subject", "description"],
     },
     {
       label: "Assignment",
@@ -70,21 +40,21 @@ export const meetingFormConfig: FormDrawerConfig = {
   detailedSections: [
     {
       id: "details",
-      label: "Meeting Details",
-      icon: <Users className="h-4 w-4" />,
+      label: "Note Details",
+      icon: <FileText className="h-4 w-4" />,
       fields: [
         {
           name: "subject",
-          label: "Meeting Title",
+          label: "Note Title",
           type: "text",
           required: true,
-          placeholder: "Enter meeting title...",
+          placeholder: "Enter note title...",
         },
         {
           name: "description",
-          label: "Description",
+          label: "Content",
           type: "textarea",
-          placeholder: "Meeting description and agenda...",
+          placeholder: "Write your note here...",
         },
         {
           name: "status",
@@ -126,67 +96,6 @@ export const meetingFormConfig: FormDrawerConfig = {
           fields: [
             { name: "status" },
             { name: "priority" },
-          ],
-        },
-      ],
-    },
-    {
-      id: "schedule",
-      label: "Schedule & Duration",
-      icon: <Calendar className="h-4 w-4" />,
-      fields: [
-        {
-          name: "dueDate",
-          label: "Meeting Date",
-          type: "date",
-          icon: <Calendar className="h-4 w-4" />,
-        },
-        {
-          name: "startTime",
-          label: "Start Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "endTime",
-          label: "End Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "durationMinutes",
-          label: "Duration (minutes)",
-          type: "number",
-          disabled: true,
-          placeholder: "Auto-calculated",
-          icon: <Timer className="h-4 w-4" />,
-          helperText: "Auto-calculated from start and end times",
-        },
-        {
-          name: "reminderAt",
-          label: "Reminder",
-          type: "datetime-local",
-          icon: <Bell className="h-4 w-4" />,
-          helperText: "Must be before the meeting date",
-        },
-      ],
-      layout: [
-        {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "dueDate" }],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "startTime" },
-            { name: "endTime" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "durationMinutes" },
-            { name: "reminderAt" },
           ],
         },
       ],

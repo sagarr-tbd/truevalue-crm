@@ -4,7 +4,7 @@ import {
   Calendar,
   User,
   Link2,
-  Clock,
+  Bell,
 } from "lucide-react";
 import { taskSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
@@ -20,9 +20,6 @@ export const taskFormConfig: FormDrawerConfig = {
     priority: undefined,
     status: undefined,
     dueDate: "",
-    startTime: "",
-    endTime: "",
-    durationMinutes: undefined,
     contactId: "",
     companyId: "",
     dealId: "",
@@ -116,7 +113,7 @@ export const taskFormConfig: FormDrawerConfig = {
     },
     {
       id: "schedule",
-      label: "Schedule & Timing",
+      label: "Schedule & Reminder",
       icon: <Calendar className="h-4 w-4" />,
       fields: [
         {
@@ -126,31 +123,11 @@ export const taskFormConfig: FormDrawerConfig = {
           icon: <Calendar className="h-4 w-4" />,
         },
         {
-          name: "startTime",
-          label: "Start Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "endTime",
-          label: "End Time",
-          type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-        },
-        {
-          name: "durationMinutes",
-          label: "Duration (minutes)",
-          type: "number",
-          placeholder: "e.g., 60",
-          icon: <Clock className="h-4 w-4" />,
-          helperText: "Estimated duration in minutes",
-        },
-        {
           name: "reminderAt",
           label: "Reminder",
           type: "datetime-local",
-          icon: <Clock className="h-4 w-4" />,
-          helperText: "Set a reminder notification",
+          icon: <Bell className="h-4 w-4" />,
+          helperText: "Must be before the due date",
         },
       ],
       layout: [
@@ -158,19 +135,8 @@ export const taskFormConfig: FormDrawerConfig = {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
             { name: "dueDate" },
-            { name: "durationMinutes" },
+            { name: "reminderAt" },
           ],
-        },
-        {
-          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
-          fields: [
-            { name: "startTime" },
-            { name: "endTime" },
-          ],
-        },
-        {
-          gridClass: "grid-cols-1 gap-4",
-          fields: [{ name: "reminderAt" }],
         },
       ],
     },
@@ -201,6 +167,13 @@ export const taskFormConfig: FormDrawerConfig = {
           placeholder: "Select deal...",
         },
         {
+          name: "leadId",
+          label: "Lead",
+          type: "select",
+          options: [],
+          placeholder: "Select lead...",
+        },
+        {
           name: "assignedTo",
           label: "Assigned To",
           type: "select",
@@ -221,6 +194,12 @@ export const taskFormConfig: FormDrawerConfig = {
           gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
           fields: [
             { name: "dealId" },
+            { name: "leadId" },
+          ],
+        },
+        {
+          gridClass: "grid-cols-1 lg:grid-cols-2 gap-4",
+          fields: [
             { name: "assignedTo" },
           ],
         },

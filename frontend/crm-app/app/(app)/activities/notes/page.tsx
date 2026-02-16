@@ -5,14 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  CheckSquare,
+  FileText,
   Plus,
   Filter,
   Eye,
   EyeOff,
   Edit,
   Trash2,
-  FileText,
   Clock,
   Flag,
   ChevronDown,
@@ -28,7 +27,7 @@ import DataTable from "@/components/DataTable";
 import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
-import { TaskFormDrawer } from "@/components/Forms/Activities";
+import { NoteFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
 import type { ExportColumn } from "@/lib/export";
@@ -38,27 +37,25 @@ import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedF
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { toast } from "sonner";
-import { 
-  useTasks, 
-  useCreateTask,
-  useUpdateTask,
-  useDeleteTask,
-  useCompleteTask,
-  useBulkDeleteTasks, 
-  useBulkUpdateTasks,
-  type TaskQueryParams,
-  type TaskViewModel,
-  type TaskFormData,
-} from "@/lib/queries/useTasks";
-import { tasksApi } from "@/lib/api/tasks";
+import {
+  useNotes,
+  useCreateNote,
+  useUpdateNote,
+  useDeleteNote,
+  useBulkDeleteNotes,
+  useBulkUpdateNotes,
+  type NoteQueryParams,
+  type NoteViewModel,
+  type NoteFormData,
+} from "@/lib/queries/useNotes";
+import { notesApi } from "@/lib/api/notes";
 import { useContactOptions } from "@/lib/queries/useContacts";
 import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
-import type { Task } from "@/lib/types";
+import type { Note } from "@/lib/types";
 
-// Lazy load heavy components that are only used conditionally
 const DeleteConfirmationModal = dynamic(
   () => import("@/components/DeleteConfirmationModal"),
   { ssr: false }
@@ -78,28 +75,11 @@ const BulkUpdateModal = dynamic(
 // DISPLAY HELPERS
 // ============================================================================
 
-const PRIORITY_DISPLAY: Record<string, string> = {
-  urgent: "Urgent",
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
-
 const STATUS_DISPLAY: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
   completed: "Completed",
   cancelled: "Cancelled",
-};
-
-const getPriorityColor = (priority: string) => {
-  const colors: Record<string, string> = {
-    urgent: "bg-destructive/10 text-destructive",
-    high: "bg-orange-50 text-orange-600",
-    normal: "bg-accent/10 text-accent",
-    low: "bg-muted text-muted-foreground",
-  };
-  return colors[priority] || "bg-muted text-muted-foreground";
 };
 
 const getStatusColor = (status: string) => {
@@ -110,6 +90,23 @@ const getStatusColor = (status: string) => {
     cancelled: "bg-destructive/10 text-destructive",
   };
   return colors[status] || "bg-muted text-muted-foreground";
+};
+
+const getPriorityColor = (priority: string) => {
+  const colors: Record<string, string> = {
+    urgent: "bg-destructive/10 text-destructive",
+    high: "bg-orange-100 text-orange-700",
+    normal: "bg-primary/10 text-primary",
+    low: "bg-muted text-muted-foreground",
+  };
+  return colors[priority] || "bg-muted text-muted-foreground";
+};
+
+const PRIORITY_DISPLAY: Record<string, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
 };
 
 function formatDate(isoDate?: string): string {
@@ -125,82 +122,52 @@ function formatDate(isoDate?: string): string {
   }
 }
 
-/** Convert ISO string → YYYY-MM-DD for <input type="date"> */
-function toDateInputValue(iso?: string): string {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toISOString().split("T")[0];
-  } catch {
-    return iso.split("T")[0] || "";
-  }
-}
-
-/** Convert ISO string → YYYY-MM-DDTHH:MM for <input type="datetime-local"> */
-function toDateTimeLocalValue(iso?: string): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    const pad = (n: number) => n.toString().padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return iso.slice(0, 16) || "";
-  }
-}
-
 // ============================================================================
 // PAGE COMPONENT
 // ============================================================================
 
-export default function TasksPage() {
+export default function NotesPage() {
   const router = useRouter();
-  
-  // Zustand (UI state)
-  const { 
-    viewMode, 
-    showStats, 
-    setViewMode, 
+
+  const {
+    viewMode,
+    showStats,
+    setViewMode,
     toggleStats,
     filters,
     setModuleFilters,
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
-  
-  // Initialize filters from store
-  const tasksFilters = filters.tasks || {};
-  
-  // State management
-  const [searchQuery, setSearchQuery] = useState(tasksFilters.search || "");
-  const [statusFilter, setStatusFilter] = useState<string | null>(tasksFilters.status || null);
+
+  const notesFilters = filters.notes || {};
+
+  const [searchQuery, setSearchQuery] = useState(notesFilters.search || "");
+  const [statusFilter, setStatusFilter] = useState<string | null>(notesFilters.status || null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(defaultPerPage);
-  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  
-  // Debounce search query for API calls
+
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // Advanced Filter state
+
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
-  const { presets, addPreset, deletePreset } = useFilterPresets("tasks");
+  const { presets, addPreset, deletePreset } = useFilterPresets("notes");
 
-  // Entity options for advanced filters
   const { data: contactOptions = [] } = useContactOptions();
   const { data: companyOptions = [] } = useCompanyOptions();
   const { data: dealOptions = [] } = useDealOptions();
   const { data: leadOptions = [] } = useLeadOptions();
 
-  // Build query params for server-side pagination (including advanced filters)
-  const queryParams: TaskQueryParams = useMemo(() => {
-    const params: TaskQueryParams = {
+  const queryParams: NoteQueryParams = useMemo(() => {
+    const params: NoteQueryParams = {
       page: currentPage,
       page_size: itemsPerPage,
       search: debouncedSearchQuery || undefined,
-      status: statusFilter as TaskQueryParams['status'] || undefined,
+      status: statusFilter as NoteQueryParams['status'] || undefined,
     };
-    
-    // Add advanced filters if present
+
     if (filterGroup && filterGroup.conditions.length > 0) {
       params.filters = {
         logic: (filterGroup.logic?.toLowerCase() || 'and') as 'and' | 'or',
@@ -211,72 +178,59 @@ export default function TasksPage() {
         })),
       };
     }
-    
+
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
-  // React Query (server data) - with pagination
-  const { data: tasksResponse, isLoading } = useTasks(queryParams);
-  const tasks = useMemo(() => tasksResponse?.data ?? [], [tasksResponse?.data]);
-  const totalItems = tasksResponse?.meta?.total ?? 0;
+  const { data: notesResponse, isLoading } = useNotes(queryParams);
+  const notes = useMemo(() => notesResponse?.data ?? [], [notesResponse?.data]);
+  const totalItems = notesResponse?.meta?.total ?? 0;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
-  
-  // Stats from API response (includes all tasks, not just current page)
-  const apiStats = tasksResponse?.meta?.stats;
 
-  const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
-  const completeTask = useCompleteTask();
-  const bulkDelete = useBulkDeleteTasks();
-  const bulkUpdate = useBulkUpdateTasks();
-  
-  // Save filters to store when they change
+  const apiStats = notesResponse?.meta?.stats;
+
+  const createNote = useCreateNote();
+  const updateNote = useUpdateNote();
+  const deleteNote = useDeleteNote();
+  const bulkDelete = useBulkDeleteNotes();
+  const bulkUpdate = useBulkUpdateNotes();
+
   useEffect(() => {
-    setModuleFilters('tasks', {
+    setModuleFilters('notes', {
       search: searchQuery,
       status: statusFilter,
     });
   }, [searchQuery, statusFilter, setModuleFilters]);
 
-  // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearchQuery, statusFilter, filterGroup]);
 
-  // Delete modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [taskToDelete, setTaskToDelete] = useState<TaskViewModel | null>(null);
+  const [noteToDelete, setNoteToDelete] = useState<NoteViewModel | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Partial<Task> | null>(null);
+  const [editingNote, setEditingNote] = useState<Partial<Note> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
 
-  // Bulk operations state
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
-  // Filter dropdown ref for click outside
   const filterDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Export columns configuration
-  const exportColumns: ExportColumn<TaskViewModel>[] = useMemo(() => [
+  const exportColumns: ExportColumn<NoteViewModel>[] = useMemo(() => [
     { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Title' },
-    { key: 'description', label: 'Description' },
-    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
+    { key: 'subject', label: 'Subject' },
+    { key: 'description', label: 'Content' },
     { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Due Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'assignedTo', label: 'Assigned To' },
+    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
     { key: 'relatedTo', label: 'Related To' },
     { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
   ], []);
 
-  // Advanced filter fields configuration
   const filterFields: FilterField[] = useMemo(() => [
     {
       key: 'status',
@@ -291,9 +245,9 @@ export default function TasksPage() {
     },
     {
       key: 'subject',
-      label: 'Title',
+      label: 'Subject',
       type: 'text',
-      placeholder: 'Enter task title...',
+      placeholder: 'Enter note title...',
     },
     {
       key: 'priority',
@@ -351,16 +305,15 @@ export default function TasksPage() {
     };
   }, [showFilterDropdown]);
 
-  // Page-specific keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: [
       {
         key: "n",
         meta: true,
         ctrl: true,
-        description: "New task",
+        description: "New note",
         action: () => {
-          setEditingTask(null);
+          setEditingNote(null);
           setFormMode("add");
           setDefaultView("quick");
           setFormDrawerOpen(true);
@@ -369,10 +322,9 @@ export default function TasksPage() {
     ],
   });
 
-  // Filter options for quick dropdown (using API stats for counts)
   const filterOptions = useMemo(() => [
     {
-      label: "All Tasks",
+      label: "All Notes",
       value: null,
       count: apiStats?.total ?? totalItems,
     },
@@ -398,25 +350,31 @@ export default function TasksPage() {
     },
   ], [apiStats, totalItems]);
 
-  // Stats calculations using API stats (includes all tasks, not just current page)
   const stats = useMemo(() => {
-    const totalTasks = apiStats?.total ?? totalItems;
+    const totalNotes = apiStats?.total ?? totalItems;
     const inProgress = apiStats?.byStatus?.['in_progress'] ?? 0;
     const completed = apiStats?.byStatus?.['completed'] ?? 0;
-    const overdue = apiStats?.overdue ?? 0;
+    const pending = apiStats?.byStatus?.['pending'] ?? 0;
 
     return [
       {
-        label: "Total Tasks",
-        value: totalTasks,
-        icon: CheckSquare,
+        label: "Total Notes",
+        value: totalNotes,
+        icon: FileText,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
       },
       {
+        label: "Pending",
+        value: pending,
+        icon: Clock,
+        iconBgColor: "bg-muted",
+        iconColor: "text-muted-foreground",
+      },
+      {
         label: "In Progress",
         value: inProgress,
-        icon: Clock,
+        icon: AlertCircle,
         iconBgColor: "bg-accent/10",
         iconColor: "text-accent",
       },
@@ -427,51 +385,41 @@ export default function TasksPage() {
         iconBgColor: "bg-primary/20",
         iconColor: "text-primary",
       },
-      {
-        label: "Overdue",
-        value: overdue,
-        icon: AlertCircle,
-        iconBgColor: "bg-destructive/10",
-        iconColor: "text-destructive",
-      },
     ];
   }, [apiStats, totalItems]);
 
   // Handlers
   const handleSelectAll = () => {
-    if (selectedTasks.length === tasks.length) {
-      setSelectedTasks([]);
+    if (selectedNotes.length === notes.length) {
+      setSelectedNotes([]);
     } else {
-      setSelectedTasks(tasks.map((t) => t.id));
+      setSelectedNotes(notes.map((n) => n.id));
     }
   };
 
   const handleSelectRow = (id: string | number) => {
     const strId = String(id);
-    if (selectedTasks.includes(strId)) {
-      setSelectedTasks(selectedTasks.filter((tId) => tId !== strId));
+    if (selectedNotes.includes(strId)) {
+      setSelectedNotes(selectedNotes.filter((nId) => nId !== strId));
     } else {
-      setSelectedTasks([...selectedTasks, strId]);
+      setSelectedNotes([...selectedNotes, strId]);
     }
   };
 
-  // Delete handlers
-  const handleDeleteClick = (task: TaskViewModel) => {
-    setTaskToDelete(task);
+  const handleDeleteClick = (note: NoteViewModel) => {
+    setNoteToDelete(note);
     setIsDeleteModalOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!taskToDelete?.id) return;
-    
+    if (!noteToDelete?.id) return;
     setIsDeleting(true);
-    
     try {
-      await deleteTask.mutateAsync(taskToDelete.id);
+      await deleteNote.mutateAsync(noteToDelete.id);
       setIsDeleteModalOpen(false);
-      setTaskToDelete(null);
+      setNoteToDelete(null);
     } catch (error) {
-      console.error("Error deleting task:", error);
+      console.error("Error deleting note:", error);
     } finally {
       setIsDeleting(false);
     }
@@ -479,23 +427,22 @@ export default function TasksPage() {
 
   const handleDeleteCancel = () => {
     setIsDeleteModalOpen(false);
-    setTaskToDelete(null);
+    setNoteToDelete(null);
   };
 
-  // Bulk operation handlers
-  const handleSelectAllTasks = () => {
-    setSelectedTasks(tasks.map(t => t.id));
+  const handleSelectAllNotes = () => {
+    setSelectedNotes(notes.map(n => n.id));
   };
 
   const handleDeselectAll = () => {
-    setSelectedTasks([]);
+    setSelectedNotes([]);
   };
 
   const handleBulkDelete = async () => {
     setIsBulkProcessing(true);
     try {
-      await bulkDelete.mutateAsync(selectedTasks);
-      setSelectedTasks([]);
+      await bulkDelete.mutateAsync(selectedNotes);
+      setSelectedNotes([]);
       setShowBulkDelete(false);
     } catch (error) {
       console.error("Bulk delete error:", error);
@@ -507,11 +454,11 @@ export default function TasksPage() {
   const handleBulkUpdateStatus = async (status: string) => {
     setIsBulkProcessing(true);
     try {
-      await bulkUpdate.mutateAsync({ 
-        ids: selectedTasks, 
-        data: { status: status as TaskFormData['status'] } 
+      await bulkUpdate.mutateAsync({
+        ids: selectedNotes,
+        data: { status: status as NoteFormData['status'] }
       });
-      setSelectedTasks([]);
+      setSelectedNotes([]);
       setShowBulkUpdateStatus(false);
     } catch (error) {
       console.error("Bulk update error:", error);
@@ -521,42 +468,35 @@ export default function TasksPage() {
   };
 
   const handleBulkExport = () => {
-    const selectedData = tasks.filter(task => selectedTasks.includes(task.id));
-    
+    const selectedData = notes.filter(note => selectedNotes.includes(note.id));
     if (selectedData.length === 0) {
-      toast.error("No tasks selected for export");
+      toast.error("No notes selected for export");
       return;
     }
-
     try {
       exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-tasks-${new Date().toISOString().split('T')[0]}.csv`
+        selectedData,
+        exportColumns,
+        `selected-notes-${new Date().toISOString().split('T')[0]}.csv`
       );
-      toast.success(`Successfully exported ${selectedData.length} tasks`);
+      toast.success(`Successfully exported ${selectedData.length} notes`);
     } catch (error) {
       console.error("Bulk export error:", error);
-      toast.error("Failed to export tasks");
+      toast.error("Failed to export notes");
     }
   };
 
-  // Helper to get display value for filter conditions
   const getFilterDisplayValue = (field: FilterField | undefined, value: string): string => {
     if (!field || !value) return value;
-    
     if (field.type === 'select' && field.options) {
       const option = field.options.find(opt => opt.value === value);
       if (option) return option.label;
     }
-    
     return value;
   };
 
-  // Filter chips data
   const filterChips: FilterChip[] = useMemo(() => {
     const chips: FilterChip[] = [];
-    
     if (statusFilter) {
       chips.push({
         id: 'status-filter',
@@ -565,7 +505,6 @@ export default function TasksPage() {
         color: 'primary',
       });
     }
-    
     if (filterGroup && filterGroup.conditions.length > 0) {
       filterGroup.conditions.forEach((condition, index) => {
         const field = filterFields.find(f => f.key === condition.field);
@@ -578,7 +517,6 @@ export default function TasksPage() {
         });
       });
     }
-    
     return chips;
   }, [statusFilter, filterGroup, filterFields]);
 
@@ -592,10 +530,7 @@ export default function TasksPage() {
         if (newConditions.length === 0) {
           setFilterGroup(null);
         } else {
-          setFilterGroup({
-            ...filterGroup,
-            conditions: newConditions,
-          });
+          setFilterGroup({ ...filterGroup, conditions: newConditions });
         }
       }
     }
@@ -605,86 +540,75 @@ export default function TasksPage() {
     setStatusFilter(null);
     setSearchQuery('');
     setFilterGroup(null);
-    clearModuleFilters('tasks');
+    clearModuleFilters('notes');
   };
 
-  // Edit handler — fetches full task details from API before opening form
-  const handleEditTask = async (task: TaskViewModel) => {
+  const handleEditNote = async (note: NoteViewModel) => {
     setFormMode("edit");
-    
     try {
-      const fullTask = await tasksApi.getById(task.id);
-      
-      setEditingTask({
-        id: fullTask.id,
-        subject: fullTask.subject,
-        description: fullTask.description,
-        priority: fullTask.priority,
-        status: fullTask.status,
-        dueDate: toDateInputValue(fullTask.dueDate),
-        assignedTo: fullTask.assignedTo,
-        contactId: fullTask.contact?.id,
-        companyId: fullTask.company?.id,
-        dealId: fullTask.deal?.id,
-        leadId: fullTask.lead?.id,
-        reminderAt: toDateTimeLocalValue(fullTask.reminderAt),
+      const fullNote = await notesApi.getById(note.id);
+      setEditingNote({
+        id: fullNote.id,
+        subject: fullNote.subject,
+        description: fullNote.description,
+        status: fullNote.status,
+        priority: fullNote.priority,
+        assignedTo: fullNote.assignedTo,
+        contactId: fullNote.contact?.id,
+        companyId: fullNote.company?.id,
+        dealId: fullNote.deal?.id,
+        leadId: fullNote.lead?.id,
       });
     } catch (error) {
-      console.error("Failed to fetch task details:", error);
-      toast.error("Failed to load task details");
-      // Fallback to minimal data from list
-      setEditingTask({
-        id: task.id,
-        subject: task.subject,
-        description: task.description,
-        priority: task.priority,
-        status: task.status,
-        dueDate: toDateInputValue(task.dueDate),
-        assignedTo: task.assignedTo,
+      console.error("Failed to fetch note details:", error);
+      toast.error("Failed to load note details");
+      setEditingNote({
+        id: note.id,
+        subject: note.subject,
+        description: note.description,
+        status: note.status,
+        priority: note.priority,
+        assignedTo: note.assignedTo,
       });
     }
     setFormDrawerOpen(true);
   };
 
-  // Handle form submission
-  const handleFormSubmit = async (data: Partial<Task>) => {
+  const handleFormSubmit = async (data: Partial<Note>) => {
     try {
-      const taskData: TaskFormData = {
+      const noteData: NoteFormData = {
         subject: data.subject || "",
         description: data.description,
-        priority: data.priority as TaskFormData['priority'],
-        status: data.status as TaskFormData['status'],
-        dueDate: data.dueDate,
+        status: data.status as NoteFormData['status'],
+        priority: data.priority as NoteFormData['priority'],
         contactId: data.contactId,
         companyId: data.companyId,
         dealId: data.dealId,
         leadId: data.leadId,
         assignedTo: data.assignedTo,
-        reminderAt: data.reminderAt,
       };
 
-      if (formMode === "edit" && editingTask?.id) {
-        await updateTask.mutateAsync({ id: editingTask.id, data: taskData });
+      if (formMode === "edit" && editingNote?.id) {
+        await updateNote.mutateAsync({ id: editingNote.id, data: noteData });
       } else {
-        await createTask.mutateAsync(taskData);
+        await createNote.mutateAsync(noteData);
       }
-      
+
       setFormDrawerOpen(false);
-      setEditingTask(null);
+      setEditingNote(null);
     } catch (error) {
       throw error;
     }
   };
 
-  // Table columns - no sorting (matches leads pattern)
   const columns = useMemo(() => [
     {
       key: "subject",
-      label: "Task",
-      render: (_value: unknown, row: TaskViewModel) => (
-        <div 
+      label: "Note",
+      render: (_value: unknown, row: NoteViewModel) => (
+        <div
           className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={() => router.push(`/activities/tasks/${row.id}`)}
+          onClick={() => router.push(`/activities/notes/${row.id}`)}
         >
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
             {row.initials}
@@ -699,15 +623,6 @@ export default function TasksPage() {
       ),
     },
     {
-      key: "priority",
-      label: "Priority",
-      render: (value: string) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(value)}`}>
-          {PRIORITY_DISPLAY[value] || value}
-        </span>
-      ),
-    },
-    {
       key: "status",
       label: "Status",
       render: (value: string) => (
@@ -717,8 +632,17 @@ export default function TasksPage() {
       ),
     },
     {
-      key: "dueDate",
-      label: "Due Date",
+      key: "priority",
+      label: "Priority",
+      render: (value: string) => (
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(value)}`}>
+          {value ? (PRIORITY_DISPLAY[value] || value) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "createdAt",
+      label: "Created",
       render: (value: string) => (
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -729,7 +653,7 @@ export default function TasksPage() {
     {
       key: "relatedTo",
       label: "Related To",
-      render: (_value: unknown, row: TaskViewModel) => (
+      render: (_value: unknown, row: NoteViewModel) => (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           {row.relatedTo ? (
             <>
@@ -745,28 +669,17 @@ export default function TasksPage() {
         </div>
       ),
     },
-    {
-      key: "createdAt",
-      label: "Created",
-      render: (value: string) => (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Calendar className="h-4 w-4" />
-          {formatDate(value)}
-        </div>
-      ),
-    },
   ], [router]);
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <PageHeader
-        title="Tasks"
-        icon={CheckSquare}
+        title="Notes"
+        icon={FileText}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${totalItems} tasks`}
-        searchPlaceholder="Search tasks by title or description..."
+        subtitle={`${totalItems} notes`}
+        searchPlaceholder="Search notes by title or content..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         actions={
@@ -777,15 +690,10 @@ export default function TasksPage() {
               onClick={() => toggleStats()}
               title={showStats ? "Hide Statistics" : "Show Statistics"}
             >
-              {showStats ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
+              {showStats ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
             <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} />
-            
-            {/* Mobile Advanced Filter Button */}
+
             <Button
               variant="outline"
               size="sm"
@@ -800,19 +708,18 @@ export default function TasksPage() {
                 </span>
               )}
             </Button>
-            
-            {/* Filter Dropdown */}
+
             <div className="relative" ref={filterDropdownRef}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                title="Filter tasks by status"
+                title="Filter notes by status"
               >
                 <Filter className="h-4 w-4 mr-2" />
                 {statusFilter
                   ? filterOptions.find((f) => f.value === statusFilter)?.label
-                  : "All Tasks"}
+                  : "All Notes"}
                 <ChevronDown className="h-4 w-4 ml-2" />
               </Button>
 
@@ -851,7 +758,6 @@ export default function TasksPage() {
               </AnimatePresence>
             </div>
 
-            {/* Advanced Filter Button - Desktop */}
             <Button
               variant="outline"
               size="sm"
@@ -870,29 +776,28 @@ export default function TasksPage() {
             </Button>
 
             <ExportButton
-              data={tasks}
+              data={notes}
               columns={exportColumns}
-              filename={`tasks-${new Date().toISOString().split('T')[0]}`}
-              title="Tasks Export"
+              filename={`notes-${new Date().toISOString().split('T')[0]}`}
+              title="Notes Export"
             />
-            <Button 
+            <Button
               onClick={() => {
                 setFormMode("add");
-                setEditingTask(null);
+                setEditingNote(null);
                 setDefaultView("quick");
                 setFormDrawerOpen(true);
               }}
               className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new task"
+              title="Create a new note"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Task
+              New Note
             </Button>
           </>
         }
       />
 
-      {/* Filter Chips */}
       {filterChips.length > 0 && (
         <FilterChips
           chips={filterChips}
@@ -901,7 +806,6 @@ export default function TasksPage() {
         />
       )}
 
-      {/* Advanced Filter Drawer */}
       <AdvancedFilter
         fields={filterFields}
         onApply={(group) => {
@@ -926,12 +830,11 @@ export default function TasksPage() {
         drawerPosition="right"
       />
 
-      {/* Bulk Actions Toolbar */}
-      {selectedTasks.length > 0 && (
+      {selectedNotes.length > 0 && (
         <BulkActionsToolbar
-          selectedCount={selectedTasks.length}
+          selectedCount={selectedNotes.length}
           totalCount={totalItems}
-          onSelectAll={handleSelectAllTasks}
+          onSelectAll={handleSelectAllNotes}
           onDeselectAll={handleDeselectAll}
           onDelete={() => setShowBulkDelete(true)}
           onExport={handleBulkExport}
@@ -940,40 +843,33 @@ export default function TasksPage() {
         />
       )}
 
-      {/* Stats Cards */}
       <AnimatePresence>
         {showStats && <StatsCards stats={stats} columns={4} />}
       </AnimatePresence>
 
-      {/* Data Table (List View) */}
       {viewMode === "list" ? (
         <DataTable
-          data={tasks}
+          data={notes}
           columns={columns}
-          selectedIds={selectedTasks}
+          selectedIds={selectedNotes}
           onSelectAll={handleSelectAll}
           onSelectRow={handleSelectRow}
           showSelection={true}
           loading={isLoading}
-          emptyMessage="No tasks found"
-          emptyDescription="Try adjusting your search or filters, or add a new task"
-          renderActions={(row: TaskViewModel) => (
+          emptyMessage="No notes found"
+          emptyDescription="Try adjusting your search or filters, or create a new note"
+          renderActions={(row: NoteViewModel) => (
             <ActionMenu
               items={[
                 {
                   label: "View Details",
                   icon: FileText,
-                  onClick: () => router.push(`/activities/tasks/${row.id}`),
+                  onClick: () => router.push(`/activities/notes/${row.id}`),
                 },
                 {
-                  label: "Edit Task",
+                  label: "Edit Note",
                   icon: Edit,
-                  onClick: () => handleEditTask(row),
-                },
-                {
-                  label: "Mark Complete",
-                  icon: Check,
-                  onClick: () => completeTask.mutateAsync(row.id),
+                  onClick: () => handleEditNote(row),
                 },
                 { divider: true, label: "", onClick: () => {} },
                 {
@@ -987,30 +883,28 @@ export default function TasksPage() {
           )}
         />
       ) : (
-        /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tasks.map((task, index) => (
+          {notes.map((note, index) => (
             <motion.div
-              key={task.id}
+              key={note.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
-              <Card className="border border-border hover:shadow-lg transition-shadow p-6 cursor-pointer" onClick={() => router.push(`/activities/tasks/${task.id}`)}>
+              <Card
+                className="border border-border hover:shadow-lg transition-shadow p-6 cursor-pointer"
+                onClick={() => router.push(`/activities/notes/${note.id}`)}
+              >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">
-                      {task.initials}
+                      {note.initials}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-foreground">
-                        {task.subject}
-                      </h3>
-                      {task.relatedTo && (
-                        <p className="text-sm text-muted-foreground">
-                          {task.relatedTo}
-                        </p>
-                      )}
+                      <h3 className="font-semibold text-foreground">{note.subject}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(note.createdAt)}
+                      </p>
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
@@ -1019,53 +913,44 @@ export default function TasksPage() {
                         {
                           label: "View Details",
                           icon: FileText,
-                          onClick: () => router.push(`/activities/tasks/${task.id}`),
+                          onClick: () => router.push(`/activities/notes/${note.id}`),
                         },
                         {
-                          label: "Edit Task",
+                          label: "Edit Note",
                           icon: Edit,
-                          onClick: () => handleEditTask(task),
-                        },
-                        {
-                          label: "Mark Complete",
-                          icon: Check,
-                          onClick: () => completeTask.mutateAsync(task.id),
+                          onClick: () => handleEditNote(note),
                         },
                         { divider: true, label: "", onClick: () => {} },
                         {
                           label: "Delete",
                           icon: Trash2,
                           variant: "danger",
-                          onClick: () => handleDeleteClick(task),
+                          onClick: () => handleDeleteClick(note),
                         },
                       ]}
                     />
                   </div>
                 </div>
-                {task.description && (
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {task.description}
-                  </p>
+                {note.description && (
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-3">{note.description}</p>
                 )}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>Due: {formatDate(task.dueDate)}</span>
-                  </div>
-                  {task.relatedTo && (
+                  {note.relatedTo && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Flag className="h-4 w-4" />
-                      <span>{task.relatedTo}</span>
+                      <span>{note.relatedTo}</span>
                     </div>
                   )}
                 </div>
                 <div className="mt-4 flex items-center gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                    {STATUS_DISPLAY[task.status] || task.status}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(note.status)}`}>
+                    {STATUS_DISPLAY[note.status] || note.status}
                   </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                    {PRIORITY_DISPLAY[task.priority] || task.priority}
-                  </span>
+                  {note.priority && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(note.priority)}`}>
+                      {PRIORITY_DISPLAY[note.priority] || note.priority}
+                    </span>
+                  )}
                 </div>
               </Card>
             </motion.div>
@@ -1073,7 +958,6 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Pagination */}
       <DataPagination
         currentPage={currentPage}
         totalPages={totalPages}
@@ -1081,60 +965,56 @@ export default function TasksPage() {
         itemsPerPage={itemsPerPage}
         onPageChange={(page) => {
           setCurrentPage(page);
-          setSelectedTasks([]);
+          setSelectedNotes([]);
         }}
         onItemsPerPageChange={(items) => {
           setItemsPerPage(items);
           setCurrentPage(1);
-          setSelectedTasks([]);
+          setSelectedNotes([]);
         }}
         filterInfo={
           statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined
         }
       />
 
-      {/* Delete Confirmation Modal */}
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
         onClose={handleDeleteCancel}
         onConfirm={handleDeleteConfirm}
-        title="Delete Task"
-        description="Are you sure you want to delete this task? This will permanently remove it from your CRM and cannot be undone."
-        itemName={taskToDelete?.subject}
-        itemType="Task"
-        icon={CheckSquare}
+        title="Delete Note"
+        description="Are you sure you want to delete this note? This will permanently remove it from your CRM and cannot be undone."
+        itemName={noteToDelete?.subject}
+        itemType="Note"
+        icon={FileText}
         isDeleting={isDeleting}
       />
 
-      {/* Task Form Drawer */}
-      <TaskFormDrawer
+      <NoteFormDrawer
         isOpen={formDrawerOpen}
         onClose={() => {
           setFormDrawerOpen(false);
-          setEditingTask(null);
+          setEditingNote(null);
         }}
         onSubmit={handleFormSubmit}
-        initialData={editingTask}
+        initialData={editingNote}
         mode={formMode}
         defaultView={defaultView}
       />
 
-      {/* Bulk Delete Modal */}
       <BulkDeleteModal
         isOpen={showBulkDelete}
         onClose={() => setShowBulkDelete(false)}
         onConfirm={handleBulkDelete}
-        itemCount={selectedTasks.length}
-        itemName="task"
+        itemCount={selectedNotes.length}
+        itemName="note"
       />
 
-      {/* Bulk Update Status Modal */}
       <BulkUpdateModal<string>
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
-        itemCount={selectedTasks.length}
-        title="Update Task Status"
+        itemCount={selectedNotes.length}
+        title="Update Note Status"
         field="Status"
         options={[
           { label: 'Pending', value: 'pending' },

@@ -1171,9 +1171,10 @@ class ActivityListView(BaseAPIView):
         search = request.query_params.get('search')
         activity_type = request.query_params.get('type')
         status_param = request.query_params.get('status')
-        contact_id = request.query_params.get('contact_id')
-        deal_id = request.query_params.get('deal_id')
-        lead_id = request.query_params.get('lead_id')
+        contact_id = self.get_uuid_param('contact_id')
+        company_id = self.get_uuid_param('company_id')
+        deal_id = self.get_uuid_param('deal_id')
+        lead_id = self.get_uuid_param('lead_id')
         overdue = request.query_params.get('overdue')
         order_by = request.query_params.get('order_by', '-created_at')
         
@@ -1189,8 +1190,8 @@ class ActivityListView(BaseAPIView):
             except (json.JSONDecodeError, TypeError):
                 pass
         
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 10))
+        page = self.get_int_param('page', default=1, min_value=1)
+        page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
         
         # Build shared filter kwargs
@@ -1198,9 +1199,10 @@ class ActivityListView(BaseAPIView):
             search=search,
             activity_type=activity_type,
             status=status_param,
-            contact_id=UUID(contact_id) if contact_id else None,
-            deal_id=UUID(deal_id) if deal_id else None,
-            lead_id=UUID(lead_id) if lead_id else None,
+            contact_id=contact_id,
+            company_id=company_id,
+            deal_id=deal_id,
+            lead_id=lead_id,
             overdue=overdue.lower() == 'true' if overdue else None,
             order_by=order_by,
             advanced_filters=advanced_filters,

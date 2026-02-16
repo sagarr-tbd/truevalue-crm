@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -12,10 +12,7 @@ import {
   User,
   Clock,
   FileText,
-  MessageSquare,
-  Plus,
   AlertCircle,
-  Activity,
   Users,
   Flag,
   CheckCircle2,
@@ -28,7 +25,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
-import { Textarea } from "@/components/ui/textarea";
 import { MeetingFormDrawer } from "@/components/Forms/Activities";
 import type { Meeting as MeetingType } from "@/lib/types";
 import {
@@ -38,9 +34,7 @@ import {
   useCompleteMeeting,
   type MeetingFormData,
 } from "@/lib/queries/useMeetings";
-import { useCreateActivity } from "@/lib/queries/useActivities";
 import { useMemberOptions } from "@/lib/queries/useMembers";
-import type { ActivityFormData } from "@/lib/api/activities";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -105,8 +99,6 @@ const getStatusIcon = (status: string) => {
   return Circle;
 };
 
-type TabType = "details" | "activity" | "notes";
-
 // ============================================================================
 // PAGE COMPONENT
 // ============================================================================
@@ -115,9 +107,7 @@ export default function MeetingDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const [activeTab, setActiveTab] = useState<TabType>("details");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [newNote, setNewNote] = useState("");
 
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Partial<MeetingType> | null>(null);
@@ -126,7 +116,6 @@ export default function MeetingDetailPage() {
   const updateMeeting = useUpdateMeeting();
   const deleteMeetingMutation = useDeleteMeeting();
   const completeMeeting = useCompleteMeeting();
-  const createActivity = useCreateActivity();
   const { data: memberOptions = [], isLoading: isMembersLoading } = useMemberOptions();
 
   const resolveMemberName = (uuid?: string): string | null => {
@@ -152,26 +141,6 @@ export default function MeetingDetailPage() {
       await updateMeeting.mutateAsync({ id: meeting.id, data: { status: "pending" } });
     } else {
       await completeMeeting.mutateAsync(meeting.id);
-    }
-  };
-
-  const handleAddNote = async () => {
-    if (!newNote.trim() || !meeting) return;
-    try {
-      const noteData: ActivityFormData = {
-        activityType: "note",
-        subject: `Note on meeting: ${meeting.subject}`,
-        description: newNote,
-        status: "completed",
-        contactId: meeting.contact?.id,
-        companyId: meeting.company?.id,
-        dealId: meeting.deal?.id,
-        leadId: meeting.lead?.id,
-      };
-      await createActivity.mutateAsync(noteData);
-      setNewNote("");
-    } catch (error) {
-      console.error("Error adding note:", error);
     }
   };
 
@@ -250,12 +219,6 @@ export default function MeetingDetailPage() {
     );
   }
 
-  const tabs = [
-    { id: "details" as TabType, label: "Details", icon: FileText },
-    { id: "activity" as TabType, label: "Activity", icon: Activity },
-    { id: "notes" as TabType, label: "Notes", icon: MessageSquare },
-  ];
-
   return (
     <div className="min-h-screen">
       <div>
@@ -308,22 +271,10 @@ export default function MeetingDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-3">
             <Card className="mb-6">
-              <CardContent className="p-0">
-                <div className="flex border-b border-border overflow-x-auto scrollbar-hide">
-                  {tabs.map(tab => {
-                    const Icon = tab.icon;
-                    return (
-                      <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors border-b-2 ${activeTab === tab.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-                        <Icon className="h-4 w-4" />{tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="p-6">
-                  <AnimatePresence mode="wait">
-                    {activeTab === "details" && (
-                      <motion.div key="details" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="space-y-6">
+              <CardHeader>
+                <CardTitle className="text-base">Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
                         {/* Meeting Information & Schedule */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
@@ -439,38 +390,6 @@ export default function MeetingDetailPage() {
                             </div>
                           </div>
                         </div>
-                      </motion.div>
-                    )}
-
-                    {activeTab === "activity" && (
-                      <motion.div key="activity" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
-                        <div className="text-center py-8 text-muted-foreground">
-                          <Activity className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
-                          <p className="text-sm">Activity tracking for this meeting</p>
-                          <p className="text-xs text-muted-foreground/60 mt-1">Changes to this meeting are tracked automatically</p>
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {activeTab === "notes" && (
-                      <motion.div key="notes" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="space-y-4">
-                        <div className="border border-border rounded-lg p-4 bg-muted/30">
-                          <Textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Add a note about this meeting..." className="min-h-[100px] resize-none" />
-                          <div className="flex justify-end mt-3">
-                            <Button onClick={handleAddNote} size="sm" disabled={!newNote.trim() || createActivity.isPending}>
-                              {createActivity.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                              Add Note
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="text-center py-6 text-muted-foreground">
-                          <MessageSquare className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-                          <p className="text-sm">Notes are saved as activities linked to the related entities.</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
               </CardContent>
             </Card>
           </div>

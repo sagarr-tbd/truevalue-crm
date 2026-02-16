@@ -516,6 +516,19 @@ export const documentSchema = z.object({
 });
 
 // Task validation schema
+const requireAtLeastOneEntity = (data: { contactId?: string; companyId?: string; dealId?: string; leadId?: string }, ctx: z.RefinementCtx) => {
+  const hasEntity = [data.contactId, data.companyId, data.dealId, data.leadId].some(
+    (v) => v && v.trim() !== ""
+  );
+  if (!hasEntity) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "At least one entity (Contact, Company, Deal, or Lead) must be linked",
+      path: ["contactId"],
+    });
+  }
+};
+
 export const taskSchema = z.object({
   subject: z.string().min(1, "Task title is required"),
   description: z.string().optional(),
@@ -534,25 +547,25 @@ export const taskSchema = z.object({
     })
   ),
   dueDate: z.string().optional(),
-  startTime: z.string().optional(),
-  endTime: z.string().optional(),
-  durationMinutes: z.preprocess(
-    (val) => {
-      if (!val || val === "" || val === null || val === undefined) return undefined;
-      if (typeof val === "string") {
-        const num = parseInt(val);
-        return isNaN(num) ? undefined : num;
-      }
-      return typeof val === "number" ? val : undefined;
-    },
-    z.number().min(0).optional()
-  ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
   dealId: z.string().optional(),
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the due date",
+        path: ["reminderAt"],
+      });
+    }
+  }
 });
 
 // Call validation schema
@@ -590,7 +603,7 @@ export const callSchema = z.object({
       }
       return typeof val === "number" ? val : undefined;
     },
-    z.number().min(0).optional()
+    z.number().min(0).max(1440, "Duration cannot exceed 24 hours").optional()
   ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
@@ -598,6 +611,30 @@ export const callSchema = z.object({
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.startTime && data.endTime) {
+    const start = new Date(data.startTime);
+    const end = new Date(data.endTime);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "End time must be after start time",
+        path: ["endTime"],
+      });
+    }
+  }
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the call date",
+        path: ["reminderAt"],
+      });
+    }
+  }
 });
 
 // Meeting validation schema
@@ -624,7 +661,7 @@ export const meetingSchema = z.object({
       }
       return typeof val === "number" ? val : undefined;
     },
-    z.number().min(0).optional()
+    z.number().min(0).max(1440, "Duration cannot exceed 24 hours").optional()
   ),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
@@ -632,6 +669,51 @@ export const meetingSchema = z.object({
   leadId: z.string().optional(),
   assignedTo: z.string().optional(),
   reminderAt: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
+  if (data.startTime && data.endTime) {
+    const start = new Date(data.startTime);
+    const end = new Date(data.endTime);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "End time must be after start time",
+        path: ["endTime"],
+      });
+    }
+  }
+  if (data.reminderAt && data.dueDate) {
+    const reminder = new Date(data.reminderAt);
+    const due = new Date(data.dueDate);
+    if (!isNaN(reminder.getTime()) && !isNaN(due.getTime()) && reminder >= due) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reminder must be before the meeting date",
+        path: ["reminderAt"],
+      });
+    }
+  }
+});
+
+// Note validation schema
+export const noteSchema = z.object({
+  subject: z.string().min(1, "Note title is required"),
+  description: z.string().optional(),
+  status: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
+  ),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"]).optional()
+  ),
+  contactId: z.string().optional(),
+  companyId: z.string().optional(),
+  dealId: z.string().optional(),
+  leadId: z.string().optional(),
+  assignedTo: z.string().optional(),
+}).superRefine((data, ctx) => {
+  requireAtLeastOneEntity(data, ctx);
 });
 
 // Product validation schema

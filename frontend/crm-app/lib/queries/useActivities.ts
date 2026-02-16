@@ -18,6 +18,7 @@ export interface ActivityQueryParams {
   activity_type?: ActivityType;
   status?: ActivityStatus;
   contact_id?: string;
+  company_id?: string;
   deal_id?: string;
   lead_id?: string;
   search?: string;
@@ -68,6 +69,30 @@ export function useLeadActivities(leadId: string) {
 }
 
 /**
+ * Hook to fetch company/account activities
+ */
+export function useCompanyActivities(companyId: string) {
+  return useQuery({
+    queryKey: ['companies', companyId, 'activities'],
+    queryFn: () => activitiesApi.getAll({ company_id: companyId, page_size: 50 }),
+    enabled: !!companyId,
+    select: (data) => data.data,
+  });
+}
+
+/**
+ * Hook to fetch deal activities
+ */
+export function useDealActivities(dealId: string) {
+  return useQuery({
+    queryKey: ['deals', dealId, 'activities'],
+    queryFn: () => activitiesApi.getAll({ deal_id: dealId, page_size: 50 }),
+    enabled: !!dealId,
+    select: (data) => data.data,
+  });
+}
+
+/**
  * Hook to fetch upcoming activities
  */
 export function useUpcomingActivities() {
@@ -109,23 +134,34 @@ export function useActivityTrend(days: number = 30) {
 }
 
 /**
- * Hook to create an activity
+ * Invalidate all entity-specific activity caches for a given activity
  */
+function invalidateEntityActivityCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  activity: ActivityViewModel
+) {
+  if (activity.contact?.id) {
+    queryClient.invalidateQueries({ queryKey: ['contacts', activity.contact.id, 'timeline'] });
+  }
+  if (activity.company?.id) {
+    queryClient.invalidateQueries({ queryKey: ['companies', activity.company.id, 'activities'] });
+  }
+  if (activity.deal?.id) {
+    queryClient.invalidateQueries({ queryKey: ['deals', activity.deal.id, 'activities'] });
+  }
+  if (activity.lead?.id) {
+    queryClient.invalidateQueries({ queryKey: ['leads', activity.lead.id, 'activities'] });
+  }
+}
+
 export function useCreateActivity() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (data: ActivityFormData) => activitiesApi.create(data),
     onSuccess: (newActivity) => {
-      // Invalidate all activity queries
       queryClient.invalidateQueries({ queryKey: ['activities'] });
-      
-      // Invalidate contact timeline if linked to a contact
-      if (newActivity.contact?.id) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['contacts', newActivity.contact.id, 'timeline'] 
-        });
-      }
+      invalidateEntityActivityCaches(queryClient, newActivity);
     },
   });
 }
@@ -141,12 +177,7 @@ export function useUpdateActivity() {
       activitiesApi.update(id, data),
     onSuccess: (updatedActivity) => {
       queryClient.invalidateQueries({ queryKey: ['activities'] });
-      
-      if (updatedActivity.contact?.id) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['contacts', updatedActivity.contact.id, 'timeline'] 
-        });
-      }
+      invalidateEntityActivityCaches(queryClient, updatedActivity);
     },
   });
 }
@@ -175,12 +206,7 @@ export function useCompleteActivity() {
     mutationFn: (id: string) => activitiesApi.complete(id),
     onSuccess: (completedActivity) => {
       queryClient.invalidateQueries({ queryKey: ['activities'] });
-      
-      if (completedActivity.contact?.id) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['contacts', completedActivity.contact.id, 'timeline'] 
-        });
-      }
+      invalidateEntityActivityCaches(queryClient, completedActivity);
     },
   });
 }

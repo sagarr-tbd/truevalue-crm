@@ -252,6 +252,7 @@ export const activitiesApi = {
     activity_type?: ActivityType;
     status?: ActivityStatus;
     contact_id?: string;
+    company_id?: string;
     deal_id?: string;
     lead_id?: string;
     search?: string;
@@ -271,6 +272,7 @@ export const activitiesApi = {
     if (params?.activity_type) queryParams.set('type', params.activity_type);
     if (params?.status) queryParams.set('status', params.status);
     if (params?.contact_id) queryParams.set('contact_id', params.contact_id);
+    if (params?.company_id) queryParams.set('company_id', params.company_id);
     if (params?.deal_id) queryParams.set('deal_id', params.deal_id);
     if (params?.lead_id) queryParams.set('lead_id', params.lead_id);
     if (params?.search) queryParams.set('search', params.search);

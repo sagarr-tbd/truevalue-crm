@@ -53,6 +53,10 @@ import {
   type CallFormData,
 } from "@/lib/queries/useCalls";
 import { callsApi } from "@/lib/api/calls";
+import { useContactOptions } from "@/lib/queries/useContacts";
+import { useCompanyOptions } from "@/lib/queries/useCompanies";
+import { useDealOptions } from "@/lib/queries/useDeals";
+import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import type { Call } from "@/lib/types";
 
@@ -179,6 +183,12 @@ export default function CallsPage() {
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [filterGroup, setFilterGroup] = useState<FilterGroup | null>(null);
   const { presets, addPreset, deletePreset } = useFilterPresets("calls");
+
+  // Entity options for advanced filters
+  const { data: contactOptions = [] } = useContactOptions();
+  const { data: companyOptions = [] } = useCompanyOptions();
+  const { data: dealOptions = [] } = useDealOptions();
+  const { data: leadOptions = [] } = useLeadOptions();
 
   // Build query params for server-side pagination
   const queryParams: CallQueryParams = useMemo(() => {
@@ -316,7 +326,31 @@ export default function CallsPage() {
         { label: 'Low', value: 'low' },
       ],
     },
-  ], []);
+    {
+      key: 'contactId',
+      label: 'Contact',
+      type: 'select',
+      options: contactOptions,
+    },
+    {
+      key: 'companyId',
+      label: 'Company',
+      type: 'select',
+      options: companyOptions,
+    },
+    {
+      key: 'dealId',
+      label: 'Deal',
+      type: 'select',
+      options: dealOptions,
+    },
+    {
+      key: 'leadId',
+      label: 'Lead',
+      type: 'select',
+      options: leadOptions,
+    },
+  ], [contactOptions, companyOptions, dealOptions, leadOptions]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
