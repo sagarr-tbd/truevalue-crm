@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
+from .permissions import CRMResourcePermission
 from .models import (
     Contact, Company, Lead, Deal, Pipeline, PipelineStage,
     Activity, Tag, CustomFieldDefinition,
@@ -44,7 +45,8 @@ logger = logging.getLogger(__name__)
 class BaseAPIView(APIView):
     """Base view with common functionality."""
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CRMResourcePermission]
+    resource = None  # Subclasses set this e.g. 'contacts', 'deals'
     
     def get_org_id(self) -> UUID:
         """Get organization ID from request."""
@@ -124,6 +126,7 @@ class BaseAPIView(APIView):
 
 class ContactListView(BaseAPIView):
     """List and create contacts."""
+    resource = 'contacts'
     
     def get(self, request):
         """List contacts with filtering."""
@@ -214,6 +217,7 @@ class ContactListView(BaseAPIView):
 
 class ContactDetailView(BaseAPIView):
     """Get, update, delete a contact."""
+    resource = 'contacts'
     
     def get(self, request, contact_id):
         """Get contact details."""
@@ -241,6 +245,7 @@ class ContactDetailView(BaseAPIView):
 
 class ContactTimelineView(BaseAPIView):
     """Get contact activity timeline."""
+    resource = 'contacts'
     
     def get(self, request, contact_id):
         """Get contact timeline."""
@@ -251,6 +256,7 @@ class ContactTimelineView(BaseAPIView):
 
 class ContactCompaniesView(BaseAPIView):
     """Manage company associations for a contact."""
+    resource = 'contacts'
     
     def get(self, request, contact_id):
         """List all company associations for a contact."""
@@ -287,6 +293,7 @@ class ContactCompaniesView(BaseAPIView):
 
 class ContactCompanyDetailView(BaseAPIView):
     """Remove a company association from a contact."""
+    resource = 'contacts'
     
     def delete(self, request, contact_id, company_id):
         """Remove a company association."""
@@ -310,6 +317,8 @@ class ContactCompanyDetailView(BaseAPIView):
 
 class ContactImportView(BaseAPIView):
     """Bulk import contacts."""
+    resource = 'contacts'
+    permission_action = 'import'
     
     def post(self, request):
         """Import contacts from list."""
@@ -324,6 +333,8 @@ class ContactImportView(BaseAPIView):
 
 class ContactBulkDeleteView(BaseAPIView):
     """Bulk delete contacts."""
+    resource = 'contacts'
+    permission_action = 'delete'
     
     def post(self, request):
         """Delete multiple contacts by IDs."""
@@ -338,6 +349,7 @@ class ContactBulkDeleteView(BaseAPIView):
 
 class ContactBulkUpdateView(BaseAPIView):
     """Bulk update contacts."""
+    resource = 'contacts'
     
     def post(self, request):
         """Update multiple contacts with the same data."""
@@ -355,6 +367,7 @@ class ContactBulkUpdateView(BaseAPIView):
 
 class ContactMergeView(BaseAPIView):
     """Merge two contacts into one."""
+    resource = 'contacts'
     
     def post(self, request):
         """
@@ -403,6 +416,7 @@ class ContactMergeView(BaseAPIView):
 
 class CompanyListView(BaseAPIView):
     """List and create companies."""
+    resource = 'companies'
     
     def get(self, request):
         """List companies with pagination, filtering, and stats."""
@@ -488,6 +502,7 @@ class CompanyListView(BaseAPIView):
 
 class CompanyDetailView(BaseAPIView):
     """Get, update, delete a company."""
+    resource = 'companies'
     
     def get(self, request, company_id):
         """Get company details."""
@@ -515,6 +530,7 @@ class CompanyDetailView(BaseAPIView):
 
 class CompanyContactsView(BaseAPIView):
     """Get and link contacts for a company."""
+    resource = 'companies'
     
     def get(self, request, company_id):
         """Get company contacts with relationship details."""
@@ -549,6 +565,7 @@ class CompanyContactsView(BaseAPIView):
 
 class CompanyContactDetailView(BaseAPIView):
     """Remove a contact from a company."""
+    resource = 'companies'
     
     def delete(self, request, company_id, contact_id):
         """Unlink a contact from this company."""
@@ -559,6 +576,7 @@ class CompanyContactDetailView(BaseAPIView):
 
 class CompanyStatsView(BaseAPIView):
     """Get company statistics."""
+    resource = 'companies'
     
     def get(self, request, company_id):
         """Get company stats."""
@@ -573,6 +591,7 @@ class CompanyStatsView(BaseAPIView):
 
 class LeadListView(BaseAPIView):
     """List and create leads."""
+    resource = 'leads'
     
     def get(self, request):
         """List leads."""
@@ -597,8 +616,8 @@ class LeadListView(BaseAPIView):
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
         
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 10))
+        page = self.get_int_param('page', default=1, min_value=1)
+        page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
         
         # Get filtered queryset (without pagination) for count
@@ -654,6 +673,7 @@ class LeadListView(BaseAPIView):
 
 class LeadDetailView(BaseAPIView):
     """Get, update, delete a lead."""
+    resource = 'leads'
     
     def get(self, request, lead_id):
         """Get lead details."""
@@ -681,6 +701,7 @@ class LeadDetailView(BaseAPIView):
 
 class LeadConvertView(BaseAPIView):
     """Convert a lead to contact/company/deal."""
+    resource = 'leads'
     
     def post(self, request, lead_id):
         """Convert lead."""
@@ -695,6 +716,7 @@ class LeadConvertView(BaseAPIView):
 
 class LeadDisqualifyView(BaseAPIView):
     """Disqualify a lead."""
+    resource = 'leads'
     
     def post(self, request, lead_id):
         """Disqualify lead."""
@@ -708,6 +730,8 @@ class LeadDisqualifyView(BaseAPIView):
 
 class LeadBulkDeleteView(BaseAPIView):
     """Bulk delete leads."""
+    resource = 'leads'
+    permission_action = 'delete'
     
     def post(self, request):
         """Delete multiple leads by IDs."""
@@ -722,6 +746,7 @@ class LeadBulkDeleteView(BaseAPIView):
 
 class LeadBulkUpdateView(BaseAPIView):
     """Bulk update leads."""
+    resource = 'leads'
     
     def post(self, request):
         """Update multiple leads with the same data."""
@@ -743,6 +768,7 @@ class LeadBulkUpdateView(BaseAPIView):
 
 class DealListView(BaseAPIView):
     """List and create deals."""
+    resource = 'deals'
     
     def get(self, request):
         """List deals with filtering, pagination, and search."""
@@ -772,8 +798,8 @@ class DealListView(BaseAPIView):
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
         
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 10))
+        page = self.get_int_param('page', default=1, min_value=1)
+        page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
         
         # Build filter kwargs
@@ -871,6 +897,7 @@ class DealListView(BaseAPIView):
 
 class DealDetailView(BaseAPIView):
     """Get, update, delete a deal."""
+    resource = 'deals'
     
     def get(self, request, deal_id):
         """Get deal details."""
@@ -898,6 +925,7 @@ class DealDetailView(BaseAPIView):
 
 class DealKanbanView(BaseAPIView):
     """Get deals in Kanban format."""
+    resource = 'deals'
     
     def get(self, request, pipeline_id):
         """Get Kanban board data."""
@@ -908,6 +936,7 @@ class DealKanbanView(BaseAPIView):
 
 class DealMoveStageView(BaseAPIView):
     """Move deal to a different stage."""
+    resource = 'deals'
     
     def post(self, request, deal_id):
         """Move deal stage."""
@@ -934,6 +963,7 @@ class DealMoveStageView(BaseAPIView):
 
 class DealWinView(BaseAPIView):
     """Mark deal as won."""
+    resource = 'deals'
     
     def post(self, request, deal_id):
         """Win deal."""
@@ -944,6 +974,7 @@ class DealWinView(BaseAPIView):
 
 class DealLoseView(BaseAPIView):
     """Mark deal as lost."""
+    resource = 'deals'
     
     def post(self, request, deal_id):
         """Lose deal."""
@@ -958,6 +989,7 @@ class DealLoseView(BaseAPIView):
 
 class DealReopenView(BaseAPIView):
     """Reopen a closed deal."""
+    resource = 'deals'
     
     def post(self, request, deal_id):
         """Reopen deal."""
@@ -981,6 +1013,7 @@ class DealReopenView(BaseAPIView):
 
 class DealForecastView(BaseAPIView):
     """Get deal forecast."""
+    resource = 'deals'
     
     def get(self, request):
         """Get forecast."""
@@ -1006,6 +1039,8 @@ class DealForecastView(BaseAPIView):
 
 class DealBulkDeleteView(BaseAPIView):
     """Bulk delete deals."""
+    resource = 'deals'
+    permission_action = 'delete'
     
     def post(self, request):
         """Delete multiple deals by IDs."""
@@ -1024,6 +1059,7 @@ class DealBulkDeleteView(BaseAPIView):
 
 class PipelineListView(BaseAPIView):
     """List and create pipelines."""
+    resource = 'deals'
     
     def get(self, request):
         """List pipelines."""
@@ -1053,6 +1089,7 @@ class PipelineListView(BaseAPIView):
 
 class PipelineDetailView(BaseAPIView):
     """Get, update, delete a pipeline."""
+    resource = 'deals'
     
     def get(self, request, pipeline_id):
         """Get pipeline with stages."""
@@ -1080,6 +1117,7 @@ class PipelineDetailView(BaseAPIView):
 
 class PipelineStatsView(BaseAPIView):
     """Get pipeline statistics."""
+    resource = 'deals'
     
     def get(self, request, pipeline_id):
         """Get pipeline stats."""
@@ -1090,6 +1128,7 @@ class PipelineStatsView(BaseAPIView):
 
 class PipelineStageListView(BaseAPIView):
     """List and create pipeline stages."""
+    resource = 'deals'
     
     def get(self, request, pipeline_id):
         """List stages."""
@@ -1117,6 +1156,7 @@ class PipelineStageListView(BaseAPIView):
 
 class PipelineStageDetailView(BaseAPIView):
     """Update, delete a pipeline stage."""
+    resource = 'deals'
     
     def patch(self, request, pipeline_id, stage_id):
         """Update a stage."""
@@ -1139,15 +1179,31 @@ class PipelineStageDetailView(BaseAPIView):
 
 class PipelineStageReorderView(BaseAPIView):
     """Reorder pipeline stages."""
+    resource = 'deals'
+    permission_action = 'manage_pipeline'
     
     def post(self, request, pipeline_id):
         """Reorder stages."""
-        stage_order = request.data.get('stage_order', [])
+        stage_order = request.data.get('stage_order') or []
+        
+        if not isinstance(stage_order, list):
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': 'stage_order must be a list of UUIDs'}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        try:
+            stage_uuids = [UUID(s) for s in stage_order]
+        except (ValueError, TypeError, AttributeError):
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': 'stage_order contains invalid UUID values'}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         
         service = self.get_service(PipelineService)
         stages = service.reorder_stages(
             pipeline_id,
-            [UUID(s) for s in stage_order]
+            stage_uuids
         )
         
         return Response({
@@ -1161,6 +1217,7 @@ class PipelineStageReorderView(BaseAPIView):
 
 class ActivityListView(BaseAPIView):
     """List and create activities."""
+    resource = 'activities'
     
     def get(self, request):
         """List activities."""
@@ -1252,6 +1309,7 @@ class ActivityListView(BaseAPIView):
 
 class ActivityDetailView(BaseAPIView):
     """Get, update, delete an activity."""
+    resource = 'activities'
     
     def get(self, request, activity_id):
         """Get activity details."""
@@ -1279,6 +1337,7 @@ class ActivityDetailView(BaseAPIView):
 
 class ActivityCompleteView(BaseAPIView):
     """Mark activity as complete."""
+    resource = 'activities'
     
     def post(self, request, activity_id):
         """Complete activity."""
@@ -1289,10 +1348,11 @@ class ActivityCompleteView(BaseAPIView):
 
 class ActivityUpcomingView(BaseAPIView):
     """Get upcoming activities."""
+    resource = 'activities'
     
     def get(self, request):
         """Get upcoming activities."""
-        days = int(request.query_params.get('days', 7))
+        days = self.get_int_param('days', default=7, min_value=1, max_value=365)
         
         service = self.get_service(ActivityService)
         activities = service.get_upcoming(
@@ -1307,6 +1367,7 @@ class ActivityUpcomingView(BaseAPIView):
 
 class ActivityOverdueView(BaseAPIView):
     """Get overdue activities."""
+    resource = 'activities'
     
     def get(self, request):
         """Get overdue activities."""
@@ -1320,6 +1381,7 @@ class ActivityOverdueView(BaseAPIView):
 
 class ActivityStatsView(BaseAPIView):
     """Get activity statistics."""
+    resource = 'activities'
     
     def get(self, request):
         """Get activity stats."""
@@ -1330,6 +1392,7 @@ class ActivityStatsView(BaseAPIView):
 
 class ActivityTrendView(BaseAPIView):
     """Get activity trend data for charts."""
+    resource = 'activities'
     
     def get(self, request):
         """Get daily activity counts grouped by type."""
@@ -1351,6 +1414,7 @@ class ActivityTrendView(BaseAPIView):
 
 class TagListView(BaseAPIView):
     """List and create tags."""
+    resource = 'contacts'
     
     def get(self, request):
         """List tags."""
@@ -1376,6 +1440,7 @@ class TagListView(BaseAPIView):
 
 class TagDetailView(BaseAPIView):
     """Get, update, delete a tag."""
+    resource = 'contacts'
     
     def get(self, request, tag_id):
         """Get tag details."""
@@ -1407,6 +1472,7 @@ class TagDetailView(BaseAPIView):
 
 class CustomFieldListView(BaseAPIView):
     """List and create custom fields."""
+    resource = 'contacts'
     
     def get(self, request):
         """List custom fields."""
@@ -1436,6 +1502,7 @@ class CustomFieldListView(BaseAPIView):
 
 class CustomFieldDetailView(BaseAPIView):
     """Get, update, delete a custom field."""
+    resource = 'contacts'
     
     def patch(self, request, field_id):
         """Update a custom field."""
@@ -1473,12 +1540,13 @@ class CustomFieldDetailView(BaseAPIView):
 # =============================================================================
 
 class GlobalSearchView(BaseAPIView):
-    """Global search across all entities."""
+    """Global search across all entities. Requires at least contacts:read."""
+    resource = 'contacts'
     
     def get(self, request):
         """Search all entities."""
         query = request.query_params.get('q', '')
-        limit = int(request.query_params.get('limit', 5))
+        limit = self.get_int_param('limit', default=5, min_value=1, max_value=50)
         
         if not query or len(query) < 2:
             return Response({
@@ -1526,6 +1594,7 @@ class GlobalSearchView(BaseAPIView):
 
 class DuplicateCheckView(BaseAPIView):
     """Check for duplicates."""
+    resource = 'contacts'
     
     def post(self, request):
         """Check for duplicates."""
@@ -1544,11 +1613,14 @@ class DuplicateCheckView(BaseAPIView):
         else:
             return Response({'has_duplicates': False, 'duplicates': []})
         
-        duplicates = service.check_duplicates(
-            email=data.get('email'),
-            phone=data.get('phone'),
-            name=data.get('name'),
-        )
+        check_kwargs = {
+            'email': data.get('email'),
+            'phone': data.get('phone'),
+        }
+        if entity_type != 'lead':
+            check_kwargs['name'] = data.get('name')
+        
+        duplicates = service.check_duplicates(**check_kwargs)
         
         return Response({
             'has_duplicates': len(duplicates) > 0,
@@ -1622,10 +1694,47 @@ class LeadWebFormView(APIView):
             if data.get(field):
                 lead_data['custom_fields'][field] = data[field]
         
-        # Initialize service without user (system operation)
-        # For web forms, we'll assign owner later via auto-assignment
-        service = LeadService(org_id=org_id, user_id=None)
-        
+        # For web forms, find the org owner to use as default lead owner
+        from django.conf import settings
+        import httpx, hmac as hmac_mod, hashlib, time as time_mod
+
+        default_owner_id = None
+        try:
+            org_service_url = getattr(settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
+            service_name = getattr(settings, 'SERVICE_NAME', 'crm-service')
+            service_secret = getattr(settings, 'SERVICE_AUTH_SECRET', '')
+            path = f"/internal/orgs/{org_id}/owner"
+            ts = str(int(time_mod.time()))
+            sig = hmac_mod.new(
+                service_secret.encode(),
+                f"{service_name}:{ts}:{path}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            resp = httpx.get(
+                f"{org_service_url}{path}",
+                headers={
+                    'X-Service-Name': service_name,
+                    'X-Service-Timestamp': ts,
+                    'X-Service-Signature': sig,
+                },
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                default_owner_id = resp.json().get('user_id')
+        except Exception as e:
+            logger.warning(f"Could not fetch org owner for web form: {e}")
+
+        if not default_owner_id:
+            return Response({
+                'success': False,
+                'message': 'Organization not configured for web forms.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        default_owner_uuid = UUID(default_owner_id)
+        lead_data['owner_id'] = default_owner_uuid
+
+        service = LeadService(org_id=org_id, user_id=default_owner_uuid)
+
         try:
             # Check for duplicates
             duplicates = service.check_duplicates(email=lead_data['email'])
@@ -1635,7 +1744,7 @@ class LeadWebFormView(APIView):
                 existing_lead = duplicates[0]
                 
                 # Create activity on existing lead
-                activity_service = ActivityService(org_id=org_id, user_id=None)
+                activity_service = ActivityService(org_id=org_id, user_id=default_owner_uuid)
                 activity_service.create({
                     'org_id': org_id,
                     'owner_id': existing_lead.owner_id,
@@ -1677,6 +1786,7 @@ class LeadWebFormView(APIView):
 
 class LeadSourcesView(BaseAPIView):
     """Get available lead sources."""
+    resource = 'leads'
     
     def get(self, request):
         """Get unique lead sources for this org."""
@@ -1687,6 +1797,7 @@ class LeadSourcesView(BaseAPIView):
 
 class LeadStatusUpdateView(BaseAPIView):
     """Update lead status."""
+    resource = 'leads'
     
     def post(self, request, lead_id):
         """Update lead status."""
@@ -1694,6 +1805,13 @@ class LeadStatusUpdateView(BaseAPIView):
         if not new_status:
             return Response(
                 {'error': {'code': 'VALIDATION_ERROR', 'message': 'status is required'}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        valid_statuses = {s.value for s in Lead.Status}
+        if new_status not in valid_statuses:
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': f'Invalid status. Must be one of: {", ".join(sorted(valid_statuses))}'}},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

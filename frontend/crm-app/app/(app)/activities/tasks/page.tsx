@@ -56,6 +56,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { Task } from "@/lib/types";
 
 // Lazy load heavy components that are only used conditionally
@@ -165,6 +166,7 @@ export default function TasksPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+  const { can } = usePermission();
   
   // Initialize filters from store
   const tasksFilters = filters.tasks || {};
@@ -869,25 +871,29 @@ export default function TasksPage() {
               )}
             </Button>
 
-            <ExportButton
-              data={tasks}
-              columns={exportColumns}
-              filename={`tasks-${new Date().toISOString().split('T')[0]}`}
-              title="Tasks Export"
-            />
-            <Button 
-              onClick={() => {
-                setFormMode("add");
-                setEditingTask(null);
-                setDefaultView("quick");
-                setFormDrawerOpen(true);
-              }}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new task"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Task
-            </Button>
+            {can(ACTIVITIES_WRITE) && (
+              <ExportButton
+                data={tasks}
+                columns={exportColumns}
+                filename={`tasks-${new Date().toISOString().split('T')[0]}`}
+                title="Tasks Export"
+              />
+            )}
+            {can(ACTIVITIES_WRITE) && (
+              <Button 
+                onClick={() => {
+                  setFormMode("add");
+                  setEditingTask(null);
+                  setDefaultView("quick");
+                  setFormDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Add a new task"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Task
+              </Button>
+            )}
           </>
         }
       />
@@ -927,7 +933,7 @@ export default function TasksPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedTasks.length > 0 && (
+      {selectedTasks.length > 0 && can(ACTIVITIES_WRITE) && (
         <BulkActionsToolbar
           selectedCount={selectedTasks.length}
           totalCount={totalItems}
@@ -965,23 +971,31 @@ export default function TasksPage() {
                   icon: FileText,
                   onClick: () => router.push(`/activities/tasks/${row.id}`),
                 },
-                {
-                  label: "Edit Task",
-                  icon: Edit,
-                  onClick: () => handleEditTask(row),
-                },
-                {
-                  label: "Mark Complete",
-                  icon: Check,
-                  onClick: () => completeTask.mutateAsync(row.id),
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
+                ...(can(ACTIVITIES_WRITE)
+                  ? [
+                      {
+                        label: "Edit Task",
+                        icon: Edit,
+                        onClick: () => handleEditTask(row),
+                      },
+                      {
+                        label: "Mark Complete",
+                        icon: Check,
+                        onClick: () => completeTask.mutateAsync(row.id),
+                      },
+                    ]
+                  : []),
+                ...(can(ACTIVITIES_DELETE)
+                  ? [
+                      { divider: true, label: "", onClick: () => {} },
+                      {
+                        label: "Delete",
+                        icon: Trash2,
+                        variant: "danger" as const,
+                        onClick: () => handleDeleteClick(row),
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -1021,23 +1035,31 @@ export default function TasksPage() {
                           icon: FileText,
                           onClick: () => router.push(`/activities/tasks/${task.id}`),
                         },
-                        {
-                          label: "Edit Task",
-                          icon: Edit,
-                          onClick: () => handleEditTask(task),
-                        },
-                        {
-                          label: "Mark Complete",
-                          icon: Check,
-                          onClick: () => completeTask.mutateAsync(task.id),
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(task),
-                        },
+                        ...(can(ACTIVITIES_WRITE)
+                          ? [
+                              {
+                                label: "Edit Task",
+                                icon: Edit,
+                                onClick: () => handleEditTask(task),
+                              },
+                              {
+                                label: "Mark Complete",
+                                icon: Check,
+                                onClick: () => completeTask.mutateAsync(task.id),
+                              },
+                            ]
+                          : []),
+                        ...(can(ACTIVITIES_DELETE)
+                          ? [
+                              { divider: true, label: "", onClick: () => {} },
+                              {
+                                label: "Delete",
+                                icon: Trash2,
+                                variant: "danger" as const,
+                                onClick: () => handleDeleteClick(task),
+                              },
+                            ]
+                          : []),
                       ]}
                     />
                   </div>

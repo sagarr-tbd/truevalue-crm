@@ -54,6 +54,7 @@ import { useCreateMeeting, type MeetingFormData } from "@/lib/queries/useMeeting
 import { useCreateCall } from "@/lib/queries/useCalls";
 import type { Task, Meeting, Call } from "@/lib/types";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
+import { usePermission, LEADS_WRITE, LEADS_DELETE, ACTIVITIES_WRITE } from "@/lib/permissions";
 
 // Status color mapping - use centralized utility
 const getLeadStatusColor = (status: string) => getStatusColor(status, 'lead');
@@ -131,6 +132,9 @@ export default function LeadDetailPage() {
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [disqualifyReason, setDisqualifyReason] = useState("");
   const [newNote, setNewNote] = useState("");
+
+  // Permissions
+  const { can } = usePermission();
 
   // Form drawer state
   const [editFormOpen, setEditFormOpen] = useState(false);
@@ -436,7 +440,7 @@ export default function LeadDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {!isConverted && !isUnqualified && (
+              {!isConverted && !isUnqualified && can(LEADS_WRITE) && (
                 <>
                   <Button
                     variant="outline"
@@ -468,15 +472,17 @@ export default function LeadDetailPage() {
                   </Button>
                 </>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={() => setIsDeleteModalOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {can(LEADS_DELETE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -1003,33 +1009,35 @@ export default function LeadDetailPage() {
                         className="space-y-4"
                       >
                         {/* Add Note Form */}
-                        <div className="border border-border rounded-lg p-4 bg-muted/30">
-                          <Textarea
-                            value={newNote}
-                            onChange={(e) => setNewNote(e.target.value)}
-                            placeholder="Add a note about this lead..."
-                            className="min-h-[100px] resize-none"
-                          />
-                          <div className="flex justify-end mt-3">
-                            <Button
-                              onClick={handleAddNote}
-                              size="sm"
-                              disabled={!newNote.trim() || createActivity.isPending}
-                            >
-                              {createActivity.isPending ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Adding...
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Add Note
-                                </>
-                              )}
-                            </Button>
+                        {can(ACTIVITIES_WRITE) && (
+                          <div className="border border-border rounded-lg p-4 bg-muted/30">
+                            <Textarea
+                              value={newNote}
+                              onChange={(e) => setNewNote(e.target.value)}
+                              placeholder="Add a note about this lead..."
+                              className="min-h-[100px] resize-none"
+                            />
+                            <div className="flex justify-end mt-3">
+                              <Button
+                                onClick={handleAddNote}
+                                size="sm"
+                                disabled={!newNote.trim() || createActivity.isPending}
+                              >
+                                {createActivity.isPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Adding...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Add Note
+                                  </>
+                                )}
+                              </Button>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Notes List */}
                         {isActivitiesLoading ? (
@@ -1171,45 +1179,49 @@ export default function LeadDetailPage() {
                     Call
                   </Button>
                 )}
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTaskDrawerOpen(true)}
-                  disabled={isConverted || isUnqualified}
-                >
-                  <FileText className="h-4 w-4" />
-                  Create Task
-                </Button>
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setMeetingDrawerOpen(true)}
-                  disabled={isConverted || isUnqualified}
-                >
-                  <Video className="h-4 w-4" />
-                  Schedule Meeting
-                </Button>
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCallDrawerOpen(true)}
-                  disabled={isConverted || isUnqualified}
-                >
-                  <Phone className="h-4 w-4" />
-                  Log Call
-                </Button>
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setActiveTab("notes")}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Add Note
-                </Button>
+                {can(ACTIVITIES_WRITE) && (
+                  <>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTaskDrawerOpen(true)}
+                      disabled={isConverted || isUnqualified}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Create Task
+                    </Button>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMeetingDrawerOpen(true)}
+                      disabled={isConverted || isUnqualified}
+                    >
+                      <Video className="h-4 w-4" />
+                      Schedule Meeting
+                    </Button>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCallDrawerOpen(true)}
+                      disabled={isConverted || isUnqualified}
+                    >
+                      <Phone className="h-4 w-4" />
+                      Log Call
+                    </Button>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveTab("notes")}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Add Note
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
 

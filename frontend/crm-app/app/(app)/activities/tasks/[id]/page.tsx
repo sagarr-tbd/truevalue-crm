@@ -34,6 +34,7 @@ import {
   type TaskFormData,
 } from "@/lib/queries/useTasks";
 import { useMemberOptions } from "@/lib/queries/useMembers";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -139,6 +140,9 @@ export default function TaskDetailPage() {
   const router = useRouter();
   const id = params.id as string;
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Permissions
+  const { can } = usePermission();
 
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
@@ -318,38 +322,44 @@ export default function TaskDetailPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleEditTask}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleToggleComplete}
-                disabled={completeTask.isPending || updateTask.isPending}
-              >
-                {task.status === "completed" ? (
-                  <>
-                    <XCircle className="h-4 w-4" />
-                    Reopen
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Complete
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={() => setIsDeleteModalOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {can(ACTIVITIES_WRITE) && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEditTask}>
+                  <Edit className="h-4 w-4" />
+                  Edit
+                </Button>
+              )}
+              {can(ACTIVITIES_WRITE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleToggleComplete}
+                  disabled={completeTask.isPending || updateTask.isPending}
+                >
+                  {task.status === "completed" ? (
+                    <>
+                      <XCircle className="h-4 w-4" />
+                      Reopen
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Complete
+                    </>
+                  )}
+                </Button>
+              )}
+              {can(ACTIVITIES_DELETE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -563,32 +573,36 @@ export default function TaskDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button 
-                  className="w-full justify-start gap-2" 
-                  variant="outline" 
-                  onClick={handleToggleComplete}
-                  disabled={completeTask.isPending || updateTask.isPending}
-                >
-                  {task.status === "completed" ? (
-                    <>
-                      <XCircle className="h-4 w-4" />
-                      Reopen Task
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Mark Complete
-                    </>
-                  )}
-                </Button>
-                <Button 
-                  className="w-full justify-start gap-2" 
-                  variant="outline" 
-                  onClick={handleEditTask}
-                >
-                  <Edit className="h-4 w-4" />
-                  Edit Task
-                </Button>
+                {can(ACTIVITIES_WRITE) && (
+                  <Button 
+                    className="w-full justify-start gap-2" 
+                    variant="outline" 
+                    onClick={handleToggleComplete}
+                    disabled={completeTask.isPending || updateTask.isPending}
+                  >
+                    {task.status === "completed" ? (
+                      <>
+                        <XCircle className="h-4 w-4" />
+                        Reopen Task
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4" />
+                        Mark Complete
+                      </>
+                    )}
+                  </Button>
+                )}
+                {can(ACTIVITIES_WRITE) && (
+                  <Button 
+                    className="w-full justify-start gap-2" 
+                    variant="outline" 
+                    onClick={handleEditTask}
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit Task
+                  </Button>
+                )}
               </CardContent>
             </Card>
 

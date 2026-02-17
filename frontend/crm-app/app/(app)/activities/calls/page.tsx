@@ -58,6 +58,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { Call } from "@/lib/types";
 
 // Lazy load heavy components
@@ -165,6 +166,8 @@ export default function CallsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+
+  const { can } = usePermission();
 
   const callsFilters = filters.calls || {};
 
@@ -911,25 +914,29 @@ export default function CallsPage() {
               )}
             </Button>
 
-            <ExportButton
-              data={calls}
-              columns={exportColumns}
-              filename={`calls-${new Date().toISOString().split('T')[0]}`}
-              title="Calls Export"
-            />
-            <Button
-              onClick={() => {
-                setFormMode("add");
-                setEditingCall(null);
-                setDefaultView("quick");
-                setFormDrawerOpen(true);
-              }}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Log a new call"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Log Call
-            </Button>
+            {can(ACTIVITIES_WRITE) && (
+              <ExportButton
+                data={calls}
+                columns={exportColumns}
+                filename={`calls-${new Date().toISOString().split('T')[0]}`}
+                title="Calls Export"
+              />
+            )}
+            {can(ACTIVITIES_WRITE) && (
+              <Button
+                onClick={() => {
+                  setFormMode("add");
+                  setEditingCall(null);
+                  setDefaultView("quick");
+                  setFormDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Log a new call"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Log Call
+              </Button>
+            )}
           </>
         }
       />
@@ -969,7 +976,7 @@ export default function CallsPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedCalls.length > 0 && (
+      {selectedCalls.length > 0 && can(ACTIVITIES_WRITE) && (
         <BulkActionsToolbar
           selectedCount={selectedCalls.length}
           totalCount={totalItems}
@@ -1007,23 +1014,18 @@ export default function CallsPage() {
                   icon: FileText,
                   onClick: () => router.push(`/activities/calls/${row.id}`),
                 },
-                {
-                  label: "Edit Call",
-                  icon: Edit,
-                  onClick: () => handleEditCall(row),
-                },
-                {
-                  label: "Mark Complete",
-                  icon: Check,
-                  onClick: () => completeCall.mutateAsync(row.id),
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
+                ...(can(ACTIVITIES_WRITE)
+                  ? [
+                      { label: "Edit Call", icon: Edit, onClick: () => handleEditCall(row) },
+                      { label: "Mark Complete", icon: Check, onClick: () => completeCall.mutateAsync(row.id) },
+                    ]
+                  : []),
+                ...(can(ACTIVITIES_DELETE)
+                  ? [
+                      { divider: true, label: "", onClick: () => {} },
+                      { label: "Delete", icon: Trash2, variant: "danger" as const, onClick: () => handleDeleteClick(row) },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -1060,23 +1062,18 @@ export default function CallsPage() {
                           icon: FileText,
                           onClick: () => router.push(`/activities/calls/${call.id}`),
                         },
-                        {
-                          label: "Edit Call",
-                          icon: Edit,
-                          onClick: () => handleEditCall(call),
-                        },
-                        {
-                          label: "Mark Complete",
-                          icon: Check,
-                          onClick: () => completeCall.mutateAsync(call.id),
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(call),
-                        },
+                        ...(can(ACTIVITIES_WRITE)
+                          ? [
+                              { label: "Edit Call", icon: Edit, onClick: () => handleEditCall(call) },
+                              { label: "Mark Complete", icon: Check, onClick: () => completeCall.mutateAsync(call.id) },
+                            ]
+                          : []),
+                        ...(can(ACTIVITIES_DELETE)
+                          ? [
+                              { divider: true, label: "", onClick: () => {} },
+                              { label: "Delete", icon: Trash2, variant: "danger" as const, onClick: () => handleDeleteClick(call) },
+                            ]
+                          : []),
                       ]}
                     />
                   </div>

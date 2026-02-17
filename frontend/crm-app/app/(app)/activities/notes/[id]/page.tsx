@@ -33,6 +33,7 @@ import {
   type NoteFormData,
 } from "@/lib/queries/useNotes";
 import { useMemberOptions } from "@/lib/queries/useMembers";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -119,6 +120,9 @@ export default function NoteDetailPage() {
   const id = params.id as string;
   const [activeTab, setActiveTab] = useState<TabType>("details");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Permissions
+  const { can } = usePermission();
 
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Partial<NoteType> | null>(null);
@@ -260,19 +264,23 @@ export default function NoteDetailPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleEditNote}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={() => setIsDeleteModalOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {can(ACTIVITIES_WRITE) && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEditNote}>
+                  <Edit className="h-4 w-4" />
+                  Edit
+                </Button>
+              )}
+              {can(ACTIVITIES_DELETE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -558,14 +566,16 @@ export default function NoteDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  onClick={handleEditNote}
-                >
-                  <Edit className="h-4 w-4" />
-                  Edit Note
-                </Button>
+                {can(ACTIVITIES_WRITE) && (
+                  <Button
+                    className="w-full justify-start gap-2"
+                    variant="outline"
+                    onClick={handleEditNote}
+                  >
+                    <Edit className="h-4 w-4" />
+                    Edit Note
+                  </Button>
+                )}
               </CardContent>
             </Card>
 

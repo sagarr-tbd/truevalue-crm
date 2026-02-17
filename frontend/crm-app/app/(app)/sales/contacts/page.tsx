@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -54,6 +54,7 @@ import {
 import { contactsApi, type ImportResult } from "@/lib/api/contacts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUIStore } from "@/stores";
+import { usePermission, CONTACTS_WRITE, CONTACTS_DELETE, CONTACTS_IMPORT, CONTACTS_EXPORT } from "@/lib/permissions";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -97,6 +98,8 @@ export default function ContactsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+  
+  const { can } = usePermission();
   
   // Initialize filters from store
   const contactsFilters = filters.contacts || {};
@@ -368,10 +371,10 @@ export default function ContactsPage() {
   };
 
   // Delete handlers
-  const handleDeleteClick = (contact: typeof contacts[0]) => {
+  const handleDeleteClick = useCallback((contact: typeof contacts[0]) => {
     setContactToDelete(contact);
     setIsDeleteModalOpen(true);
-  };
+  }, []);
 
   const handleDeleteConfirm = async () => {
     if (!contactToDelete) return;
@@ -400,7 +403,7 @@ export default function ContactsPage() {
     setFormDrawerOpen(true);
   };
 
-  const handleEditContact = async (contact: typeof contacts[0]) => {
+  const handleEditContact = useCallback(async (contact: typeof contacts[0]) => {
     setFormMode("edit");
     
     try {
@@ -438,7 +441,7 @@ export default function ContactsPage() {
         linkedinUrl: fullContact.linkedinUrl,
         twitterUrl: fullContact.twitterUrl,
         // Status & Source
-        status: fullContact.status,
+        status: fullContact.status as ContactType["status"],
         source: fullContact.source,
         sourceDetail: fullContact.sourceDetail,
         // Communication preferences
@@ -459,11 +462,11 @@ export default function ContactsPage() {
         phone: contact.phone !== "-" ? contact.phone : undefined,
         mobile: contact.mobile !== "-" ? contact.mobile : undefined,
         title: contact.jobTitle,
-        status: contact.status,
+        status: contact.status as ContactType["status"],
       });
     }
     setFormDrawerOpen(true);
-  };
+  }, []);
 
   // Build contact data from form
   const buildContactData = (data: Partial<ContactType>): ContactFormData => ({
@@ -606,7 +609,7 @@ export default function ContactsPage() {
     setIsBulkProcessing(true);
     try {
       // Pass string IDs directly with data
-      await bulkUpdate.mutateAsync({ ids: selectedContacts, data: { status } });
+      await bulkUpdate.mutateAsync({ ids: selectedContacts, data: { status: status as NonNullable<ContactType["status"]> } });
       setSelectedContacts([]);
       setShowBulkUpdateStatus(false);
     } catch (error) {
@@ -980,6 +983,7 @@ export default function ContactsPage() {
               )}
             </Button>
 
+            {can(CONTACTS_IMPORT) && (
             <Button 
               variant="outline" 
               size="sm"
@@ -989,12 +993,16 @@ export default function ContactsPage() {
               <Upload className="h-4 w-4 mr-2" />
               Import
             </Button>
+            )}
+            {can(CONTACTS_EXPORT) && (
             <ExportButton
               data={contacts}
               columns={exportColumns}
               filename="contacts-export"
               title="Contacts Export"
             />
+            )}
+            {can(CONTACTS_WRITE) && (
             <Button 
               className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
               title="Add a new contact"
@@ -1003,6 +1011,7 @@ export default function ContactsPage() {
               <Plus className="h-4 w-4 mr-2" />
               Add Contact
             </Button>
+            )}
           </>
         }
       />
@@ -1023,7 +1032,7 @@ export default function ContactsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedContacts.length > 0 && (
+        {selectedContacts.length > 0 && can(CONTACTS_WRITE) && (
           <BulkActionsToolbar
             selectedCount={selectedContacts.length}
             totalCount={totalItems}
@@ -1051,7 +1060,11 @@ export default function ContactsPage() {
           emptyMessage="No contacts found"
           emptyDescription="Try adjusting your search or filters, or add a new contact"
           renderActions={(row) => (
-            <ActionMenu items={getContactActionMenuItems(row, contactActionHandlers)} />
+            <ActionMenu items={getContactActionMenuItems(row, contactActionHandlers).filter(item => {
+              if (item.label === 'Delete') return can(CONTACTS_DELETE);
+              if (['Edit', 'Edit Contact'].includes(item.label || '')) return can(CONTACTS_WRITE);
+              return true;
+            })} />
           )}
         />
       ) : (
@@ -1080,7 +1093,11 @@ export default function ContactsPage() {
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu items={getContactActionMenuItems(contact, contactActionHandlers)} />
+                    <ActionMenu items={getContactActionMenuItems(contact, contactActionHandlers).filter(item => {
+                      if (item.label === 'Delete') return can(CONTACTS_DELETE);
+                      if (['Edit', 'Edit Contact'].includes(item.label || '')) return can(CONTACTS_WRITE);
+                      return true;
+                    })} />
                   </div>
                 </div>
                 <div className="space-y-2">

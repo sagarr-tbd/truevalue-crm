@@ -42,6 +42,18 @@ interface PaginatedResponse {
 }
 
 /**
+ * Invite from API
+ */
+export interface Invitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+/**
  * Get the current organization ID from JWT token
  */
 function getCurrentOrgId(): string | null {
@@ -95,5 +107,63 @@ export const membersApi = {
         || member.display_name
         || 'Unknown',
     }));
+  },
+
+  /**
+   * Update a member's role.
+   * PATCH /org/api/v1/orgs/{orgId}/members/{userId}
+   */
+  updateRole: async (userId: string, role: string): Promise<OrganizationMember | null> => {
+    const orgId = getCurrentOrgId();
+    if (!orgId) return null;
+
+    const response = await apiClient.patch<OrganizationMember>(
+      `/org/api/v1/orgs/${orgId}/members/${userId}`,
+      { role },
+    );
+
+    if (response.error) {
+      console.error('[MembersAPI] Failed to update role:', response.error);
+      throw new Error(response.error.message || 'Failed to update role');
+    }
+
+    return response.data ?? null;
+  },
+
+  /**
+   * Remove a member from the organization.
+   * DELETE /org/api/v1/orgs/{orgId}/members/{userId}
+   */
+  removeMember: async (userId: string): Promise<void> => {
+    const orgId = getCurrentOrgId();
+    if (!orgId) return;
+
+    const response = await apiClient.delete(`/org/api/v1/orgs/${orgId}/members/${userId}`);
+
+    if (response.error) {
+      console.error('[MembersAPI] Failed to remove member:', response.error);
+      throw new Error(response.error.message || 'Failed to remove member');
+    }
+  },
+
+  /**
+   * Send an invitation.
+   * POST /org/api/v1/orgs/{orgId}/invites
+   */
+  inviteMember: async (email: string, role: string): Promise<Invitation | null> => {
+    const orgId = getCurrentOrgId();
+    if (!orgId) return null;
+
+    const response = await apiClient.post<Invitation>(
+      `/org/api/v1/orgs/${orgId}/invites`,
+      { email, role },
+    );
+
+    if (response.error) {
+      console.error('[MembersAPI] Failed to send invitation:', response.error);
+      throw new Error(response.error.message || 'Failed to send invitation');
+    }
+
+    return response.data ?? null;
   },
 };

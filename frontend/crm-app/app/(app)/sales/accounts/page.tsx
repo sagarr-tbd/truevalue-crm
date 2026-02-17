@@ -51,6 +51,7 @@ import {
 } from "@/lib/queries/useAccounts";
 import { getSizeDisplayLabel, companiesApi } from "@/lib/api/companies";
 import { useUIStore } from "@/stores";
+import { usePermission, COMPANIES_WRITE, COMPANIES_DELETE } from "@/lib/permissions";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -82,6 +83,8 @@ export default function AccountsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+  
+  const { can } = usePermission();
   
   // Initialize filters from store (casting to allow flexible field access)
   const accountsFilters = (filters.accounts || {}) as Record<string, string | null | undefined>;
@@ -852,20 +855,24 @@ export default function AccountsPage() {
               <Upload className="h-4 w-4 mr-2" />
               Import
             </Button>
-            <ExportButton
-              data={accounts}
-              columns={exportColumns}
-              filename="accounts-export"
-              title="Accounts Export"
-            />
-            <Button 
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new account"
-              onClick={handleAddAccount}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Account
-            </Button>
+            {can(COMPANIES_WRITE) && (
+              <ExportButton
+                data={accounts}
+                columns={exportColumns}
+                filename="accounts-export"
+                title="Accounts Export"
+              />
+            )}
+            {can(COMPANIES_WRITE) && (
+              <Button 
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Add a new account"
+                onClick={handleAddAccount}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Account
+              </Button>
+            )}
           </>
         }
       />
@@ -886,7 +893,7 @@ export default function AccountsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedAccounts.length > 0 && (
+        {selectedAccounts.length > 0 && can(COMPANIES_WRITE) && (
           <BulkActionsToolbar
             selectedCount={selectedAccounts.length}
             totalCount={totalItems}
@@ -946,10 +953,14 @@ export default function AccountsPage() {
                 {
                   label: "Delete",
                   icon: Trash2,
-                  variant: "danger",
+                  variant: "danger" as const,
                   onClick: () => handleDeleteClick(row),
                 },
-              ]}
+              ].filter(item => {
+                if (item.label === 'Delete') return can(COMPANIES_DELETE);
+                if (['Edit', 'Edit Account'].includes(item.label || '')) return can(COMPANIES_WRITE);
+                return true;
+              })}
             />
           )}
         />
@@ -1008,10 +1019,14 @@ export default function AccountsPage() {
                         {
                           label: "Delete",
                           icon: Trash2,
-                          variant: "danger",
+                          variant: "danger" as const,
                           onClick: () => handleDeleteClick(account),
                         },
-                      ]}
+                      ].filter(item => {
+                        if (item.label === 'Delete') return can(COMPANIES_DELETE);
+                        if (['Edit', 'Edit Account'].includes(item.label || '')) return can(COMPANIES_WRITE);
+                        return true;
+                      })}
                     />
                   </div>
                 </div>

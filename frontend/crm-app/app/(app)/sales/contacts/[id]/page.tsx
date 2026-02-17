@@ -39,6 +39,7 @@ import LinkCompanyModal from "@/components/LinkCompanyModal/LinkCompanyModal";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
 import { THEME_COLORS, getStatusColor, getDealStageColor } from "@/lib/utils";
+import { usePermission, CONTACTS_WRITE, CONTACTS_DELETE, ACTIVITIES_WRITE } from "@/lib/permissions";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 
@@ -108,6 +109,9 @@ export default function ContactDetailPage() {
 
   // Link company state
   const [showLinkCompanyModal, setShowLinkCompanyModal] = useState(false);
+
+  // Permissions
+  const { can } = usePermission();
 
   // Quick action drawers
   const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
@@ -254,7 +258,7 @@ export default function ContactDetailPage() {
       linkedinUrl: contact.linkedinUrl,
       twitterUrl: contact.twitterUrl,
       // Status & Source
-      status: contact.status,
+      status: contact.status as ContactType["status"],
       source: contact.source,
       sourceDetail: contact.sourceDetail,
       // Communication preferences
@@ -487,10 +491,12 @@ export default function ContactDetailPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleEditContact}>
-                <Edit className="h-4 w-4" />
-                Edit
-              </Button>
+              {can(CONTACTS_WRITE) && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEditContact}>
+                  <Edit className="h-4 w-4" />
+                  Edit
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -500,29 +506,33 @@ export default function ContactDetailPage() {
                 <Mail className="h-4 w-4" />
                 Send Email
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleFindDuplicates}
-                disabled={checkDuplicates.isPending}
-              >
-                {checkDuplicates.isPending ? (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-                ) : (
-                  <Merge className="h-4 w-4" />
-                )}
-                Find & Merge
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={handleDeleteClick}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {can(CONTACTS_WRITE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleFindDuplicates}
+                  disabled={checkDuplicates.isPending}
+                >
+                  {checkDuplicates.isPending ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
+                  ) : (
+                    <Merge className="h-4 w-4" />
+                  )}
+                  Find & Merge
+                </Button>
+              )}
+              {can(CONTACTS_DELETE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  onClick={handleDeleteClick}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -571,15 +581,17 @@ export default function ContactDetailPage() {
                     </span>
                   )}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0"
-                  onClick={() => setShowLinkCompanyModal(true)}
-                  title="Link company"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+                {can(CONTACTS_WRITE) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={() => setShowLinkCompanyModal(true)}
+                    title="Link company"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -610,27 +622,31 @@ export default function ContactDetailPage() {
                         )}
                       </div>
                     </Link>
-                    <button
-                      onClick={() => removeCompany.mutate({ contactId: contact.id, companyId: assoc.companyId })}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1 rounded"
-                      title="Unlink company"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    {can(CONTACTS_WRITE) && (
+                      <button
+                        onClick={() => removeCompany.mutate({ contactId: contact.id, companyId: assoc.companyId })}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1 rounded"
+                        title="Unlink company"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))
               ) : (
                 <div className="text-center py-2">
                   <p className="text-xs text-muted-foreground">No companies linked</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-1 text-xs h-7"
-                    onClick={() => setShowLinkCompanyModal(true)}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Link Company
-                  </Button>
+                  {can(CONTACTS_WRITE) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-1 text-xs h-7"
+                      onClick={() => setShowLinkCompanyModal(true)}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Link Company
+                    </Button>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -1155,33 +1171,35 @@ export default function ContactDetailPage() {
                     className="space-y-4"
                   >
                     {/* Add Note Form */}
-                    <div className="border border-border rounded-lg p-4 bg-muted/30">
-                      <Textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Add a note about this contact..."
-                        className="min-h-[100px] resize-none"
-                      />
-                      <div className="flex justify-end mt-3">
-                        <Button
-                          onClick={handleAddNote}
-                          size="sm"
-                          disabled={!newNote.trim() || createActivity.isPending}
-                        >
-                          {createActivity.isPending ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Adding...
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="h-4 w-4 mr-2" />
-                              Add Note
-                            </>
-                          )}
-                        </Button>
+                    {can(ACTIVITIES_WRITE) && (
+                      <div className="border border-border rounded-lg p-4 bg-muted/30">
+                        <Textarea
+                          value={newNote}
+                          onChange={(e) => setNewNote(e.target.value)}
+                          placeholder="Add a note about this contact..."
+                          className="min-h-[100px] resize-none"
+                        />
+                        <div className="flex justify-end mt-3">
+                          <Button
+                            onClick={handleAddNote}
+                            size="sm"
+                            disabled={!newNote.trim() || createActivity.isPending}
+                          >
+                            {createActivity.isPending ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Adding...
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Add Note
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Notes List */}
                     {isLoadingActivities ? (
@@ -1249,10 +1267,12 @@ export default function ContactDetailPage() {
                     Make Call
                   </Button>
                 )}
-                <Button className="w-full justify-start gap-2" variant="outline" size="sm" onClick={() => setMeetingDrawerOpen(true)}>
-                  <Calendar className="h-4 w-4" />
-                  Schedule Meeting
-                </Button>
+                {can(ACTIVITIES_WRITE) && (
+                  <Button className="w-full justify-start gap-2" variant="outline" size="sm" onClick={() => setMeetingDrawerOpen(true)}>
+                    <Calendar className="h-4 w-4" />
+                    Schedule Meeting
+                  </Button>
+                )}
               </CardContent>
             </Card>
 

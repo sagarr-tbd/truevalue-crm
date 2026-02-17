@@ -56,6 +56,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { Meeting } from "@/lib/types";
 
 const DeleteConfirmationModal = dynamic(
@@ -161,6 +162,8 @@ export default function MeetingsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+
+  const { can } = usePermission();
 
   const meetingsFilters = filters.meetings || {};
 
@@ -676,11 +679,15 @@ export default function MeetingsPage() {
               {filterGroup && filterGroup.conditions.length > 0 && <span className="ml-2 px-2 py-0.5 bg-primary text-primary-foreground rounded-full text-xs">{filterGroup.conditions.length}</span>}
             </Button>
 
-            <ExportButton data={meetings} columns={exportColumns} filename={`meetings-${new Date().toISOString().split('T')[0]}`} title="Meetings Export" />
-            <Button onClick={() => { setFormMode("add"); setEditingMeeting(null); setDefaultView("quick"); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90" title="Schedule a new meeting">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Meeting
-            </Button>
+            {can(ACTIVITIES_WRITE) && (
+              <ExportButton data={meetings} columns={exportColumns} filename={`meetings-${new Date().toISOString().split('T')[0]}`} title="Meetings Export" />
+            )}
+            {can(ACTIVITIES_WRITE) && (
+              <Button onClick={() => { setFormMode("add"); setEditingMeeting(null); setDefaultView("quick"); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90" title="Schedule a new meeting">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Meeting
+              </Button>
+            )}
           </>
         }
       />
@@ -689,7 +696,7 @@ export default function MeetingsPage() {
 
       <AdvancedFilter fields={filterFields} onApply={(group) => { setFilterGroup(group); setCurrentPage(1); }} onClear={() => { setFilterGroup(null); setCurrentPage(1); }} initialGroup={filterGroup || undefined} presets={presets} onSavePreset={addPreset} onLoadPreset={(preset) => { setFilterGroup(preset.group); setCurrentPage(1); }} onDeletePreset={deletePreset} isDrawer={true} isOpen={showAdvancedFilter} onClose={() => setShowAdvancedFilter(false)} drawerPosition="right" />
 
-      {selectedMeetings.length > 0 && (
+      {selectedMeetings.length > 0 && can(ACTIVITIES_WRITE) && (
         <BulkActionsToolbar selectedCount={selectedMeetings.length} totalCount={totalItems} onSelectAll={handleSelectAllMeetings} onDeselectAll={handleDeselectAll} onDelete={() => setShowBulkDelete(true)} onExport={handleBulkExport} onUpdateStatus={() => setShowBulkUpdateStatus(true)} isProcessing={isBulkProcessing} />
       )}
 
@@ -712,8 +719,12 @@ export default function MeetingsPage() {
               { label: "Edit Meeting", icon: Edit, onClick: () => handleEditMeeting(row) },
               { label: "Mark Complete", icon: Check, onClick: () => completeMeeting.mutateAsync(row.id) },
               { divider: true, label: "", onClick: () => {} },
-              { label: "Delete", icon: Trash2, variant: "danger", onClick: () => handleDeleteClick(row) },
-            ]} />
+              { label: "Delete", icon: Trash2, variant: "danger" as const, onClick: () => handleDeleteClick(row) },
+            ].filter(item => {
+              if (item.label === "Delete") return can(ACTIVITIES_DELETE);
+              if (["Edit", "Edit Meeting"].includes(item.label || "")) return can(ACTIVITIES_WRITE);
+              return true;
+            })} />
           )}
         />
       ) : (
@@ -735,8 +746,12 @@ export default function MeetingsPage() {
                       { label: "Edit Meeting", icon: Edit, onClick: () => handleEditMeeting(meeting) },
                       { label: "Mark Complete", icon: Check, onClick: () => completeMeeting.mutateAsync(meeting.id) },
                       { divider: true, label: "", onClick: () => {} },
-                      { label: "Delete", icon: Trash2, variant: "danger", onClick: () => handleDeleteClick(meeting) },
-                    ]} />
+                      { label: "Delete", icon: Trash2, variant: "danger" as const, onClick: () => handleDeleteClick(meeting) },
+                    ].filter(item => {
+                      if (item.label === "Delete") return can(ACTIVITIES_DELETE);
+                      if (["Edit", "Edit Meeting"].includes(item.label || "")) return can(ACTIVITIES_WRITE);
+                      return true;
+                    })} />
                   </div>
                 </div>
                 {meeting.description && <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{meeting.description}</p>}

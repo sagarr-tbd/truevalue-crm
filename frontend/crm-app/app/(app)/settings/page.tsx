@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Settings,
@@ -10,6 +10,8 @@ import {
   Users,
   Zap,
   GitBranch,
+  Lock,
+  Tag,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import PageHeader from "@/components/PageHeader";
@@ -20,14 +22,23 @@ import {
   TeamManagementSettings,
   DataManagementSettings,
   PipelinesSettings,
+  RolesPermissionsSettings,
+  TagManagementSettings,
 } from "@/components/Settings";
+import { usePermission, ORG_MANAGE_MEMBERS, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
 
-const settingsSections = [
+const allSettingsSections = [
   {
     id: "pipelines",
     label: "Sales Pipelines",
     icon: GitBranch,
     color: "from-brand-teal to-brand-purple",
+  },
+  {
+    id: "tags",
+    label: "Tags",
+    icon: Tag,
+    color: "from-brand-teal to-secondary",
   },
   {
     id: "notifications",
@@ -54,6 +65,12 @@ const settingsSections = [
     color: "from-brand-purple to-secondary",
   },
   {
+    id: "roles",
+    label: "Roles & Permissions",
+    icon: Lock,
+    color: "from-brand-coral to-destructive",
+  },
+  {
     id: "data",
     label: "Data Management",
     icon: Database,
@@ -62,12 +79,28 @@ const settingsSections = [
 ];
 
 export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState("pipelines");
+  const { can, isAdmin } = usePermission();
+
+  const settingsSections = useMemo(() => {
+    return allSettingsSections.filter((s) => {
+      if (s.id === "team") return isAdmin || can(ORG_MANAGE_MEMBERS);
+      if (s.id === "roles") return isAdmin || can(ORG_MANAGE_MEMBERS);
+      if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
+      if (s.id === "tags") return can(CONTACTS_WRITE);
+      return true;
+    });
+  }, [can, isAdmin]);
+
+  const [activeSection, setActiveSection] = useState(
+    settingsSections[0]?.id || "pipelines"
+  );
 
   const renderContent = () => {
     switch (activeSection) {
       case "pipelines":
         return <PipelinesSettings />;
+      case "tags":
+        return <TagManagementSettings />;
       case "notifications":
         return <NotificationsSettings />;
       case "security":
@@ -76,6 +109,8 @@ export default function SettingsPage() {
         return <IntegrationsSettings />;
       case "team":
         return <TeamManagementSettings />;
+      case "roles":
+        return <RolesPermissionsSettings />;
       case "data":
         return <DataManagementSettings />;
       default:

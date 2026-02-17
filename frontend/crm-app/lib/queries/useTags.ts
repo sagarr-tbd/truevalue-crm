@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { tagsApi, Tag, TagOption } from '@/lib/api/tags';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { tagsApi, Tag, TagOption, TagFormData } from '@/lib/api/tags';
+import { toast } from 'sonner';
 
 /**
  * Query keys for tags
@@ -54,5 +55,57 @@ export function useCompanyTagOptions() {
   });
 }
 
+/**
+ * Hook to create a tag
+ */
+export function useCreateTag() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: TagFormData) => tagsApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tagKeys.all });
+      toast.success('Tag created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create tag');
+    },
+  });
+}
+
+/**
+ * Hook to update a tag
+ */
+export function useUpdateTag() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<TagFormData> }) =>
+      tagsApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tagKeys.all });
+      toast.success('Tag updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update tag');
+    },
+  });
+}
+
+/**
+ * Hook to delete a tag
+ */
+export function useDeleteTag() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => tagsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: tagKeys.all });
+      toast.success('Tag deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete tag');
+    },
+  });
+}
+
 // Re-export types
-export type { Tag, TagOption };
+export type { Tag, TagOption, TagFormData };

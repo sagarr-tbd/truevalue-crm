@@ -54,6 +54,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { Note } from "@/lib/types";
 
 const DeleteConfirmationModal = dynamic(
@@ -139,6 +140,8 @@ export default function NotesPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+
+  const { can } = usePermission();
 
   const notesFilters = filters.notes || {};
 
@@ -775,25 +778,29 @@ export default function NotesPage() {
               )}
             </Button>
 
-            <ExportButton
-              data={notes}
-              columns={exportColumns}
-              filename={`notes-${new Date().toISOString().split('T')[0]}`}
-              title="Notes Export"
-            />
-            <Button
-              onClick={() => {
-                setFormMode("add");
-                setEditingNote(null);
-                setDefaultView("quick");
-                setFormDrawerOpen(true);
-              }}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Create a new note"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Note
-            </Button>
+            {can(ACTIVITIES_WRITE) && (
+              <ExportButton
+                data={notes}
+                columns={exportColumns}
+                filename={`notes-${new Date().toISOString().split('T')[0]}`}
+                title="Notes Export"
+              />
+            )}
+            {can(ACTIVITIES_WRITE) && (
+              <Button
+                onClick={() => {
+                  setFormMode("add");
+                  setEditingNote(null);
+                  setDefaultView("quick");
+                  setFormDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Create a new note"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Note
+              </Button>
+            )}
           </>
         }
       />
@@ -830,7 +837,7 @@ export default function NotesPage() {
         drawerPosition="right"
       />
 
-      {selectedNotes.length > 0 && (
+      {selectedNotes.length > 0 && can(ACTIVITIES_WRITE) && (
         <BulkActionsToolbar
           selectedCount={selectedNotes.length}
           totalCount={totalItems}
@@ -866,18 +873,22 @@ export default function NotesPage() {
                   icon: FileText,
                   onClick: () => router.push(`/activities/notes/${row.id}`),
                 },
-                {
-                  label: "Edit Note",
-                  icon: Edit,
-                  onClick: () => handleEditNote(row),
-                },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteClick(row),
-                },
+                ...(can(ACTIVITIES_WRITE)
+                  ? [{ label: "Edit Note" as const, icon: Edit, onClick: () => handleEditNote(row) }]
+                  : []),
+                ...(can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)
+                  ? [{ divider: true as const, label: "", onClick: () => {} }]
+                  : []),
+                ...(can(ACTIVITIES_DELETE)
+                  ? [
+                      {
+                        label: "Delete" as const,
+                        icon: Trash2,
+                        variant: "danger" as const,
+                        onClick: () => handleDeleteClick(row),
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -915,18 +926,22 @@ export default function NotesPage() {
                           icon: FileText,
                           onClick: () => router.push(`/activities/notes/${note.id}`),
                         },
-                        {
-                          label: "Edit Note",
-                          icon: Edit,
-                          onClick: () => handleEditNote(note),
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteClick(note),
-                        },
+                        ...(can(ACTIVITIES_WRITE)
+                          ? [{ label: "Edit Note" as const, icon: Edit, onClick: () => handleEditNote(note) }]
+                          : []),
+                        ...(can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)
+                          ? [{ divider: true as const, label: "", onClick: () => {} }]
+                          : []),
+                        ...(can(ACTIVITIES_DELETE)
+                          ? [
+                              {
+                                label: "Delete" as const,
+                                icon: Trash2,
+                                variant: "danger" as const,
+                                onClick: () => handleDeleteClick(note),
+                              },
+                            ]
+                          : []),
                       ]}
                     />
                   </div>
