@@ -110,9 +110,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Sign out - clear tokens and redirect to shell
+   * Sign out - revoke session on backend, clear tokens, redirect to shell login
    */
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
+    // Best-effort backend logout (revoke refresh token / session)
+    try {
+      const token = TokenManager.getAccessToken();
+      if (token) {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        await fetch(`${apiUrl}/auth/auth/logout`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+    } catch {
+      // Ignore — we still clear locally even if the backend call fails
+    }
+
     TokenManager.clearTokens();
     setUser(null);
     setOrganization(null);
@@ -147,10 +164,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   /**
-   * Check if user has permission
+   * Check if user has permission (admin roles bypass all checks)
    */
+  const ADMIN_ROLES = new Set(['super_admin', 'org_admin', 'owner', 'admin']);
   const hasPermission = useCallback((permission: string): boolean => {
     if (!claims) return false;
+    if (claims.roles?.some((r: string) => ADMIN_ROLES.has(r))) return true;
     return claims.permissions?.includes(permission) ?? false;
   }, [claims]);
 

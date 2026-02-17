@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
@@ -54,24 +54,38 @@ import { Input } from "@/components/ui/input";
 import NotificationPanel from "@/components/NotificationPanel";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import ConfirmationModal from "@/components/ConfirmationModal";
 import { useKeyboardShortcuts } from "@/hooks";
 import { useUIStore } from "@/stores";
+import {
+  usePermission,
+  CONTACTS_READ,
+  COMPANIES_READ,
+  DEALS_READ,
+  LEADS_READ,
+  ACTIVITIES_READ,
+  TASKS_READ,
+  REPORTS_READ,
+} from "@/lib/permissions";
 
 type NavigationLink = {
   name: string;
   href: string;
   icon: any;
   type: "link";
+  permission?: string;
 };
 
 type NavigationSection = {
   name: string;
   icon: any;
   type: "section";
+  permission?: string;
   children: {
     name: string;
     href: string;
     icon: any;
+    permission?: string;
   }[];
 };
 
@@ -88,23 +102,25 @@ const navigation: NavigationItem[] = [
     name: "Reports", 
     href: "/reports", 
     icon: BarChart3,
-    type: "link"
+    type: "link",
+    permission: REPORTS_READ,
   },
   { 
     name: "Analytics", 
     href: "/analytics", 
     icon: PieChart,
-    type: "link"
+    type: "link",
+    permission: REPORTS_READ,
   },
   {
     name: "Sales",
     icon: TrendingUp,
     type: "section",
     children: [
-      { name: "Leads", href: "/sales/leads", icon: Target },
-      { name: "Contacts", href: "/sales/contacts", icon: Users },
-      { name: "Accounts", href: "/sales/accounts", icon: Building },
-      { name: "Deals", href: "/sales/deals", icon: DollarSign },
+      { name: "Leads", href: "/sales/leads", icon: Target, permission: LEADS_READ },
+      { name: "Contacts", href: "/sales/contacts", icon: Users, permission: CONTACTS_READ },
+      { name: "Accounts", href: "/sales/accounts", icon: Building, permission: COMPANIES_READ },
+      { name: "Deals", href: "/sales/deals", icon: DollarSign, permission: DEALS_READ },
       // Phase 2: Forecasts, Documents, Campaigns
       // { name: "Forecasts", href: "/sales/forecasts", icon: LineChart },
       // { name: "Documents", href: "/sales/documents", icon: FolderOpen },
@@ -116,12 +132,12 @@ const navigation: NavigationItem[] = [
     icon: CheckSquare,
     type: "section",
     children: [
-      { name: "Calendar", href: "/activities/calendar", icon: Calendar },
-      { name: "Tasks", href: "/activities/tasks", icon: CheckSquare },
-      { name: "Meetings", href: "/activities/meetings", icon: Calendar },
-      { name: "Calls", href: "/activities/calls", icon: Phone },
-      { name: "Emails", href: "/activities/emails", icon: Mail },
-      { name: "Notes", href: "/activities/notes", icon: FileText },
+      { name: "Calendar", href: "/activities/calendar", icon: Calendar, permission: ACTIVITIES_READ },
+      { name: "Tasks", href: "/activities/tasks", icon: CheckSquare, permission: TASKS_READ },
+      { name: "Meetings", href: "/activities/meetings", icon: Calendar, permission: ACTIVITIES_READ },
+      { name: "Calls", href: "/activities/calls", icon: Phone, permission: ACTIVITIES_READ },
+      { name: "Emails", href: "/activities/emails", icon: Mail, permission: ACTIVITIES_READ },
+      { name: "Notes", href: "/activities/notes", icon: FileText, permission: ACTIVITIES_READ },
     ],
   },
   // Phase 2: Inventory Management
@@ -185,15 +201,38 @@ const navigation: NavigationItem[] = [
 
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, organization, getInitials, signOut, isLoading } = useAuth();
+  const { user, organization, claims, getInitials, signOut, isLoading } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   
+  // Permissions
+  const { can } = usePermission();
+
+  // Filter nav items by permission
+  const filteredNavigation = useMemo(() => {
+    return navigation
+      .map((item) => {
+        if (item.type === "section") {
+          const section = item as NavigationSection;
+          const visibleChildren = section.children.filter(
+            (child) => !child.permission || can(child.permission)
+          );
+          if (visibleChildren.length === 0) return null;
+          return { ...section, children: visibleChildren };
+        }
+        const link = item as NavigationLink;
+        if (link.permission && !can(link.permission)) return null;
+        return link;
+      })
+      .filter(Boolean) as NavigationItem[];
+  }, [can]);
+
   // Use Zustand for sidebar state (persisted)
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const isSidebarOpen = !sidebarCollapsed;
@@ -327,7 +366,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
           {/* Navigation Menu */}
           <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto overflow-x-hidden scrollbar-hide" style={{ maxHeight: "calc(100vh - 128px)" }}>
-            {navigation.map((item) => {
+            {filteredNavigation.map((item) => {
               if (item.type === "link") {
                 const linkItem = item as NavigationLink;
                 const isActive = pathname === linkItem.href || pathname.startsWith(linkItem.href + '/');
@@ -474,6 +513,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           {/* Logout Button */}
           <div className="p-3 border-t border-gray-200 flex-shrink-0">
             <button
+              onClick={() => setShowSignOutModal(true)}
               className={`flex ${isSidebarOpen ? 'flex-row' : 'flex-col'} items-center justify-center ${isSidebarOpen ? 'gap-3 px-4 py-3' : 'gap-2 px-2 py-3'} rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all w-full`}
             >
               <LogOut className={`${isSidebarOpen ? 'h-5 w-5' : 'h-5 w-5'} flex-shrink-0`} />
@@ -571,10 +611,26 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 {isProfileDropdownOpen && (
                   <div className="absolute top-full right-0 mt-3 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[100]">
                     <div className="p-4 border-b border-gray-100">
-                      <p className="font-semibold text-gray-900">
-                        {user?.first_name || user?.email?.split('@')[0] || 'User'}
-                      </p>
-                      <p className="text-sm text-gray-500">{user?.email}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-gray-900 truncate">
+                          {user?.first_name || user?.email?.split('@')[0] || 'User'}
+                        </p>
+                        {claims?.roles?.[0] && (
+                          <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${
+                            {
+                              owner: 'bg-purple-100 text-purple-700',
+                              admin: 'bg-orange-100 text-orange-700',
+                              super_admin: 'bg-red-100 text-red-700',
+                              org_admin: 'bg-orange-100 text-orange-700',
+                              member: 'bg-green-100 text-green-700',
+                              viewer: 'bg-gray-100 text-gray-600',
+                            }[claims.roles[0]] || 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {claims.roles[0].replace('_', ' ')}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 mt-0.5">{user?.email}</p>
                       {organization && (
                         <p className="text-xs text-gray-400 mt-1">{organization.name}</p>
                       )}
@@ -609,9 +665,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       <button
                         onClick={() => {
                           setIsProfileDropdownOpen(false);
-                          if (confirm("Are you sure you want to sign out?")) {
-                            signOut();
-                          }
+                          setShowSignOutModal(true);
                         }}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 rounded-md text-red-600 flex items-center gap-2"
                       >
@@ -666,7 +720,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto">
-                  {navigation.map((item) => {
+                  {filteredNavigation.map((item) => {
                     if (item.type === "link") {
                       const linkItem = item as NavigationLink;
                       const isActive = pathname === linkItem.href || pathname.startsWith(linkItem.href + '/');
@@ -748,7 +802,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </nav>
 
                 <div className="p-3 border-t border-gray-200">
-                  <button className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all w-full">
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setShowSignOutModal(true);
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600 transition-all w-full"
+                  >
                     <LogOut className="h-5 w-5" />
                     <span className="font-medium">Logout</span>
                   </button>
@@ -763,6 +823,24 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <KeyboardShortcutsHelp
         isOpen={showShortcutsHelp}
         onClose={() => setShowShortcutsHelp(false)}
+      />
+
+      {/* Sign-Out Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showSignOutModal}
+        onClose={() => setShowSignOutModal(false)}
+        onConfirm={() => {
+          setShowSignOutModal(false);
+          signOut();
+        }}
+        title="Sign Out"
+        description="Are you sure you want to sign out? You will need to log in again to access your account."
+        confirmLabel="Sign Out"
+        cancelLabel="Cancel"
+        icon={LogOut}
+        iconBg="bg-red-100 dark:bg-red-900/20"
+        iconColor="text-red-600 dark:text-red-500"
+        confirmClassName="bg-red-600 hover:bg-red-700 text-white"
       />
     </div>
   );

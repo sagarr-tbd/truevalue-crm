@@ -10,7 +10,7 @@ from uuid import UUID
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Q
 
 from .models import Contact, Company, Deal, Lead, Activity
 
@@ -21,8 +21,12 @@ logger = logging.getLogger(__name__)
 @require_http_methods(['GET'])
 def get_contact(request, contact_id):
     """Get contact by ID for internal services."""
+    org_id = request.GET.get('org_id')
+    if not org_id:
+        return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
     try:
-        contact = Contact.objects.get(id=contact_id)
+        org_uuid = UUID(str(org_id))
+        contact = Contact.objects.get(id=contact_id, org_id=org_uuid)
         return JsonResponse({
             'id': str(contact.id),
             'org_id': str(contact.org_id),
@@ -32,7 +36,7 @@ def get_contact(request, contact_id):
             'phone': contact.phone,
             'status': contact.status,
         })
-    except Contact.DoesNotExist:
+    except (ValueError, Contact.DoesNotExist):
         return JsonResponse({'error': 'Contact not found'}, status=404)
 
 
@@ -40,8 +44,12 @@ def get_contact(request, contact_id):
 @require_http_methods(['GET'])
 def get_company(request, company_id):
     """Get company by ID for internal services."""
+    org_id = request.GET.get('org_id')
+    if not org_id:
+        return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
     try:
-        company = Company.objects.get(id=company_id)
+        org_uuid = UUID(str(org_id))
+        company = Company.objects.get(id=company_id, org_id=org_uuid)
         return JsonResponse({
             'id': str(company.id),
             'org_id': str(company.org_id),
@@ -49,7 +57,7 @@ def get_company(request, company_id):
             'website': company.website,
             'industry': company.industry,
         })
-    except Company.DoesNotExist:
+    except (ValueError, Company.DoesNotExist):
         return JsonResponse({'error': 'Company not found'}, status=404)
 
 
@@ -57,8 +65,12 @@ def get_company(request, company_id):
 @require_http_methods(['GET'])
 def get_deal(request, deal_id):
     """Get deal by ID for internal services."""
+    org_id = request.GET.get('org_id')
+    if not org_id:
+        return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
     try:
-        deal = Deal.objects.get(id=deal_id)
+        org_uuid = UUID(str(org_id))
+        deal = Deal.objects.get(id=deal_id, org_id=org_uuid)
         return JsonResponse({
             'id': str(deal.id),
             'org_id': str(deal.org_id),
@@ -67,7 +79,7 @@ def get_deal(request, deal_id):
             'status': deal.status,
             'stage_name': deal.stage.name,
         })
-    except Deal.DoesNotExist:
+    except (ValueError, Deal.DoesNotExist):
         return JsonResponse({'error': 'Deal not found'}, status=404)
 
 
@@ -101,9 +113,14 @@ def get_org_stats(request, org_id):
     # Add deal values
     deal_values = Deal.objects.filter(org_id=org_uuid).aggregate(
         total_value=Sum('value'),
-        won_value=Sum('value', filter=Deal.objects.filter(status='won').query.where)
+        won_value=Sum('value', filter=Q(status='won')),
+        lost_value=Sum('value', filter=Q(status='lost')),
+        open_value=Sum('value', filter=Q(status='open')),
     )
     stats['deals']['total_value'] = str(deal_values['total_value'] or 0)
+    stats['deals']['won_value'] = str(deal_values['won_value'] or 0)
+    stats['deals']['lost_value'] = str(deal_values['lost_value'] or 0)
+    stats['deals']['open_value'] = str(deal_values['open_value'] or 0)
     
     return JsonResponse(stats)
 

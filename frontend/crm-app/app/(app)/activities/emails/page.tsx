@@ -58,6 +58,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { Email } from "@/lib/types";
 
 // Lazy load heavy components
@@ -157,6 +158,8 @@ export default function EmailsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+
+  const { can } = usePermission();
 
   const emailsFilters = filters.emails || {};
 
@@ -867,25 +870,29 @@ export default function EmailsPage() {
               )}
             </Button>
 
-            <ExportButton
-              data={emails}
-              columns={exportColumns}
-              filename={`emails-${new Date().toISOString().split('T')[0]}`}
-              title="Emails Export"
-            />
-            <Button
-              onClick={() => {
-                setFormMode("add");
-                setEditingEmail(null);
-                setDefaultView("quick");
-                setFormDrawerOpen(true);
-              }}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Log a new email"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Log Email
-            </Button>
+            {can(ACTIVITIES_WRITE) && (
+              <ExportButton
+                data={emails}
+                columns={exportColumns}
+                filename={`emails-${new Date().toISOString().split('T')[0]}`}
+                title="Emails Export"
+              />
+            )}
+            {can(ACTIVITIES_WRITE) && (
+              <Button
+                onClick={() => {
+                  setFormMode("add");
+                  setEditingEmail(null);
+                  setDefaultView("quick");
+                  setFormDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Log a new email"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Log Email
+              </Button>
+            )}
           </>
         }
       />
@@ -925,7 +932,7 @@ export default function EmailsPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedEmails.length > 0 && (
+      {selectedEmails.length > 0 && can(ACTIVITIES_WRITE) && (
         <BulkActionsToolbar
           selectedCount={selectedEmails.length}
           totalCount={totalItems}
@@ -972,10 +979,14 @@ export default function EmailsPage() {
                 {
                   label: "Delete",
                   icon: Trash2,
-                  variant: "danger",
+                  variant: "danger" as const,
                   onClick: () => handleDeleteClick(row),
                 },
-              ]}
+              ].filter((item) => {
+                if (item.label === "Delete") return can(ACTIVITIES_DELETE);
+                if (["Edit", "Edit Email"].includes(item.label || "")) return can(ACTIVITIES_WRITE);
+                return true;
+              })}
             />
           )}
         />
@@ -1020,10 +1031,14 @@ export default function EmailsPage() {
                         {
                           label: "Delete",
                           icon: Trash2,
-                          variant: "danger",
+                          variant: "danger" as const,
                           onClick: () => handleDeleteClick(email),
                         },
-                      ]}
+                      ].filter((item) => {
+                        if (item.label === "Delete") return can(ACTIVITIES_DELETE);
+                        if (["Edit", "Edit Email"].includes(item.label || "")) return can(ACTIVITIES_WRITE);
+                        return true;
+                      })}
                     />
                   </div>
                 </div>

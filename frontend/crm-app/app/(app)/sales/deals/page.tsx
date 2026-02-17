@@ -57,6 +57,7 @@ import {
 } from "@/lib/queries/useDeals";
 import { usePipelines, usePipelineKanban, useDefaultPipeline } from "@/lib/queries/usePipelines";
 import { useUIStore } from "@/stores";
+import { usePermission, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
 import { KanbanBoard, type KanbanDeal } from "@/components/KanbanBoard";
 
 // Lazy load heavy components
@@ -89,6 +90,8 @@ export default function DealsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+  
+  const { can } = usePermission();
   
   // Initialize filters from store
   const dealsFilters = (filters.deals || {}) as { search?: string; stage?: string; status?: string };
@@ -919,20 +922,24 @@ export default function DealsPage() {
               <Upload className="h-4 w-4 mr-2" />
               Import
             </Button>
-            <ExportButton
-              data={deals}
-              columns={exportColumns}
-              filename="deals-export"
-              title="Deals Export"
-            />
-            <Button 
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new deal"
-              onClick={handleAddDeal}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Deal
-            </Button>
+            {can(DEALS_WRITE) && (
+              <ExportButton
+                data={deals}
+                columns={exportColumns}
+                filename="deals-export"
+                title="Deals Export"
+              />
+            )}
+            {can(DEALS_WRITE) && (
+              <Button 
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Add a new deal"
+                onClick={handleAddDeal}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Deal
+              </Button>
+            )}
           </>
         }
       />
@@ -978,7 +985,7 @@ export default function DealsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedDeals.length > 0 && (
+        {selectedDeals.length > 0 && can(DEALS_WRITE) && (
           <BulkActionsToolbar
             selectedCount={selectedDeals.length}
             totalCount={totalDeals}
@@ -1006,7 +1013,13 @@ export default function DealsPage() {
           emptyMessage="No deals found"
           emptyDescription="Try adjusting your search or filters, or add a new deal"
           renderActions={(row) => (
-            <ActionMenu items={getDealActionMenuItems(row, dealActionHandlers)} />
+            <ActionMenu
+              items={getDealActionMenuItems(row, dealActionHandlers).filter((item) => {
+                if (item.label === "Delete") return can(DEALS_DELETE);
+                if (["Edit", "Edit Deal"].includes(item.label || "")) return can(DEALS_WRITE);
+                return true;
+              })}
+            />
           )}
         />
       ) : viewMode === "kanban" ? (
@@ -1055,7 +1068,13 @@ export default function DealsPage() {
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu items={getDealActionMenuItems(deal, dealActionHandlers)} />
+                    <ActionMenu
+                      items={getDealActionMenuItems(deal, dealActionHandlers).filter((item) => {
+                        if (item.label === "Delete") return can(DEALS_DELETE);
+                        if (["Edit", "Edit Deal"].includes(item.label || "")) return can(DEALS_WRITE);
+                        return true;
+                      })}
+                    />
                   </div>
                 </div>
 

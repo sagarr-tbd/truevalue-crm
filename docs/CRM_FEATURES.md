@@ -1386,18 +1386,22 @@ These are non-negotiable. Without these, it's not a CRM.
 - Frontend: Sales dashboard with pipeline report, activity summary, won/lost analysis
 - Backend: Dashboard stats endpoint with metrics aggregation
 
-### **6. User & Team Management**
+### **6. User & Team Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Multiple users | Team access | P0 | 4h | ✅ Done |
 | Record ownership | Assign contacts/deals to users | P0 | 6h | ✅ Done |
-| Role-based access | Use your Permission service | P0 | 8h | ⚠️ Pending |
-| Teams | Group users | P1 | 6h | ⚠️ Pending |
+| Role-based access | Use your Permission service | P0 | 8h | ✅ Done |
+| Teams | Group users | P1 | 6h | ✅ Done |
 | **Subtotal** | | | **24h** | |
 
 **Implementation Notes (Feb 2026):**
-- Backend: User model with JWT auth, record ownership (owner_id on all entities)
-- Pending: Role-based permission checks in views, Team model & team-scoped queries
+- Backend: CRMResourcePermission class enforces resource:action permissions on all views (contacts, companies, deals, leads, activities)
+- Frontend: usePermission hook + PermissionGate component gate all Create/Edit/Delete buttons on list and detail pages
+- RBAC: Admin roles (super_admin, org_admin, owner) bypass all permission checks; system roles seeded with default permissions
+- Teams: Settings page with Team Management tab (invite members, edit roles, remove members) via Org Service API
+- Roles & Permissions: Settings page with read-only view of system role permissions via Permission Service API
+- Inter-service: Org Service auto-assigns Permission Service roles on member add/role change via internal API
 
 ### **MVP TOTAL: 333 hours (~8.5 weeks for 1 dev)**
 

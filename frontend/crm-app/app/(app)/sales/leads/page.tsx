@@ -55,6 +55,7 @@ import {
 } from "@/lib/queries/useLeads";
 import { leadsApi } from "@/lib/api/leads";
 import { useUIStore } from "@/stores";
+import { usePermission, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
 
 // Lazy load heavy components that are only used conditionally
 const LeadFormDrawer = dynamic(
@@ -91,6 +92,7 @@ export default function LeadsPage() {
     clearModuleFilters,
     defaultItemsPerPage: defaultPerPage,
   } = useUIStore();
+  const { can } = usePermission();
   
   // Initialize filters from store
   const leadsFilters = filters.leads || {};
@@ -289,6 +291,7 @@ export default function LeadsPage() {
         ctrl: true,
         description: "New lead",
         action: () => {
+          if (!can(LEADS_WRITE)) return;
           setEditingLead(null);
           setFormMode("add");
           setDefaultView("quick");
@@ -871,33 +874,37 @@ export default function LeadsPage() {
               )}
             </Button>
 
-            <Button 
-              variant="outline" 
-              size="sm"
-              title="Import leads from CSV or Excel"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
+            {can(LEADS_WRITE) && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                title="Import leads from CSV or Excel"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            )}
             <ExportButton
               data={leads}
               columns={exportColumns}
               filename={`leads-${new Date().toISOString().split('T')[0]}`}
               title="Leads Export"
             />
-            <Button 
-              onClick={() => {
-                setFormMode("add");
-                setEditingLead(null);
-                setDefaultView("quick");
-                setFormDrawerOpen(true);
-              }}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Add a new lead"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Lead
-            </Button>
+            {can(LEADS_WRITE) && (
+              <Button 
+                onClick={() => {
+                  setFormMode("add");
+                  setEditingLead(null);
+                  setDefaultView("quick");
+                  setFormDrawerOpen(true);
+                }}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Add a new lead"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Lead
+              </Button>
+            )}
           </>
         }
       />
@@ -937,15 +944,15 @@ export default function LeadsPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedLeads.length > 0 && (
+      {selectedLeads.length > 0 && (can(LEADS_WRITE) || can(LEADS_DELETE)) && (
         <BulkActionsToolbar
           selectedCount={selectedLeads.length}
           totalCount={totalItems}
           onSelectAll={handleSelectAllLeads}
           onDeselectAll={handleDeselectAll}
-          onDelete={() => setShowBulkDelete(true)}
+          onDelete={can(LEADS_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
-          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          onUpdateStatus={can(LEADS_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}
@@ -968,7 +975,15 @@ export default function LeadsPage() {
           emptyMessage="No leads found"
           emptyDescription="Try adjusting your search or filters, or add a new lead"
           renderActions={(row: LeadViewModel) => (
-            <ActionMenu items={getLeadActionMenuItems(row, leadActionHandlers, { isConverting: convertLead.isPending })} />
+            <ActionMenu
+              items={getLeadActionMenuItems(row, leadActionHandlers, { isConverting: convertLead.isPending }).filter(
+                (item) => {
+                  if (item.label === "Delete") return can(LEADS_DELETE);
+                  if (["Edit", "Edit Lead"].includes(item.label || "")) return can(LEADS_WRITE);
+                  return true;
+                }
+              )}
+            />
           )}
         />
       ) : (
@@ -998,7 +1013,15 @@ export default function LeadsPage() {
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
-                    <ActionMenu items={getLeadActionMenuItems(lead, leadActionHandlers, { isConverting: convertLead.isPending })} />
+                    <ActionMenu
+                      items={getLeadActionMenuItems(lead, leadActionHandlers, { isConverting: convertLead.isPending }).filter(
+                        (item) => {
+                          if (item.label === "Delete") return can(LEADS_DELETE);
+                          if (["Edit", "Edit Lead"].includes(item.label || "")) return can(LEADS_WRITE);
+                          return true;
+                        }
+                      )}
+                    />
                   </div>
                 </div>
 

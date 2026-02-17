@@ -52,6 +52,7 @@ import type { Meeting, Call } from "@/lib/types";
 import { useContact } from "@/lib/queries/useContacts";
 import { toast } from "sonner";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
+import { usePermission, DEALS_WRITE, DEALS_DELETE, ACTIVITIES_WRITE } from "@/lib/permissions";
 
 // Activity type icon/color mapping
 const ACTIVITY_TYPE_MAP: Record<string, { icon: typeof Mail; color: string; bgColor: string }> = {
@@ -77,6 +78,9 @@ export default function DealDetailPage() {
   // Form drawer state
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Partial<DealType> | null>(null);
+
+  // Permissions
+  const { can } = usePermission();
 
   // Quick action drawers
   const [meetingDrawerOpen, setMeetingDrawerOpen] = useState(false);
@@ -437,7 +441,7 @@ export default function DealDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {isOpen && (
+              {isOpen && can(DEALS_WRITE) && (
                 <>
                   <Button variant="outline" size="sm" className="gap-2" onClick={handleEditDeal}>
                     <Edit className="h-4 w-4" />
@@ -464,7 +468,7 @@ export default function DealDetailPage() {
                   </Button>
                 </>
               )}
-              {(isWon || isLost) && (
+              {(isWon || isLost) && can(DEALS_WRITE) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -476,15 +480,17 @@ export default function DealDetailPage() {
                   {reopenDeal.isPending ? 'Reopening...' : 'Reopen'}
                 </Button>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={handleDeleteClick}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {can(DEALS_DELETE) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive"
+                  onClick={handleDeleteClick}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -1040,33 +1046,35 @@ export default function DealDetailPage() {
                         className="space-y-4"
                       >
                         {/* Add Note Form */}
-                        <div className="border border-border rounded-lg p-4 bg-muted/30">
-                          <Textarea
-                            value={newNote}
-                            onChange={(e) => setNewNote(e.target.value)}
-                            placeholder="Add a note about this deal..."
-                            className="min-h-[100px] resize-none"
-                          />
-                          <div className="flex justify-end mt-3">
-                            <Button
-                              onClick={handleAddNote}
-                              size="sm"
-                              disabled={!newNote.trim() || createActivity.isPending}
-                            >
-                              {createActivity.isPending ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Adding...
-                                </>
-                              ) : (
-                                <>
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Add Note
-                                </>
-                              )}
-                            </Button>
+                        {can(ACTIVITIES_WRITE) && (
+                          <div className="border border-border rounded-lg p-4 bg-muted/30">
+                            <Textarea
+                              value={newNote}
+                              onChange={(e) => setNewNote(e.target.value)}
+                              placeholder="Add a note about this deal..."
+                              className="min-h-[100px] resize-none"
+                            />
+                            <div className="flex justify-end mt-3">
+                              <Button
+                                onClick={handleAddNote}
+                                size="sm"
+                                disabled={!newNote.trim() || createActivity.isPending}
+                              >
+                                {createActivity.isPending ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Adding...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Add Note
+                                  </>
+                                )}
+                              </Button>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Notes List */}
                         {activitiesLoading ? (
@@ -1119,7 +1127,7 @@ export default function DealDetailPage() {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             {/* Deal Status Actions */}
-            {isOpen && (
+            {isOpen && can(DEALS_WRITE) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Deal Actions</CardTitle>
@@ -1164,16 +1172,18 @@ export default function DealDetailPage() {
                       </p>
                     )}
                   </div>
-                  <Button
-                    className="w-full justify-start gap-2"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleReopenDeal}
-                    disabled={reopenDeal.isPending}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    {reopenDeal.isPending ? 'Reopening...' : 'Reopen Deal'}
-                  </Button>
+                  {can(DEALS_WRITE) && (
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleReopenDeal}
+                      disabled={reopenDeal.isPending}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      {reopenDeal.isPending ? 'Reopening...' : 'Reopen Deal'}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1195,35 +1205,39 @@ export default function DealDetailPage() {
                     Send Email
                   </Button>
                 )}
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCallDrawerOpen(true)}
-                  disabled={!isOpen}
-                >
-                  <Phone className="h-4 w-4" />
-                  Log Call
-                </Button>
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setMeetingDrawerOpen(true)}
-                  disabled={!isOpen}
-                >
-                  <Calendar className="h-4 w-4" />
-                  Schedule Meeting
-                </Button>
-                <Button
-                  className="w-full justify-start gap-2"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setActiveTab("notes")}
-                >
-                  <FileText className="h-4 w-4" />
-                  Add Note
-                </Button>
+                {can(ACTIVITIES_WRITE) && (
+                  <>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCallDrawerOpen(true)}
+                      disabled={!isOpen}
+                    >
+                      <Phone className="h-4 w-4" />
+                      Log Call
+                    </Button>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMeetingDrawerOpen(true)}
+                      disabled={!isOpen}
+                    >
+                      <Calendar className="h-4 w-4" />
+                      Schedule Meeting
+                    </Button>
+                    <Button
+                      className="w-full justify-start gap-2"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActiveTab("notes")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Add Note
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
 

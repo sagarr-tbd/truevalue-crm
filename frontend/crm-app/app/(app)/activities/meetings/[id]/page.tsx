@@ -35,6 +35,7 @@ import {
   type MeetingFormData,
 } from "@/lib/queries/useMeetings";
 import { useMemberOptions } from "@/lib/queries/useMembers";
+import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -108,6 +109,9 @@ export default function MeetingDetailPage() {
   const router = useRouter();
   const id = params.id as string;
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // Permissions
+  const { can } = usePermission();
 
   const [formDrawerOpen, setFormDrawerOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<Partial<MeetingType> | null>(null);
@@ -250,13 +254,19 @@ export default function MeetingDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleEditMeeting}><Edit className="h-4 w-4" />Edit</Button>
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleToggleComplete} disabled={completeMeeting.isPending || updateMeeting.isPending}>
-                {meeting.status === "completed" ? (<><XCircle className="h-4 w-4" />Reopen</>) : (<><CheckCircle2 className="h-4 w-4" />Complete</>)}
-              </Button>
-              <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={() => setIsDeleteModalOpen(true)}>
-                <Trash2 className="h-4 w-4" />Delete
-              </Button>
+              {can(ACTIVITIES_WRITE) && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleEditMeeting}><Edit className="h-4 w-4" />Edit</Button>
+              )}
+              {can(ACTIVITIES_WRITE) && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleToggleComplete} disabled={completeMeeting.isPending || updateMeeting.isPending}>
+                  {meeting.status === "completed" ? (<><XCircle className="h-4 w-4" />Reopen</>) : (<><CheckCircle2 className="h-4 w-4" />Complete</>)}
+                </Button>
+              )}
+              {can(ACTIVITIES_DELETE) && (
+                <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={() => setIsDeleteModalOpen(true)}>
+                  <Trash2 className="h-4 w-4" />Delete
+                </Button>
+              )}
             </div>
           </div>
         </motion.div>
@@ -396,10 +406,14 @@ export default function MeetingDetailPage() {
 
           <div className="lg:col-span-1 space-y-6">
             <Card><CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader><CardContent className="space-y-2">
-              <Button className="w-full justify-start gap-2" variant="outline" onClick={handleToggleComplete} disabled={completeMeeting.isPending || updateMeeting.isPending}>
-                {meeting.status === "completed" ? (<><XCircle className="h-4 w-4" />Reopen Meeting</>) : (<><CheckCircle2 className="h-4 w-4" />Mark Complete</>)}
-              </Button>
-              <Button className="w-full justify-start gap-2" variant="outline" onClick={handleEditMeeting}><Edit className="h-4 w-4" />Edit Meeting</Button>
+              {can(ACTIVITIES_WRITE) && (
+                <Button className="w-full justify-start gap-2" variant="outline" onClick={handleToggleComplete} disabled={completeMeeting.isPending || updateMeeting.isPending}>
+                  {meeting.status === "completed" ? (<><XCircle className="h-4 w-4" />Reopen Meeting</>) : (<><CheckCircle2 className="h-4 w-4" />Mark Complete</>)}
+                </Button>
+              )}
+              {can(ACTIVITIES_WRITE) && (
+                <Button className="w-full justify-start gap-2" variant="outline" onClick={handleEditMeeting}><Edit className="h-4 w-4" />Edit Meeting</Button>
+              )}
             </CardContent></Card>
 
             <Card><CardHeader><CardTitle className="text-base">Meeting Info</CardTitle></CardHeader><CardContent className="space-y-3">
