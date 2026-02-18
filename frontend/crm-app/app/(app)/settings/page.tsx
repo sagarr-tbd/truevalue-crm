@@ -4,11 +4,11 @@ import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Settings,
-  Bell,
-  Database,
-  Shield,
+  // Bell,
+  // Database,
+  // Shield,
   Users,
-  Zap,
+  // Zap,
   GitBranch,
   Lock,
   Tag,
@@ -16,16 +16,16 @@ import {
 import { Card } from "@/components/ui/card";
 import PageHeader from "@/components/PageHeader";
 import {
-  NotificationsSettings,
-  SecuritySettings,
-  IntegrationsSettings,
+  // NotificationsSettings,
+  // SecuritySettings,
+  // IntegrationsSettings,
   TeamManagementSettings,
-  DataManagementSettings,
+  // DataManagementSettings,
   PipelinesSettings,
   RolesPermissionsSettings,
   TagManagementSettings,
 } from "@/components/Settings";
-import { usePermission, ORG_MANAGE_MEMBERS, ORG_MANAGE_SETTINGS, ROLES_READ, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
+import { usePermission, ORG_MANAGE_MEMBERS, ROLES_READ, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
 
 const allSettingsSections = [
   {
@@ -40,24 +40,9 @@ const allSettingsSections = [
     icon: Tag,
     color: "from-brand-teal to-secondary",
   },
-  {
-    id: "notifications",
-    label: "Notifications",
-    icon: Bell,
-    color: "from-secondary to-brand-purple",
-  },
-  {
-    id: "security",
-    label: "Security & Privacy",
-    icon: Shield,
-    color: "from-destructive to-brand-coral",
-  },
-  {
-    id: "integrations",
-    label: "API & Integrations",
-    icon: Zap,
-    color: "from-brand-coral to-brand-teal",
-  },
+  // { id: "notifications", label: "Notifications", icon: Bell, color: "from-secondary to-brand-purple" },
+  // { id: "security", label: "Security & Privacy", icon: Shield, color: "from-destructive to-brand-coral" },
+  // { id: "integrations", label: "API & Integrations", icon: Zap, color: "from-brand-coral to-brand-teal" },
   {
     id: "team",
     label: "Team Management",
@@ -70,12 +55,7 @@ const allSettingsSections = [
     icon: Lock,
     color: "from-brand-coral to-destructive",
   },
-  {
-    id: "data",
-    label: "Data Management",
-    icon: Database,
-    color: "from-primary to-brand-teal",
-  },
+  // { id: "data", label: "Data Management", icon: Database, color: "from-primary to-brand-teal" },
 ];
 
 export default function SettingsPage() {
@@ -87,9 +67,6 @@ export default function SettingsPage() {
       if (s.id === "roles") return isAdmin || can(ROLES_READ);
       if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
       if (s.id === "tags") return can(CONTACTS_WRITE);
-      if (s.id === "security") return isAdmin || can(ORG_MANAGE_SETTINGS);
-      if (s.id === "integrations") return isAdmin || can(ORG_MANAGE_SETTINGS);
-      if (s.id === "notifications") return isAdmin || can(ORG_MANAGE_SETTINGS);
       return true;
     });
   }, [can, isAdmin]);
@@ -104,25 +81,25 @@ export default function SettingsPage() {
         return <PipelinesSettings />;
       case "tags":
         return <TagManagementSettings />;
-      case "notifications":
-        return <NotificationsSettings />;
-      case "security":
-        return <SecuritySettings />;
-      case "integrations":
-        return <IntegrationsSettings />;
+      // case "notifications":
+      //   return <NotificationsSettings />;
+      // case "security":
+      //   return <SecuritySettings />;
+      // case "integrations":
+      //   return <IntegrationsSettings />;
       case "team":
         return <TeamManagementSettings />;
       case "roles":
         return <RolesPermissionsSettings />;
-      case "data":
-        return <DataManagementSettings />;
+      // case "data":
+      //   return <DataManagementSettings />;
       default:
         return null;
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 sm:gap-6 lg:h-[calc(100vh-8.5rem)]">
       <PageHeader
         title="Settings"
         subtitle="Manage your account settings and preferences"
@@ -131,10 +108,10 @@ export default function SettingsPage() {
         iconColor="text-primary"
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-6 lg:flex-1 lg:min-h-0">
         {/* Settings Navigation */}
-        <Card className="border border-border p-4 h-fit">
-          <nav className="space-y-1">
+        <Card className="border border-border p-2 sm:p-4">
+          <nav className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible scrollbar-hide">
             {settingsSections.map((section) => {
               const Icon = section.icon;
               
@@ -142,20 +119,18 @@ export default function SettingsPage() {
                 <button
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 sm:gap-3 px-3 py-2 sm:py-2.5 rounded-lg transition-colors whitespace-nowrap lg:w-full ${
                     activeSection === section.id
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-8 h-8 rounded-lg bg-gradient-to-br ${section.color} text-white flex items-center justify-center`}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <span className="text-sm font-medium">{section.label}</span>
+                  <div
+                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br ${section.color} text-white flex items-center justify-center shrink-0`}
+                  >
+                    <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </div>
+                  <span className="text-xs sm:text-sm font-medium">{section.label}</span>
                 </button>
               );
             })}
@@ -163,13 +138,14 @@ export default function SettingsPage() {
         </Card>
 
         {/* Settings Content */}
-        <div className="lg:col-span-3">
-          <Card className="border border-border p-6">
+        <div className="lg:col-span-3 min-w-0 lg:min-h-0">
+          <Card className="border border-border p-3 sm:p-4 md:p-6 lg:h-full lg:flex lg:flex-col lg:overflow-hidden">
             <motion.div
               key={activeSection}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.2 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.15 }}
+              className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden"
             >
               {renderContent()}
             </motion.div>

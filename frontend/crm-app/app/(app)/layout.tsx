@@ -557,8 +557,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           '--sidebar-width': `${sidebarWidth}px`
         } as React.CSSProperties}
       >
-        {/* Top Header Bar - Sticky */}
-        <header className="sticky top-0 h-16 bg-white border-b border-gray-200 z-[60] shadow-sm backdrop-blur-sm bg-white/95">
+        {/* Top Header Bar - Fixed */}
+        <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-width)] h-16 bg-white border-b border-gray-200 z-[60] shadow-sm backdrop-blur-sm bg-white/95 transition-all duration-300">
           <div className="flex items-center justify-between h-full px-4 lg:px-6">
             {/* Left - Search Bar - Hidden on small mobile, visible on tablet+ */}
             <div className="hidden sm:flex flex-1 max-w-2xl">
@@ -706,7 +706,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content - Responsive padding */}
-        <main className="p-3 sm:p-4 md:p-6 max-w-full overflow-x-hidden">
+        <main className="mt-16 p-3 sm:p-4 md:p-6 max-w-full overflow-x-clip">
           <ErrorBoundary>
             {routeBlocked ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
