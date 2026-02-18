@@ -1,8 +1,7 @@
 """
 CRM Permission classes for role-based access control.
 
-Uses JWT claims (roles/permissions) set by the gateway or JWT auth backend.
-Both GatewayUser and JWTUser store roles[] and permissions[] on the user object.
+Uses roles/permissions from GatewayUser (set by GatewayAuthMiddleware).
 
 Permission codes follow the format: resource:action
   e.g. contacts:read, deals:write, contacts:delete

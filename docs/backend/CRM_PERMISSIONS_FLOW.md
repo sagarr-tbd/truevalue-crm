@@ -17,35 +17,26 @@ defines roles/perms  --->   stamps into JWT  --->     reads from JWT, enforces
 
 ---
 
-## Authentication Paths
+## Authentication Flow
 
-### Standard Flow (Production — via Gateway)
+### Standard Flow (Gateway — all environments)
+
+The CRM backend always runs behind the API Gateway (Docker). There is no fallback.
 
 ```
 Browser --> API Gateway --> CRM Backend
 ```
 
 1. Frontend sends request with `Authorization: Bearer <token>`
-2. **API Gateway** validates JWT, extracts claims, injects headers:
-   - `X-User-ID`, `X-Org-ID`, `X-User-Roles`, `X-User-Permissions`, etc.
-3. **CRM Backend** gateway middleware reads these headers and creates a `GatewayUser` object
-4. `permissions.py` (`CRMResourcePermission`) checks `request.user.permissions` against the view's `resource` attribute
-5. Request is allowed or denied
+2. **API Gateway** validates JWT, signs request with HMAC, injects headers:
+   - `X-User-ID`, `X-Org-ID`, `X-User-Roles`, `X-User-Permissions`
+   - `X-Gateway-Timestamp`, `X-Gateway-Signature` (HMAC proof)
+3. **`GatewayAuthMiddleware`** validates HMAC signature (rejects forged/direct requests with 401)
+4. **`GatewayAuthentication`** (DRF auth class) reads `request.gateway_user` → creates `GatewayUser` with `.roles` and `.permissions`
+5. **`CRMResourcePermission`** checks `request.user.permissions` against the view's `resource` attribute
+6. Request is allowed or denied
 
-`backends.py` is **never touched** in this flow.
-
-### Fallback Flow (Local Dev / Tests — direct access)
-
-```
-Browser/Test --> CRM Backend (no gateway)
-```
-
-1. Request arrives with `Authorization: Bearer <token>` but no gateway headers
-2. **`backends.py`** (`JWTAuthentication`) decodes the JWT directly
-3. Creates a `JWTUser` with `roles[]` and `permissions[]` from token claims
-4. Same `permissions.py` enforcement applies
-
-This exists so developers don't need to run the full gateway stack locally.
+Any request without a valid gateway HMAC signature is rejected at step 3.
 
 ### Service-to-Service Flow (Internal)
 
@@ -53,7 +44,7 @@ This exists so developers don't need to run the full gateway stack locally.
 Permission Service --> CRM Internal Endpoints
 ```
 
-- Uses HMAC authentication (not JWT)
+- Uses separate HMAC authentication (per-service secrets)
 - Defined in `internal_urls.py`
 - Protected by `ServiceAuthMiddleware`
 - Example: `POST /internal/users/{id}/invalidate-permissions`
@@ -64,10 +55,9 @@ Permission Service --> CRM Internal Endpoints
 
 | File | Purpose |
 |---|---|
-| `backends.py` | JWT decoding fallback when no gateway is present (local dev, tests) |
-| `permissions.py` | DRF permission class — reads JWT claims from `request.user`, enforces `resource:action` checks |
+| `permissions.py` | DRF permission class — reads `request.user.permissions` (from GatewayUser), enforces `resource:action` checks |
 | `middleware.py` | Detects stale JWT permissions (after role change) and forces token refresh |
-| `internal_urls.py` | Service-to-service endpoints (HMAC auth, not JWT) |
+| `internal_urls.py` | Service-to-service endpoints (HMAC auth) |
 
 ---
 
@@ -179,7 +169,8 @@ Same admin bypass logic applies on frontend — admin roles return `true` for al
 
 ## Security Notes
 
-- CRM backend is NOT publicly accessible in production — only the gateway is exposed
-- `backends.py` fallback is harmless because external traffic can't reach the CRM service directly
-- Internal endpoints use HMAC auth, completely separate from JWT auth
+- CRM backend is NOT publicly accessible — only the gateway is exposed
+- `GatewayAuthMiddleware` validates HMAC on every request — direct access without gateway is rejected with 401
+- No fallback authentication exists — gateway is the only auth path
+- Internal endpoints use separate per-service HMAC auth
 - Org isolation is enforced at the service layer, not just permissions

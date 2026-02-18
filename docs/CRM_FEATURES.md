@@ -1297,26 +1297,27 @@
 
 These are non-negotiable. Without these, it's not a CRM.
 
-### **1. Contact Management**
+### **1. Contact Management** — 95% Done
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Contacts | Individual people with details (name, email, phone, etc.) | P0 | 16h | ✅ Done |
 | Companies/Accounts | Organizations that contacts belong to | P0 | 12h | ✅ Done |
 | Contact-Company linking | Associate multiple contacts to one company | P0 | 6h | ✅ Done |
 | Contact timeline | Activity history per contact | P0 | 10h | ✅ Done |
-| Custom fields | User-defined fields for contacts/companies | P0 | 20h | ⚠️ Backend done, frontend form UI pending |
+| Custom fields | User-defined fields for contacts/companies | P0 | 20h | ⚠️ Backend API done, frontend form UI pending (~16h) |
 | Tags/Labels | Categorize contacts | P0 | 6h | ✅ Done |
-| Import/Export | CSV import, bulk export | P0 | 16h | ⚠️ Import done, export endpoint pending |
+| Import/Export | CSV import, bulk export | P0 | 16h | ⚠️ Import done, client-side export done (CSV/Excel/PDF), backend export endpoint pending (~6h) |
 | Duplicate detection | Prevent/merge duplicate contacts | P0 | 12h | ✅ Done |
 | Search & filters | Advanced search across all fields | P0 | 14h | ✅ Done |
 | **Subtotal** | | | **112h** | |
 
-**Implementation Notes (Feb 2026):**
-- Backend: Full Contact & Company APIs (`/api/v1/contacts`, `/api/v1/companies`)
-- Endpoints: CRUD, search, filters, duplicate detection, timeline, tags, CSV import
+**Implementation Notes (Updated Feb 18, 2026):**
+- Backend: Full Contact & Company APIs (`/crm/api/v1/contacts`, `/crm/api/v1/companies`)
+- Endpoints: CRUD, search, filters, duplicate detection, merge, timeline, tags, CSV import, bulk-delete, bulk-update, company associations
 - Frontend: List/detail views, form drawers, quick actions, validation aligned with backend
-- Tags: Displayed in list views (contacts, leads, deals, accounts) with color badges
-- Pending: Custom fields form UI, export endpoint
+- Tags: Full CRUD in Settings, displayed in list views with color badges, entity-type scoping
+- Client-side export: CSV, Excel, PDF, Clipboard via `ExportButton` component (no backend endpoint)
+- Pending: Custom fields form UI (render/edit `CustomFieldDefinition` in create/edit forms), server-side export endpoint
 
 ### **2. Deal/Opportunity Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1335,7 +1336,7 @@ These are non-negotiable. Without these, it's not a CRM.
 - Endpoints: CRUD, stage transitions, kanban view, deal-contact/company linking
 - Frontend: List/detail views, Kanban board, form drawers, quick actions, validation aligned
 
-### **3. Activity Tracking** ✅ PHASE 1 COMPLETE
+### **3. Activity Tracking** — 95% Done
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Tasks | To-do items linked to contacts/deals | P0 | 12h | ✅ Done |
@@ -1343,18 +1344,20 @@ These are non-negotiable. Without these, it's not a CRM.
 | Meetings/Appointments | Calendar events | P0 | 10h | ✅ Done |
 | Call logging | Log phone calls with outcomes | P0 | 8h | ✅ Done |
 | Email logging | Track emails sent/received | P0 | 10h | ✅ Done |
-| Activity reminders | Due date notifications | P0 | 8h | ✅ Done |
+| Activity reminders | Due date notifications | P0 | 8h | ⚠️ Backend fields exist (`reminder_at`, `due_date`), no delivery system (~8h) |
 | **Subtotal** | | | **54h** | |
 
-**Implementation Notes (Feb 2026):**
-- Backend: Full Activity API (`/api/v1/activities`) with type-specific validation
+**Implementation Notes (Updated Feb 18, 2026):**
+- Backend: Full Activity API (`/crm/api/v1/activities`) with type-specific validation
 - Activity types: Task, Note, Meeting, Call, Email
+- Endpoints: CRUD, complete, upcoming, overdue, stats, trend
 - Serializers: ActivitySerializer (full), ActivityListSerializer (list with email_direction), ActivityCreateSerializer (create with email_direction)
 - Validation: Entity linking, cross-field (end_time > start_time, reminder < due_date), type-specific field stripping
 - Email type supports: due_date, reminder_at, email_direction, email_message_id
-- Frontend: Form drawers for all types, quick actions on all entity detail pages, validation aligned
-- Email logging: Full list page (`/activities/emails`) with form drawer, direction (sent/received), search, filters, bulk operations, export
+- Frontend: Separate list pages for each type (tasks, calls, meetings, emails, notes), form drawers, calendar view (month/week/day/agenda)
+- Calendar: `ActivityCalendar` component with color-coded events, filter toggles, stats dashboard
 - Seed data: 25 tasks, 20 calls, 20 meetings, 25 emails via `seed_tasks` management command
+- Pending: Reminder delivery system (cron/worker to send notifications when `reminder_at` is reached)
 
 ### **4. Lead Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1373,20 +1376,23 @@ These are non-negotiable. Without these, it's not a CRM.
 - Features: List/detail views, conversion modal, duplicate detection
 - Web Form: Public endpoint at `/api/v1/leads/web-form` with UTM tracking
 
-### **5. Basic Reporting** ✅ PHASE 1 COMPLETE
+### **5. Basic Reporting** — 70% Done
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
-| Pipeline report | Deals by stage | P0 | 8h | ✅ Done |
-| Sales dashboard | Key metrics overview | P0 | 16h | ✅ Done |
-| Activity report | Team activity summary | P0 | 8h | ✅ Done |
-| Won/Lost analysis | Deal outcomes | P0 | 6h | ✅ Done |
+| Pipeline report | Deals by stage | P0 | 8h | ✅ Done (PipelineChart + `/pipelines/{id}/stats`) |
+| Sales dashboard | Key metrics overview | P0 | 16h | ⚠️ Dashboard page exists, some widgets still use mock data (~6h) |
+| Activity report | Team activity summary | P0 | 8h | ✅ Done (`/activities/stats`, `/activities/trend` endpoints) |
+| Won/Lost analysis | Deal outcomes | P0 | 6h | ⚠️ Backend has deal win/lose data, no dedicated analysis view (~8h) |
 | **Subtotal** | | | **38h** | |
 
-**Implementation Notes (Feb 2026):**
-- Frontend: Sales dashboard with pipeline report, activity summary, won/lost analysis
-- Backend: Dashboard stats endpoint with metrics aggregation
+**Implementation Notes (Updated Feb 18, 2026):**
+- Frontend: Dashboard page with 5 Recharts components (SalesTrend, Pipeline, LeadSource, Activity, RevenueComparison)
+- Backend: Pipeline stats endpoint, activity stats/trend endpoints, deal forecast endpoint
+- Charts use theme-aware CSS variables, responsive design
+- Pending: Wire remaining dashboard widgets to real API data, dedicated won/lost analysis view
+- Note: Report builder / custom reports is a Phase 2 feature (Advanced Reporting & Analytics)
 
-### **6. User & Team Management** ✅ PHASE 1 COMPLETE
+### **6. User & Team Management** ✅ COMPLETE
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Multiple users | Team access | P0 | 4h | ✅ Done |
@@ -1395,12 +1401,15 @@ These are non-negotiable. Without these, it's not a CRM.
 | Teams | Group users | P1 | 6h | ✅ Done |
 | **Subtotal** | | | **24h** | |
 
-**Implementation Notes (Feb 2026):**
-- Backend: CRMResourcePermission class enforces resource:action permissions on all views (contacts, companies, deals, leads, activities)
-- Frontend: usePermission hook + PermissionGate component gate all Create/Edit/Delete buttons on list and detail pages
-- RBAC: Admin roles (super_admin, org_admin, owner) bypass all permission checks; system roles seeded with default permissions
-- Teams: Settings page with Team Management tab (invite members, edit roles, remove members) via Org Service API
-- Roles & Permissions: Settings page with read-only view of system role permissions via Permission Service API
+**Implementation Notes (Updated Feb 18, 2026):**
+- Backend: CRMResourcePermission class enforces `resource:action` permissions on all views (contacts, companies, deals, leads, activities, pipelines, tags)
+- Frontend: `usePermission()` hook + `PermissionGate` component gate all Create/Edit/Delete buttons on list and detail pages
+- RBAC: 5 system roles — super_admin (level 0), org_admin (10), manager (50), member (100), viewer (200). Lower level = more privileged
+- Admin bypass: `super_admin`, `org_admin`, `owner`, `admin` bypass all permission checks (backend + frontend)
+- Object-level: Managers can modify any org record; members/viewers only their own (`owner_id`)
+- Permission staleness: `PermissionStalenessMiddleware` compares JWT `perm_version` with Redis; rejects stale tokens
+- Team Management: Settings tab — invite members, edit role, remove members via Org Service API. Role hierarchy enforcement (can only manage lower roles, can't manage self/owner)
+- Roles & Permissions: Settings tab — view role permissions; admins can toggle permissions via Permission Service API
 - Inter-service: Org Service auto-assigns Permission Service roles on member add/role change via internal API
 
 ### **MVP TOTAL: 333 hours (~8.5 weeks for 1 dev)**
@@ -1412,63 +1421,73 @@ These are non-negotiable. Without these, it's not a CRM.
 Important for competitiveness, but can launch without.
 
 ### **7. Email Integration**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Email sync | Gmail/Outlook 2-way sync | 24h |
-| Email templates | Reusable email templates | 12h |
-| Email tracking | Open/click tracking | 16h |
-| Bulk email | Send to multiple contacts | 10h |
-| Email scheduling | Schedule send for later | 8h |
-| **Subtotal** | | **70h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Email sync | Gmail/Outlook 2-way sync | 24h | ❌ Not started |
+| Email templates | Reusable email templates | 12h | ❌ Not started |
+| Email tracking | Open/click tracking | 16h | ❌ Not started |
+| Bulk email | Send to multiple contacts | 10h | ❌ Not started |
+| Email scheduling | Schedule send for later | 8h | ❌ Not started |
+| **Subtotal** | | **70h** | |
+
+**Note:** Email *logging* (manual) is done as part of Activity Tracking. This section is about real email integration (sync, send, track).
 
 ### **8. Automation & Workflows**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Workflow automation | IF this THEN that rules | 32h |
-| Auto-assignment | Route leads to sales reps | 10h |
-| Task automation | Auto-create follow-up tasks | 8h |
-| Stage triggers | Actions when deal moves stages | 10h |
-| Reminders & escalations | Auto-notify on inactivity | 10h |
-| **Subtotal** | | **70h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Workflow automation | IF this THEN that rules | 32h | ❌ Not started |
+| Auto-assignment | Route leads to sales reps | 10h | ❌ Not started |
+| Task automation | Auto-create follow-up tasks | 8h | ❌ Not started |
+| Stage triggers | Actions when deal moves stages | 10h | ❌ Not started |
+| Reminders & escalations | Auto-notify on inactivity | 10h | ❌ Not started |
+| **Subtotal** | | **70h** | |
 
 ### **9. Advanced Reporting & Analytics**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Custom reports | Build any report | 24h |
-| Report builder | Drag-drop report creation | 32h |
-| Scheduled reports | Auto-email reports | 10h |
-| Sales forecasting | Revenue predictions | 16h |
-| Conversion funnel | Lead → Deal conversion rates | 12h |
-| Rep performance | Leaderboards | 10h |
-| **Subtotal** | | **104h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Custom reports | Build any report | 24h | ❌ Not started |
+| Report builder | Drag-drop report creation | 32h | ❌ Not started |
+| Scheduled reports | Auto-email reports | 10h | ❌ Not started |
+| Sales forecasting | Revenue predictions | 16h | ⚠️ Backend `GET /deals/forecast` exists, no frontend view |
+| Conversion funnel | Lead → Deal conversion rates | 12h | ❌ Not started |
+| Rep performance | Leaderboards | 10h | ❌ Not started |
+| **Subtotal** | | **104h** | |
+
+**Note:** Basic dashboard charts exist (5 Recharts components). This section is about a proper report builder with saved/scheduled reports.
 
 ### **10. Products & Quotes**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Product catalog | List of things you sell | 12h |
-| Price books | Different pricing tiers | 10h |
-| Quotes/Proposals | Generate quotes from deals | 16h |
-| Quote templates | Branded PDF quotes | 14h |
-| E-signature | Sign quotes digitally | 20h |
-| **Subtotal** | | **72h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Product catalog | List of things you sell | 12h | ⚠️ Frontend scaffold exists (mock data), needs backend API |
+| Price books | Different pricing tiers | 10h | ⚠️ Frontend scaffold exists (mock data), needs backend API |
+| Quotes/Proposals | Generate quotes from deals | 16h | ⚠️ Frontend scaffold exists (mock data), needs backend API |
+| Quote templates | Branded PDF quotes | 14h | ❌ Not started |
+| E-signature | Sign quotes digitally | 20h | ❌ Not started |
+| **Subtotal** | | **72h** | |
+
+**Note:** Frontend pages, form drawers, and mock APIs exist for Products, Price Books, and Quotes from Phase 1 scaffold. Sidebar is commented out. Need backend Django models + API endpoints.
 
 ### **11. Customer Support (Cases)**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Cases/Tickets | Support requests | 14h |
-| Case assignment | Route to agents | 8h |
-| Case status | Open, In Progress, Resolved | 4h |
-| SLA tracking | Response time targets | 12h |
-| Knowledge base link | Link to solutions | 8h |
-| **Subtotal** | | **46h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Cases/Tickets | Support requests | 14h | ⚠️ Frontend scaffold exists (mock data), needs backend API |
+| Case assignment | Route to agents | 8h | ❌ Not started |
+| Case status | Open, In Progress, Resolved | 4h | ⚠️ Frontend scaffold exists (mock data) |
+| SLA tracking | Response time targets | 12h | ❌ Not started |
+| Knowledge base link | Link to solutions | 8h | ⚠️ Solutions frontend scaffold exists (mock data) |
+| **Subtotal** | | **46h** | |
+
+**Note:** Frontend pages for Cases and Solutions exist from Phase 1 scaffold. Sidebar is commented out. Need backend Django models + API endpoints.
 
 ### **12. Calendar & Scheduling**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Shared calendar | Team calendar view | 14h |
-| Meeting scheduler | Booking links (like Calendly) | 20h |
-| Calendar sync | Google/Outlook sync | 16h |
-| **Subtotal** | | **50h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Shared calendar | Team calendar view | 14h | ⚠️ Personal calendar done (ActivityCalendar with month/week/day/agenda), shared team view pending |
+| Meeting scheduler | Booking links (like Calendly) | 20h | ❌ Not started |
+| Calendar sync | Google/Outlook sync | 16h | ❌ Not started |
+| **Subtotal** | | **50h** | |
+
+**Note:** `ActivityCalendar` component exists with color-coded events (tasks=teal, calls=coral, meetings=purple), filter toggles, and stats. Shared team calendar and external sync are not built.
 
 ### **PHASE 2 TOTAL: 412 hours (~10.5 weeks for 1 dev)**
 
@@ -1479,65 +1498,67 @@ Important for competitiveness, but can launch without.
 Differentiators and power features.
 
 ### **13. AI Features**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Lead scoring | AI-based lead prioritization | 24h |
-| Deal insights | Win probability prediction | 20h |
-| Next best action | AI suggestions | 16h |
-| Email writing assistant | AI compose emails | 12h |
-| Sentiment analysis | Analyze email/call sentiment | 20h |
-| Data enrichment | Auto-fill company data from web | 24h |
-| **Subtotal** | | **116h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Lead scoring | AI-based lead prioritization | 24h | ❌ Not started |
+| Deal insights | Win probability prediction | 20h | ❌ Not started |
+| Next best action | AI suggestions | 16h | ❌ Not started |
+| Email writing assistant | AI compose emails | 12h | ❌ Not started |
+| Sentiment analysis | Analyze email/call sentiment | 20h | ❌ Not started |
+| Data enrichment | Auto-fill company data from web | 24h | ❌ Not started |
+| **Subtotal** | | **116h** | |
 
 ### **14. Advanced Sales Features**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Territory management | Geographic/account territories | 20h |
-| Sales sequences | Multi-step outreach cadences | 28h |
-| CPQ (Configure Price Quote) | Complex pricing rules | 32h |
-| Commission tracking | Sales rep commissions | 16h |
-| Competitor tracking | Track competitors on deals | 10h |
-| **Subtotal** | | **106h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Territory management | Geographic/account territories | 20h | ❌ Not started |
+| Sales sequences | Multi-step outreach cadences | 28h | ❌ Not started |
+| CPQ (Configure Price Quote) | Complex pricing rules | 32h | ❌ Not started |
+| Commission tracking | Sales rep commissions | 16h | ❌ Not started |
+| Competitor tracking | Track competitors on deals | 10h | ❌ Not started |
+| **Subtotal** | | **106h** | |
 
 ### **15. Marketing Features** (Your Marketing Service)
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Email campaigns | Marketing emails | 24h |
-| Landing pages | Lead capture pages | 28h |
-| Forms builder | Custom web forms | 20h |
-| List segmentation | Target specific audiences | 14h |
-| Campaign ROI | Track marketing spend vs revenue | 16h |
-| **Subtotal** | | **102h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Email campaigns | Marketing emails | 24h | ❌ Not started |
+| Landing pages | Lead capture pages | 28h | ❌ Not started |
+| Forms builder | Custom web forms | 20h | ⚠️ Lead web form endpoint exists (`/leads/web-form`) |
+| List segmentation | Target specific audiences | 14h | ❌ Not started |
+| Campaign ROI | Track marketing spend vs revenue | 16h | ❌ Not started |
+| **Subtotal** | | **102h** | |
 
 ### **16. Integrations**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| REST API | Full API access | 20h |
-| Webhooks | Event notifications | 12h |
-| Zapier/Make | No-code integrations | 16h |
-| Slack integration | Notifications | 10h |
-| Accounting (QuickBooks, Xero) | Invoice sync | 24h |
-| VoIP (Twilio, etc.) | Click-to-call | 20h |
-| **Subtotal** | | **102h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| REST API | Full API access | 20h | ✅ Done (full REST API via Gateway at port 8000) |
+| Webhooks | Event notifications | 12h | ⚠️ Kafka events exist internally, no external webhook delivery |
+| Zapier/Make | No-code integrations | 16h | ❌ Not started |
+| Slack integration | Notifications | 10h | ❌ Not started |
+| Accounting (QuickBooks, Xero) | Invoice sync | 24h | ❌ Not started |
+| VoIP (Twilio, etc.) | Click-to-call | 20h | ❌ Not started |
+| **Subtotal** | | **102h** | |
 
 ### **17. Mobile App**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Mobile CRM | iOS/Android apps | 80h |
-| Offline access | Work without internet | 32h |
-| Business card scanner | Add contacts from cards | 16h |
-| Mobile calling | Log calls from app | 12h |
-| **Subtotal** | | **140h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Mobile CRM | iOS/Android apps | 80h | ❌ Not started (responsive web works on mobile) |
+| Offline access | Work without internet | 32h | ❌ Not started |
+| Business card scanner | Add contacts from cards | 16h | ❌ Not started |
+| Mobile calling | Log calls from app | 12h | ❌ Not started |
+| **Subtotal** | | **140h** | |
 
 ### **18. Advanced Customization**
-| Feature | Description | Hours |
-|---------|-------------|-------|
-| Custom modules | Create new record types | 40h |
-| Custom layouts | Different layouts per team | 20h |
-| Conditional fields | Show/hide based on values | 16h |
-| Calculated fields | Formulas | 20h |
-| Canvas/Blueprint designer | Custom UI | 48h |
-| **Subtotal** | | **144h** |
+| Feature | Description | Hours | Status |
+|---------|-------------|-------|--------|
+| Custom modules | Create new record types | 40h | ❌ Not started |
+| Custom layouts | Different layouts per team | 20h | ❌ Not started |
+| Conditional fields | Show/hide based on values | 16h | ❌ Not started |
+| Calculated fields | Formulas | 20h | ❌ Not started |
+| Canvas/Blueprint designer | Custom UI | 48h | ❌ Not started |
+| **Subtotal** | | **144h** | |
+
+**Note:** Custom fields infrastructure exists (backend model + API), but frontend form rendering is pending (listed under Contact Management).
 
 ### **PHASE 3 TOTAL: 710 hours (~18 weeks for 1 dev)**
 
@@ -1577,43 +1598,52 @@ Leave for other services:
 ## **Recommended MVP Build Order**
 
 ```
-Phase 1 (MVP) - 333 hours (~8.5 weeks)
-├── Contacts + Companies                 112h
-├── Deals + Pipeline (Kanban)            61h
-├── Activities (Tasks, Notes, Calls)     54h
-├── Leads + Conversion                   44h
-├── Basic Dashboard                      38h
-└── User & Team Management               24h
+Phase 1 (MVP) - 333 hours (~8.5 weeks) — ~90% DONE
+├── Contacts + Companies                 112h  ✅ 95% (custom fields UI + export endpoint pending)
+├── Deals + Pipeline (Kanban)            61h   ✅ 100%
+├── Activities (Tasks, Notes, Calls)     54h   ✅ 95% (reminder delivery pending)
+├── Leads + Conversion                   44h   ✅ 100%
+├── Basic Dashboard                      38h   ⚠️ 70% (some widgets mock, won/lost view pending)
+└── User & Team Management               24h   ✅ 100%
 
-Phase 2 - 412 hours (~10.5 weeks)
-├── Email integration                    70h
-├── Workflow automation                  70h
-├── Products & Quotes                    72h
-├── Advanced reporting                   104h
-├── Customer Support (Cases)             46h
-└── Calendar & Scheduling                50h
+Remaining MVP work: ~44 hours
+├── Custom fields frontend form UI       16h
+├── Activity reminder delivery           8h
+├── Dashboard real data wiring           6h
+├── Won/Lost analysis view               8h
+└── Backend export endpoint              6h
 
-Phase 3 - 710 hours (~18 weeks)
-├── AI features                          116h
-├── Advanced Sales                       106h
-├── Marketing Features                   102h
-├── Integrations                         102h
-├── Mobile App                           140h
-└── Advanced Customization               144h
+Phase 2 - 412 hours (~10.5 weeks) — NOT STARTED
+├── Email integration                    70h   ❌
+├── Workflow automation                  70h   ❌
+├── Products & Quotes                    72h   ⚠️ Frontend scaffold exists
+├── Advanced reporting                   104h  ❌ (forecast endpoint exists)
+├── Customer Support (Cases)             46h   ⚠️ Frontend scaffold exists
+└── Calendar & Scheduling                50h   ⚠️ Personal calendar done
+
+Phase 3 - 710 hours (~18 weeks) — NOT STARTED
+├── AI features                          116h  ❌
+├── Advanced Sales                       106h  ❌
+├── Marketing Features                   102h  ❌
+├── Integrations                         102h  ⚠️ REST API done
+├── Mobile App                           140h  ❌
+└── Advanced Customization               144h  ❌
 ```
 
 ---
 
 ## **Time Summary**
 
-| Phase | Features | Hours | Weeks (1 Dev) | Weeks (2 Devs) |
-|-------|----------|-------|---------------|----------------|
-| MVP | Must Have | 333h | 8.5 weeks | 4.5 weeks |
-| Phase 2 | Should Have | 412h | 10.5 weeks | 5.5 weeks |
-| Phase 3 | Could Have | 710h | 18 weeks | 9 weeks |
-| **TOTAL** | **All Features** | **1,455h** | **37 weeks** | **19 weeks** |
+| Phase | Features | Hours | Remaining | Status |
+|-------|----------|-------|-----------|--------|
+| MVP | Must Have | 333h | ~44h | 90% Done |
+| Phase 2 | Should Have | 412h | ~412h | Not started (some frontend scaffolds exist) |
+| Phase 3 | Could Have | 710h | ~690h | Not started (REST API done) |
+| **TOTAL** | **All Features** | **1,455h** | **~1,146h** | |
 
 > **Note:** Estimates assume Cursor Enterprise AI-assisted development (30-40% faster than traditional). Add 20% buffer for testing, bug fixes, and code reviews.
+>
+> **Updated Feb 18, 2026:** MVP is ~90% complete. Core Sales, Activities, and User Management are fully integrated with real backend. Remaining MVP work is ~44 hours (custom fields UI, reminders, dashboard data, won/lost view, export endpoint).
 
 ---
 
