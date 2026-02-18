@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Q, Count, Sum
 
 from ..models import Company, Contact, Deal, CRMAuditLog
-from ..exceptions import DuplicateEntityError
+from ..exceptions import DuplicateEntityError, EntityNotFoundError
 from .base_service import BaseService, AdvancedFilterMixin
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,16 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         'annual_revenue': 'annual_revenue',
     }
     
+    def get_by_id(self, entity_id):
+        """Get company by ID with annotated counts for detail serialization."""
+        try:
+            return self.get_queryset().prefetch_related('tags').annotate(
+                contact_count=Count('contact_associations', distinct=True),
+                deal_count=Count('deals', distinct=True),
+            ).get(id=entity_id)
+        except self.model.DoesNotExist:
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+
     def get_optimized_queryset(self):
         """
         Get queryset with prefetch_related for performance.
@@ -141,24 +151,30 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         return super().update(entity_id, data, **kwargs)
     
     def get_contacts(self, company_id: UUID, limit: int = 50) -> List[Contact]:
-        """Get contacts associated with a company."""
+        """Get contacts associated with a company (optimized for ContactListSerializer)."""
         company = self.get_by_id(company_id)
-        
-        # Get primary contacts
-        primary = list(company.primary_contacts.all()[:limit])
-        
-        # Get associated contacts
+
         from ..models import ContactCompany
-        associated_ids = ContactCompany.objects.filter(
-            company=company
-        ).values_list('contact_id', flat=True)
-        
-        associated = Contact.objects.filter(
-            id__in=associated_ids,
-            org_id=self.org_id
-        ).exclude(id__in=[c.id for c in primary])[:limit - len(primary)]
-        
-        return primary + list(associated)
+
+        primary_ids = set(
+            company.primary_contacts.values_list('id', flat=True)[:limit]
+        )
+        associated_ids = set(
+            ContactCompany.objects.filter(company=company)
+            .values_list('contact_id', flat=True)
+        )
+
+        all_ids = list(primary_ids | associated_ids)[:limit]
+
+        return list(
+            Contact.objects.filter(id__in=all_ids, org_id=self.org_id)
+            .select_related('primary_company')
+            .prefetch_related('tags')
+            .annotate(
+                deal_count=Count('deals', distinct=True),
+                activity_count=Count('activities', distinct=True),
+            )
+        )
     
     def get_deals(self, company_id: UUID, status: str = None) -> List[Deal]:
         """Get deals for a company."""
@@ -171,19 +187,28 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         return list(qs.order_by('-created_at'))
     
     def get_stats(self, company_id: UUID) -> Dict:
-        """Get company statistics."""
+        """Get company statistics using aggregation (single query for deal stats)."""
         company = self.get_by_id(company_id)
-        
-        deals = company.deals.all()
-        
+
+        contact_count = company.contact_associations.count()
+
+        deal_agg = company.deals.aggregate(
+            deal_count=Count('id'),
+            open_deals=Count('id', filter=Q(status='open')),
+            won_deals=Count('id', filter=Q(status='won')),
+            lost_deals=Count('id', filter=Q(status='lost')),
+            total_deal_value=Sum('value'),
+            won_deal_value=Sum('value', filter=Q(status='won')),
+        )
+
         return {
-            'contact_count': company.contact_associations.count(),
-            'deal_count': deals.count(),
-            'open_deals': deals.filter(status='open').count(),
-            'won_deals': deals.filter(status='won').count(),
-            'lost_deals': deals.filter(status='lost').count(),
-            'total_deal_value': deals.aggregate(Sum('value'))['value__sum'] or 0,
-            'won_deal_value': deals.filter(status='won').aggregate(Sum('value'))['value__sum'] or 0,
+            'contact_count': contact_count,
+            'deal_count': deal_agg['deal_count'] or 0,
+            'open_deals': deal_agg['open_deals'] or 0,
+            'won_deals': deal_agg['won_deals'] or 0,
+            'lost_deals': deal_agg['lost_deals'] or 0,
+            'total_deal_value': deal_agg['total_deal_value'] or 0,
+            'won_deal_value': deal_agg['won_deal_value'] or 0,
         }
     
     def get_aggregate_stats(self) -> Dict[str, Any]:

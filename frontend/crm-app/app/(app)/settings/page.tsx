@@ -25,7 +25,7 @@ import {
   RolesPermissionsSettings,
   TagManagementSettings,
 } from "@/components/Settings";
-import { usePermission, ORG_MANAGE_MEMBERS, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
+import { usePermission, ORG_MANAGE_MEMBERS, ORG_MANAGE_SETTINGS, ROLES_READ, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
 
 const allSettingsSections = [
   {
@@ -84,9 +84,12 @@ export default function SettingsPage() {
   const settingsSections = useMemo(() => {
     return allSettingsSections.filter((s) => {
       if (s.id === "team") return isAdmin || can(ORG_MANAGE_MEMBERS);
-      if (s.id === "roles") return isAdmin || can(ORG_MANAGE_MEMBERS);
+      if (s.id === "roles") return isAdmin || can(ROLES_READ);
       if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
       if (s.id === "tags") return can(CONTACTS_WRITE);
+      if (s.id === "security") return isAdmin || can(ORG_MANAGE_SETTINGS);
+      if (s.id === "integrations") return isAdmin || can(ORG_MANAGE_SETTINGS);
+      if (s.id === "notifications") return isAdmin || can(ORG_MANAGE_SETTINGS);
       return true;
     });
   }, [can, isAdmin]);

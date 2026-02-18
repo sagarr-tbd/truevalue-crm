@@ -170,9 +170,13 @@ class CompanySerializer(serializers.ModelSerializer):
         return value
     
     def get_contact_count(self, obj) -> int:
+        if hasattr(obj, 'contact_count'):
+            return obj.contact_count
         return obj.contact_associations.count()
     
     def get_deal_count(self, obj) -> int:
+        if hasattr(obj, 'deal_count'):
+            return obj.deal_count
         return obj.deals.count()
 
 
@@ -280,9 +284,13 @@ class ContactSerializer(serializers.ModelSerializer):
         return sanitize_str(value)
     
     def get_deal_count(self, obj) -> int:
+        if hasattr(obj, 'deal_count'):
+            return obj.deal_count
         return obj.deals.count()
     
     def get_activity_count(self, obj) -> int:
+        if hasattr(obj, 'activity_count'):
+            return obj.activity_count
         return obj.activities.count()
 
 
@@ -291,8 +299,8 @@ class ContactListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     primary_company = CompanyMinimalSerializer(read_only=True)
     tags = TagMinimalSerializer(many=True, read_only=True)
-    deal_count = serializers.SerializerMethodField()
-    activity_count = serializers.SerializerMethodField()
+    deal_count = serializers.IntegerField(read_only=True, default=0)
+    activity_count = serializers.IntegerField(read_only=True, default=0)
     
     class Meta:
         model = Contact
@@ -303,12 +311,6 @@ class ContactListSerializer(serializers.ModelSerializer):
             'owner_id', 'deal_count', 'activity_count',
             'last_activity_at', 'created_at'
         ]
-    
-    def get_deal_count(self, obj) -> int:
-        return obj.deals.count()
-    
-    def get_activity_count(self, obj) -> int:
-        return obj.activities.count()
 
 
 class ContactMinimalSerializer(serializers.ModelSerializer):
@@ -353,8 +355,11 @@ class PipelineStageSerializer(serializers.ModelSerializer):
     This is the READ serializer - used for output/response.
     """
     is_closed = serializers.BooleanField(read_only=True)
-    deal_count = serializers.SerializerMethodField()
-    deal_value = serializers.SerializerMethodField()
+    deal_count = serializers.IntegerField(read_only=True, default=0)
+    deal_value = serializers.DecimalField(
+        read_only=True, default=Decimal('0'),
+        max_digits=15, decimal_places=2,
+    )
     
     class Meta:
         model = PipelineStage
@@ -365,15 +370,6 @@ class PipelineStageSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'pipeline', 'order', 'created_at', 'updated_at']
-    
-    def get_deal_count(self, obj) -> int:
-        return obj.deals.filter(status='open').count()
-    
-    def get_deal_value(self, obj) -> Decimal:
-        from django.db.models import Sum
-        return obj.deals.filter(status='open').aggregate(
-            total=Sum('value')
-        )['total'] or Decimal('0')
 
 
 class PipelineSerializer(serializers.ModelSerializer):
@@ -393,9 +389,18 @@ class PipelineSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'org_id', 'created_at', 'updated_at']
     
     def get_total_deals(self, obj) -> int:
+        """Sum deal_count from prefetched annotated stages to avoid extra query."""
+        if hasattr(obj, '_prefetched_objects_cache') and 'stages' in obj._prefetched_objects_cache:
+            return sum(getattr(s, 'deal_count', 0) for s in obj.stages.all())
         return obj.deals.filter(status='open').count()
     
     def get_total_value(self, obj) -> Decimal:
+        """Sum deal_value from prefetched annotated stages to avoid extra query."""
+        if hasattr(obj, '_prefetched_objects_cache') and 'stages' in obj._prefetched_objects_cache:
+            return sum(
+                (getattr(s, 'deal_value', Decimal('0')) for s in obj.stages.all()),
+                Decimal('0'),
+            )
         from django.db.models import Sum
         return obj.deals.filter(status='open').aggregate(
             total=Sum('value')
@@ -414,6 +419,9 @@ class PipelineListSerializer(serializers.ModelSerializer):
         ]
     
     def get_stage_count(self, obj) -> int:
+        """Use prefetched stages if available to avoid extra query."""
+        if hasattr(obj, '_prefetched_objects_cache') and 'stages' in obj._prefetched_objects_cache:
+            return len(obj.stages.all())
         return obj.stages.count()
 
 
@@ -482,6 +490,8 @@ class DealSerializer(serializers.ModelSerializer):
         }
     
     def get_activity_count(self, obj) -> int:
+        if hasattr(obj, 'activity_count'):
+            return obj.activity_count
         return obj.activities.count()
     
     def validate(self, data):
@@ -611,6 +621,8 @@ class LeadSerializer(serializers.ModelSerializer):
         return sanitize_str(value)
     
     def get_activity_count(self, obj) -> int:
+        if hasattr(obj, 'activity_count'):
+            return obj.activity_count
         return obj.activities.count()
 
 

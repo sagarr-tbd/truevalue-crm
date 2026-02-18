@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import ActionMenu from "@/components/ActionMenu";
 import { showSuccessToast, showErrorToast } from "@/lib/toast";
 import { membersApi, type OrganizationMember } from "@/lib/api/members";
+import { useRoles } from "@/lib/queries/useRolesPermissions";
+import { usePermission, ORG_MANAGE_INVITES, ORG_MANAGE_MEMBERS, ROLES_ASSIGN } from "@/lib/permissions";
 
 // Form Schemas
 const inviteMemberSchema = z.object({
@@ -29,36 +31,77 @@ interface TeamMember {
   status: string;
 }
 
-// Map Org Service roles to display names
-const ROLE_DISPLAY: Record<string, string> = {
+// Permission Service code → Org Service code
+const PERM_TO_ORG_ROLE: Record<string, string> = {
+  org_admin: "admin",
+  manager: "manager",
+  member: "member",
+  viewer: "viewer",
+};
+
+// Fallback display names when Permission Service is unreachable
+const ROLE_DISPLAY_FALLBACK: Record<string, string> = {
   owner: "Owner",
   admin: "Administrator",
+  manager: "Manager",
   member: "Member",
   viewer: "Viewer",
 };
 
-const ROLE_OPTIONS = [
+const FALLBACK_ROLE_OPTIONS = [
   { value: "viewer", label: "Viewer" },
   { value: "member", label: "Member" },
+  { value: "manager", label: "Manager" },
   { value: "admin", label: "Administrator" },
 ];
 
-function mapMemberToTeamMember(m: OrganizationMember): TeamMember {
-  const name =
-    `${m.first_name || ""} ${m.last_name || ""}`.trim() ||
-    m.display_name ||
-    "Unknown";
-  return {
-    id: m.id,
-    userId: m.user_id,
-    name,
-    email: m.display_name?.includes("@") ? m.display_name : "",
-    role: ROLE_DISPLAY[m.role] || m.role,
-    status: m.status === "active" ? "Active" : m.status === "pending" ? "Pending" : m.status,
-  };
-}
-
 export default function TeamManagementSettings() {
+  const { can } = usePermission();
+  const canInvite = can(ORG_MANAGE_INVITES);
+  const canAssignRole = can(ROLES_ASSIGN);
+  const canRemoveMember = can(ORG_MANAGE_MEMBERS);
+
+  const { data: permRoles = [] } = useRoles();
+
+  const { roleOptions, roleDisplay } = useMemo(() => {
+    if (permRoles.length === 0) {
+      return { roleOptions: FALLBACK_ROLE_OPTIONS, roleDisplay: ROLE_DISPLAY_FALLBACK };
+    }
+
+    const display: Record<string, string> = { owner: "Owner" };
+    const opts: { value: string; label: string; level: number }[] = [];
+
+    for (const r of permRoles) {
+      if (r.code === "super_admin") continue;
+      const orgCode = PERM_TO_ORG_ROLE[r.code] ?? r.code;
+      display[orgCode] = r.name;
+      if (orgCode !== "owner") {
+        opts.push({ value: orgCode, label: r.name, level: r.level });
+      }
+    }
+
+    opts.sort((a, b) => b.level - a.level);
+    return {
+      roleOptions: opts.map(({ value, label }) => ({ value, label })),
+      roleDisplay: display,
+    };
+  }, [permRoles]);
+
+  function mapMemberToTeamMember(m: OrganizationMember): TeamMember {
+    const name =
+      `${m.first_name || ""} ${m.last_name || ""}`.trim() ||
+      m.display_name ||
+      "Unknown";
+    return {
+      id: m.id,
+      userId: m.user_id,
+      name,
+      email: m.display_name?.includes("@") ? m.display_name : "",
+      role: roleDisplay[m.role] || m.role,
+      status: m.status === "active" ? "Active" : m.status === "pending" ? "Pending" : m.status,
+    };
+  }
+
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -126,7 +169,7 @@ export default function TeamManagementSettings() {
     setSelectedMember(member);
     // Reverse-map display name to actual role value
     const roleValue =
-      Object.entries(ROLE_DISPLAY).find(([, v]) => v === member.role)?.[0] || member.role;
+      Object.entries(roleDisplay).find(([, v]) => v === member.role)?.[0] || member.role;
     editRoleForm.reset({ role: roleValue });
     setShowEditRoleModal(true);
   };
@@ -136,7 +179,7 @@ export default function TeamManagementSettings() {
       if (selectedMember) {
         await membersApi.updateRole(selectedMember.userId, data.role);
         showSuccessToast(
-          `${selectedMember.name}'s role updated to ${ROLE_DISPLAY[data.role] || data.role}`
+          `${selectedMember.name}'s role updated to ${roleDisplay[data.role] || data.role}`
         );
         setShowEditRoleModal(false);
         setSelectedMember(null);
@@ -173,13 +216,15 @@ export default function TeamManagementSettings() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-foreground">Team Members</h3>
-            <Button
-              onClick={() => setShowInviteModal(true)}
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Invite Member
-            </Button>
+            {canInvite && (
+              <Button
+                onClick={() => setShowInviteModal(true)}
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Invite Member
+              </Button>
+            )}
           </div>
 
           {loading ? (
@@ -222,21 +267,27 @@ export default function TeamManagementSettings() {
                       >
                         {member.status}
                       </span>
-                      <ActionMenu
-                        items={[
-                          {
-                            label: "Edit Role",
-                            icon: Edit,
-                            onClick: () => handleEditRole(member),
-                          },
-                          {
-                            label: "Remove",
-                            icon: Trash2,
-                            variant: "danger",
-                            onClick: () => handleRemoveMember(member),
-                          },
-                        ]}
-                      />
+                      {(canAssignRole || canRemoveMember) && (
+                        <ActionMenu
+                          items={[
+                            ...(canAssignRole
+                              ? [{
+                                  label: "Edit Role",
+                                  icon: Edit,
+                                  onClick: () => handleEditRole(member),
+                                }]
+                              : []),
+                            ...(canRemoveMember
+                              ? [{
+                                  label: "Remove",
+                                  icon: Trash2,
+                                  variant: "danger" as const,
+                                  onClick: () => handleRemoveMember(member),
+                                }]
+                              : []),
+                          ]}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -318,7 +369,7 @@ export default function TeamManagementSettings() {
                     inviteForm.formState.errors.role ? "border-destructive" : "border-border"
                   }`}
                 >
-                  {ROLE_OPTIONS.map((opt) => (
+                  {roleOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -387,7 +438,7 @@ export default function TeamManagementSettings() {
                     editRoleForm.formState.errors.role ? "border-destructive" : "border-border"
                   }`}
                 >
-                  {ROLE_OPTIONS.map((opt) => (
+                  {roleOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>

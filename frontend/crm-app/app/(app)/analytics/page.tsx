@@ -186,7 +186,7 @@ export default function AnalyticsPage() {
   // ── Activity overview circles ──
   const activityOverview = useMemo(() => {
     const totalLeads = leadsData?.meta?.total || 0;
-    const byType = activityStats?.by_type || {};
+    const byType = activityStats?.by_type ?? ({} as Record<string, number>);
     const wonDeals = pipelineStats?.wonDeals || 0;
 
     return [

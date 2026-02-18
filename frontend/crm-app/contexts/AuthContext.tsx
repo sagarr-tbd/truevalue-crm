@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { TokenManager, decodeJWT, JWTClaims } from "@/lib/api/client";
+import { hasPermission as checkPermission, hasRole as checkRole } from "@/lib/permissions";
 
 /**
  * User interface matching TrueValueCRM shell
@@ -163,23 +164,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return email.substring(0, 2).toUpperCase();
   }, [user]);
 
-  /**
-   * Check if user has permission (admin roles bypass all checks)
-   */
-  const ADMIN_ROLES = new Set(['super_admin', 'org_admin', 'owner', 'admin']);
-  const hasPermission = useCallback((permission: string): boolean => {
-    if (!claims) return false;
-    if (claims.roles?.some((r: string) => ADMIN_ROLES.has(r))) return true;
-    return claims.permissions?.includes(permission) ?? false;
-  }, [claims]);
+  const hasPermission = useCallback(
+    (permission: string) => checkPermission(permission),
+    [claims],
+  );
 
-  /**
-   * Check if user has role
-   */
-  const hasRole = useCallback((role: string): boolean => {
-    if (!claims) return false;
-    return claims.roles?.includes(role) ?? false;
-  }, [claims]);
+  const hasRole = useCallback(
+    (role: string) => checkRole(role),
+    [claims],
+  );
 
   const value: AuthContextState = {
     user,

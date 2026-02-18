@@ -19,4 +19,7 @@ urlpatterns = [
     
     # Record usage (for billing)
     path('orgs/<uuid:org_id>/usage', internal_views.record_usage, name='internal-record-usage'),
+    
+    # Invalidate cached permissions (called when role changes)
+    path('users/<uuid:user_id>/invalidate-permissions', internal_views.invalidate_permissions, name='internal-invalidate-permissions'),
 ]

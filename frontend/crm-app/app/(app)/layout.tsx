@@ -66,6 +66,7 @@ import {
   ACTIVITIES_READ,
   TASKS_READ,
   REPORTS_READ,
+  DASHBOARDS_READ,
 } from "@/lib/permissions";
 
 type NavigationLink = {
@@ -295,6 +296,28 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       },
     ],
   });
+
+  const ROUTE_PERMISSIONS: Record<string, string> = useMemo(() => ({
+    '/reports': REPORTS_READ,
+    '/analytics': DASHBOARDS_READ,
+    '/sales/contacts': CONTACTS_READ,
+    '/sales/accounts': COMPANIES_READ,
+    '/sales/deals': DEALS_READ,
+    '/sales/leads': LEADS_READ,
+    '/activities/calendar': ACTIVITIES_READ,
+    '/activities/tasks': TASKS_READ,
+    '/activities/meetings': ACTIVITIES_READ,
+    '/activities/calls': ACTIVITIES_READ,
+    '/activities/emails': ACTIVITIES_READ,
+    '/activities/notes': ACTIVITIES_READ,
+  }), []);
+
+  const routeBlocked = useMemo(() => {
+    for (const [route, perm] of Object.entries(ROUTE_PERMISSIONS)) {
+      if (pathname.startsWith(route) && !can(perm)) return true;
+    }
+    return false;
+  }, [pathname, can, ROUTE_PERMISSIONS]);
 
   // Show loading state while auth is initializing (AFTER all hooks)
   if (isLoading) {
@@ -622,6 +645,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                               admin: 'bg-orange-100 text-orange-700',
                               super_admin: 'bg-red-100 text-red-700',
                               org_admin: 'bg-orange-100 text-orange-700',
+                              manager: 'bg-blue-100 text-blue-700',
                               member: 'bg-green-100 text-green-700',
                               viewer: 'bg-gray-100 text-gray-600',
                             }[claims.roles[0]] || 'bg-gray-100 text-gray-600'
@@ -684,7 +708,22 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* Page Content - Responsive padding */}
         <main className="p-3 sm:p-4 md:p-6 max-w-full overflow-x-hidden">
           <ErrorBoundary>
-            {children}
+            {routeBlocked ? (
+              <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+                <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <Settings className="h-8 w-8 text-destructive" />
+                </div>
+                <h2 className="text-2xl font-semibold text-foreground">Access Denied</h2>
+                <p className="text-muted-foreground text-center max-w-md">
+                  You don&apos;t have permission to access this page. Contact your administrator to request access.
+                </p>
+                <Link href="/dashboard" className="text-primary hover:underline text-sm font-medium">
+                  Go to Dashboard
+                </Link>
+              </div>
+            ) : (
+              children
+            )}
           </ErrorBoundary>
         </main>
       </div>

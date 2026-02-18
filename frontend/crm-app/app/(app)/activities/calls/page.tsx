@@ -976,15 +976,15 @@ export default function CallsPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedCalls.length > 0 && can(ACTIVITIES_WRITE) && (
+      {selectedCalls.length > 0 && (can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)) && (
         <BulkActionsToolbar
           selectedCount={selectedCalls.length}
           totalCount={totalItems}
           onSelectAll={handleSelectAllCalls}
           onDeselectAll={handleDeselectAll}
-          onDelete={() => setShowBulkDelete(true)}
+          onDelete={can(ACTIVITIES_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
-          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          onUpdateStatus={can(ACTIVITIES_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}

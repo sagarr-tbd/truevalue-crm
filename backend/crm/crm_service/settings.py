@@ -63,6 +63,7 @@ MIDDLEWARE = [
     'truevalue_common.gateway_auth.GatewayAuthMiddleware',
     'truevalue_common.gateway_auth.ServiceAuthMiddleware',
     'truevalue_common.middleware.RequestLoggingMiddleware',
+    'crm.middleware.PermissionStalenessMiddleware',
 ]
 
 ROOT_URLCONF = 'crm_service.urls'
@@ -99,6 +100,7 @@ if database_url:
             'PASSWORD': parsed.password,
             'HOST': parsed.hostname,
             'PORT': parsed.port or 5433,
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '600')),
         }
     }
 else:
@@ -110,6 +112,7 @@ else:
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', '5433'),
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '600')),
         }
     }
 
@@ -165,6 +168,10 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'crm.exceptions.custom_exception_handler',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'DEFAULT_THROTTLE_CLASSES': [],
+    'DEFAULT_THROTTLE_RATES': {
+        'webform': '10/minute',
+    },
 }
 
 # =============================================================================
@@ -188,9 +195,18 @@ PERMISSION_SERVICE_URL = os.getenv('PERMISSION_SERVICE_URL', 'http://localhost:8
 BILLING_SERVICE_URL = os.getenv('BILLING_SERVICE_URL', 'http://localhost:8004')
 
 # =============================================================================
-# REDIS
+# REDIS & CACHING
 # =============================================================================
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/3')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': REDIS_URL,
+        'KEY_PREFIX': 'crm',
+        'TIMEOUT': 300,
+    }
+}
 
 # =============================================================================
 # KAFKA

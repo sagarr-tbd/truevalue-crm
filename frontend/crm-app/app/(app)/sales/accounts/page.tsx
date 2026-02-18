@@ -51,7 +51,7 @@ import {
 } from "@/lib/queries/useAccounts";
 import { getSizeDisplayLabel, companiesApi } from "@/lib/api/companies";
 import { useUIStore } from "@/stores";
-import { usePermission, COMPANIES_WRITE, COMPANIES_DELETE } from "@/lib/permissions";
+import { usePermission, COMPANIES_READ, COMPANIES_WRITE, COMPANIES_DELETE } from "@/lib/permissions";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -847,15 +847,17 @@ export default function AccountsPage() {
               )}
             </Button>
 
-            <Button 
-              variant="outline" 
-              size="sm"
-              title="Import accounts from CSV or Excel"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
             {can(COMPANIES_WRITE) && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                title="Import accounts from CSV or Excel"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            )}
+            {can(COMPANIES_READ) && (
               <ExportButton
                 data={accounts}
                 columns={exportColumns}
@@ -893,15 +895,15 @@ export default function AccountsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedAccounts.length > 0 && can(COMPANIES_WRITE) && (
+        {selectedAccounts.length > 0 && (can(COMPANIES_WRITE) || can(COMPANIES_DELETE)) && (
           <BulkActionsToolbar
             selectedCount={selectedAccounts.length}
             totalCount={totalItems}
             onSelectAll={handleSelectAllAccounts}
             onDeselectAll={handleDeselectAll}
-            onDelete={() => setShowBulkDelete(true)}
+            onDelete={can(COMPANIES_DELETE) ? () => setShowBulkDelete(true) : undefined}
             onExport={handleBulkExport}
-            onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+            onUpdateStatus={can(COMPANIES_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
             statusLabel="Size"
             isProcessing={isBulkProcessing}
           />

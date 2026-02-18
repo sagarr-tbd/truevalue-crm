@@ -7,7 +7,7 @@ from uuid import UUID
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 
 from ..models import Lead, Contact, Company, Deal, Pipeline, PipelineStage, CRMAuditLog
@@ -42,6 +42,15 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         'country': 'country',
     }
     
+    def get_by_id(self, entity_id):
+        """Get lead by ID with optimized queryset for detail serialization."""
+        try:
+            return self.get_queryset().prefetch_related('tags').annotate(
+                activity_count=Count('activities', distinct=True),
+            ).get(id=entity_id)
+        except self.model.DoesNotExist:
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+
     def get_optimized_queryset(self):
         """
         Get queryset with prefetch_related for performance.

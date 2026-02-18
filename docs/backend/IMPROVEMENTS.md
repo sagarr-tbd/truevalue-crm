@@ -431,6 +431,336 @@ docker exec crm-backend python manage.py migrate crm
 
 ---
 
+## 11. Activity N+1 Query Fix
+
+### Problem
+`ActivityListSerializer` and `ActivitySerializer` nest `contact`, `company`, `deal`, and `lead` sub-serializers. Without `select_related`, every activity in a list triggers 4 extra DB queries (e.g., 25 activities = 100 extra queries).
+
+### Solution
+Added `get_optimized_queryset()` to `ActivityService` with `select_related` on all FK relations. Updated `list()`, `get_upcoming()`, `get_overdue()`, and `get_timeline()` to use it.
+
+### Files Modified
+- `services/activity_service.py`
+
+### Implementation
+
+```python
+def get_optimized_queryset(self):
+    return self.get_queryset().select_related(
+        'contact', 'company', 'deal', 'lead'
+    )
+```
+
+### Impact
+- ~100 extra queries → 1 JOIN query per activity list
+
+---
+
+## 12. Contact List Count Annotations
+
+### Problem
+`ContactListSerializer` used `SerializerMethodField` for `deal_count` and `activity_count`, calling `obj.deals.count()` and `obj.activities.count()` per row. For 25 contacts, that's 50 extra queries.
+
+### Solution
+Replaced `SerializerMethodField` with DB-level `annotate(Count(...))` on the queryset, and changed serializer fields to `IntegerField(read_only=True, default=0)`.
+
+### Files Modified
+- `services/contact_service.py`
+- `serializers.py`
+
+### Service Change
+
+```python
+def get_optimized_queryset(self, annotate_counts=False):
+    qs = self.get_queryset().select_related('primary_company').prefetch_related('tags', ...)
+    if annotate_counts:
+        qs = qs.annotate(
+            deal_count=Count('deals', distinct=True),
+            activity_count=Count('activities', distinct=True),
+        )
+    return qs
+```
+
+### Serializer Change
+
+```python
+# Before (N+1)
+deal_count = serializers.SerializerMethodField()
+def get_deal_count(self, obj) -> int:
+    return obj.deals.count()
+
+# After (annotation)
+deal_count = serializers.IntegerField(read_only=True, default=0)
+```
+
+### Impact
+- 50 extra queries → 0 (counts come from single annotated query)
+
+---
+
+## 13. Pipeline Stage Annotation
+
+### Problem
+`PipelineStageSerializer` used `SerializerMethodField` for `deal_count` and `deal_value`, querying the DB per stage. A pipeline with 6 stages = 12 extra queries. `PipelineSerializer` also had N+1 for `total_deals` and `total_value`.
+
+### Solution
+- Created `_get_annotated_stages_prefetch()` that returns a `Prefetch` object with annotated stages.
+- Updated `get_stages()` to use annotated queryset directly.
+- Changed `PipelineStageSerializer` to read from annotated fields.
+- Updated `PipelineSerializer` to sum from prefetched annotated stages.
+
+### Files Modified
+- `services/pipeline_service.py`
+- `serializers.py`
+
+### Service Change
+
+```python
+@staticmethod
+def _get_annotated_stages_prefetch():
+    annotated_qs = PipelineStage.objects.annotate(
+        deal_count=Count('deals', filter=Q(deals__status='open')),
+        deal_value=Coalesce(
+            Sum('deals__value', filter=Q(deals__status='open')),
+            Decimal('0'),
+        ),
+    ).order_by('order')
+    return Prefetch('stages', queryset=annotated_qs)
+```
+
+### Serializer Change
+
+```python
+# Before (N+1)
+deal_count = serializers.SerializerMethodField()
+deal_value = serializers.SerializerMethodField()
+
+# After (annotation)
+deal_count = serializers.IntegerField(read_only=True, default=0)
+deal_value = serializers.DecimalField(read_only=True, default=Decimal('0'), ...)
+```
+
+### Impact
+- ~12 extra queries → 1 annotated prefetch query per pipeline load
+
+---
+
+## 14. Activity Stats Aggregation + Cache
+
+### Problem
+`ActivityService.get_stats()` fired 12 separate `.count()` queries (status counts, type counts, time-based counts). Called on every dashboard load.
+
+### Solution
+Consolidated into a single `aggregate()` call with conditional `Count` filters. Added 60-second Redis cache.
+
+### Files Modified
+- `services/activity_service.py`
+
+### Before (12 queries)
+
+```python
+return {
+    'total': qs.count(),
+    'pending': qs.filter(status='pending').count(),
+    'in_progress': qs.filter(status='in_progress').count(),
+    # ... 9 more .count() calls
+}
+```
+
+### After (1 query + cache)
+
+```python
+cache_key = f"activity_stats:{self.org_id}:{user_id or 'all'}"
+cached = cache.get(cache_key)
+if cached is not None:
+    return cached
+
+stats_agg = qs.aggregate(
+    total=Count('id'),
+    pending=Count('id', filter=Q(status='pending')),
+    in_progress=Count('id', filter=Q(status='in_progress')),
+    completed=Count('id', filter=Q(status='completed')),
+    overdue=Count('id', filter=Q(status__in=['pending', 'in_progress'], due_date__lt=now)),
+    # ... all counts in single aggregate()
+)
+
+cache.set(cache_key, result, 60)
+```
+
+### Impact
+- 12 DB queries → 1 aggregation query
+- 60s cache eliminates repeated calls on dashboard refresh
+
+---
+
+## 15. Company Stats Aggregation
+
+### Problem
+`CompanyService.get_stats()` fired 7 separate queries (6 deal count/sum queries + 1 contact count).
+
+### Solution
+Consolidated deal queries into a single `aggregate()` call with conditional filters.
+
+### Files Modified
+- `services/company_service.py`
+
+### Before (7 queries)
+
+```python
+deals = company.deals.all()
+return {
+    'deal_count': deals.count(),
+    'open_deals': deals.filter(status='open').count(),
+    'total_deal_value': deals.aggregate(Sum('value'))['value__sum'] or 0,
+    # ... 4 more queries
+}
+```
+
+### After (2 queries)
+
+```python
+contact_count = company.contact_associations.count()
+deal_agg = company.deals.aggregate(
+    deal_count=Count('id'),
+    open_deals=Count('id', filter=Q(status='open')),
+    won_deals=Count('id', filter=Q(status='won')),
+    lost_deals=Count('id', filter=Q(status='lost')),
+    total_deal_value=Sum('value'),
+    won_deal_value=Sum('value', filter=Q(status='won')),
+)
+```
+
+### Impact
+- 7 queries → 2 queries per company stats view
+
+---
+
+## 16. Internal Views — Single SQL Stats
+
+### Problem
+`get_org_stats()` fired 5 separate queries (2 aggregates + 3 counts) to build dashboard stats for another service. `record_usage()` fired 5 separate ORM `.count()` calls.
+
+### Solution
+Both consolidated into single raw SQL with subselects — 1 DB roundtrip each.
+
+### Files Modified
+- `internal_views.py`
+
+### Implementation
+
+```python
+def get_org_stats(request, org_id):
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM crm_contact WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_company WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_activity WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL),
+                -- ... deal status counts, sums, lead counts in same query
+        """, [str(org_uuid)] * 14)
+        r = cursor.fetchone()
+```
+
+### Impact
+- `get_org_stats`: 5 queries → 1
+- `record_usage`: 5 queries → 1
+
+---
+
+## 17. Activity Type Stats — Single Aggregate
+
+### Problem
+`ActivityService.get_type_stats()` used 3 queries: 1 `aggregate()` for totals + 2 `values().annotate()` for status/priority breakdowns.
+
+### Solution
+Consolidated into single `aggregate()` with conditional `Count` for each known status and priority value.
+
+### Files Modified
+- `services/activity_service.py`
+
+### Before (3 queries)
+
+```python
+totals = qs.aggregate(total=Count('id'), overdue=Count(...))
+by_status = qs.values('status').annotate(count=Count('id'))
+by_priority = qs.values('priority').annotate(count=Count('id'))
+```
+
+### After (1 query)
+
+```python
+agg = qs.aggregate(
+    total=Count('id'),
+    overdue=Count('id', filter=Q(status__in=[...], due_date__lt=now)),
+    s_pending=Count('id', filter=Q(status='pending')),
+    s_in_progress=Count('id', filter=Q(status='in_progress')),
+    s_completed=Count('id', filter=Q(status='completed')),
+    s_cancelled=Count('id', filter=Q(status='cancelled')),
+    p_low=Count('id', filter=Q(priority='low')),
+    p_medium=Count('id', filter=Q(priority='medium')),
+    p_high=Count('id', filter=Q(priority='high')),
+    p_urgent=Count('id', filter=Q(priority='urgent')),
+)
+```
+
+### Impact
+- 3 queries → 1 aggregate query
+
+---
+
+## 18. Company Contacts Optimization
+
+### Problem
+`CompanyService.get_contacts()` returned contacts without `select_related` or `prefetch_related`. When serialized with `ContactListSerializer` (which needs `primary_company`, `tags`, `deal_count`, `activity_count`), each contact triggered 4+ extra queries.
+
+### Solution
+Single optimized query with `select_related('primary_company')`, `prefetch_related('tags')`, and `annotate(deal_count, activity_count)`.
+
+### Files Modified
+- `services/company_service.py`
+
+### Before
+
+```python
+primary = list(company.primary_contacts.all()[:limit])
+associated = Contact.objects.filter(id__in=associated_ids)
+# No select_related, no prefetch, no annotations → N+1
+```
+
+### After
+
+```python
+Contact.objects.filter(id__in=all_ids, org_id=self.org_id)
+    .select_related('primary_company')
+    .prefetch_related('tags')
+    .annotate(
+        deal_count=Count('deals', distinct=True),
+        activity_count=Count('activities', distinct=True),
+    )
+```
+
+### Impact
+- ~50 queries → 3 per company contacts view
+
+---
+
+## 19. Module-Level Imports
+
+### Problem
+`import json`, `from django.db.models import Sum, Count, Q`, `import httpx`, `from django.conf import settings` were imported inside view methods, causing per-request import overhead.
+
+### Solution
+Moved all imports to module level in `views.py`.
+
+### Files Modified
+- `views.py`
+
+### Impact
+- Eliminates per-request import lookups (minor but consistent)
+
+---
+
 ## Summary
 
 | Improvement | Type | Impact |
@@ -445,3 +775,12 @@ docker exec crm-backend python manage.py migrate crm
 | GIN Indexes | Performance | Fast fuzzy text search |
 | Exception Handling | Security | No info leakage |
 | Param Validation | Security/Stability | Safe input parsing |
+| Activity select_related | Performance | ~100 queries → 1 |
+| Contact Count Annotations | Performance | ~50 queries → 0 |
+| Pipeline Stage Annotations | Performance | ~12 queries → 1 |
+| Activity Stats Aggregation | Performance | 12 queries → 1 + 60s cache |
+| Company Stats Aggregation | Performance | 7 queries → 2 |
+| Internal Views Raw SQL | Performance | 10 queries → 2 |
+| Activity Type Stats | Performance | 3 queries → 1 |
+| Company Contacts Optimization | Performance | ~50 queries → 3 |
+| Module-Level Imports | Code Quality | Cleaner, no per-request overhead |

@@ -837,15 +837,15 @@ export default function NotesPage() {
         drawerPosition="right"
       />
 
-      {selectedNotes.length > 0 && can(ACTIVITIES_WRITE) && (
+      {selectedNotes.length > 0 && (can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)) && (
         <BulkActionsToolbar
           selectedCount={selectedNotes.length}
           totalCount={totalItems}
           onSelectAll={handleSelectAllNotes}
           onDeselectAll={handleDeselectAll}
-          onDelete={() => setShowBulkDelete(true)}
+          onDelete={can(ACTIVITIES_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
-          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          onUpdateStatus={can(ACTIVITIES_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}
