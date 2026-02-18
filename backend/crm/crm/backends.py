@@ -80,6 +80,7 @@ class JWTAuthentication(authentication.BaseAuthentication):
                 org_slug=org_slug,
                 roles=payload.get('roles', []),
                 permissions=payload.get('permissions', []),
+                perm_version=payload.get('perm_version'),
             )
             
             return (user, token)

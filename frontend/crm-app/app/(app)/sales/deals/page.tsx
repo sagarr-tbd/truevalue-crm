@@ -470,8 +470,8 @@ export default function DealsPage() {
     onDelete: handleDeleteClick,
   }), [router, handleEditDeal, handleDeleteClick]);
 
-  // Kanban drag handler
   const handleKanbanDealMove = async (dealId: string, newStageId: string) => {
+    if (!can(DEALS_WRITE)) return;
     try {
       await moveStage.mutateAsync({ id: dealId, stageId: newStageId });
     } catch (error) {
@@ -914,14 +914,16 @@ export default function DealsPage() {
               )}
             </Button>
 
-            <Button 
-              variant="outline" 
-              size="sm"
-              title="Import deals from CSV or Excel"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </Button>
+            {can(DEALS_WRITE) && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                title="Import deals from CSV or Excel"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+            )}
             {can(DEALS_WRITE) && (
               <ExportButton
                 data={deals}
@@ -985,15 +987,15 @@ export default function DealsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedDeals.length > 0 && can(DEALS_WRITE) && (
+        {selectedDeals.length > 0 && (can(DEALS_WRITE) || can(DEALS_DELETE)) && (
           <BulkActionsToolbar
             selectedCount={selectedDeals.length}
             totalCount={totalDeals}
             onSelectAll={handleSelectAllDeals}
             onDeselectAll={handleDeselectAll}
-            onDelete={() => setShowBulkDelete(true)}
+            onDelete={can(DEALS_DELETE) ? () => setShowBulkDelete(true) : undefined}
             onExport={handleBulkExport}
-            onUpdateStatus={() => setShowBulkUpdateStage(true)}
+            onUpdateStatus={can(DEALS_WRITE) ? () => setShowBulkUpdateStage(true) : undefined}
             statusLabel="Stage"
             isProcessing={isBulkProcessing}
           />

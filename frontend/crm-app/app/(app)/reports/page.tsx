@@ -37,6 +37,7 @@ import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import ActionMenu from "@/components/ActionMenu";
 import { ReportFormDrawer, type Report } from "@/components/Forms/Reports";
 import { showSuccessToast } from "@/lib/toast";
+import { usePermission, REPORTS_WRITE, REPORTS_EXPORT } from "@/lib/permissions";
 
 // Reports data
 const reports = [
@@ -174,6 +175,7 @@ const reports = [
 
 export default function ReportsPage() {
   const router = useRouter();
+  const { can } = usePermission();
   
   // State management
   const [searchQuery, setSearchQuery] = useState("");
@@ -568,22 +570,26 @@ export default function ReportsPage() {
               </AnimatePresence>
             </div>
 
-            <Button 
-              variant="outline" 
-              size="sm"
-              title="Export reports"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Button 
-              className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-              title="Create a new report"
-              onClick={handleAddReport}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Report
-            </Button>
+            {can(REPORTS_EXPORT) && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                title="Export reports"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            )}
+            {can(REPORTS_WRITE) && (
+              <Button 
+                className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
+                title="Create a new report"
+                onClick={handleAddReport}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Report
+              </Button>
+            )}
           </>
         }
       />
@@ -620,28 +626,36 @@ export default function ReportsPage() {
                   icon: FileText,
                   onClick: () => router.push(`/reports/${row.id}`),
                 },
-                {
-                  label: "Edit Report",
-                  icon: Edit,
-                  onClick: () => handleEditReport(row),
-                },
-                {
-                  label: "Duplicate",
-                  icon: Copy,
-                  onClick: () => console.log("Copy", row.id),
-                },
+                ...(can(REPORTS_WRITE)
+                  ? [
+                      {
+                        label: "Edit Report",
+                        icon: Edit,
+                        onClick: () => handleEditReport(row),
+                      },
+                      {
+                        label: "Duplicate",
+                        icon: Copy,
+                        onClick: () => console.log("Copy", row.id),
+                      },
+                    ]
+                  : []),
                 {
                   label: "Share",
                   icon: Share2,
                   onClick: () => console.log("Share", row.id),
                 },
-                { divider: true, label: "", onClick: () => {} },
-                {
-                  label: "Delete",
-                  icon: Trash2,
-                  variant: "danger",
-                  onClick: () => handleDeleteReport(row),
-                },
+                ...(can(REPORTS_WRITE)
+                  ? [
+                      { divider: true, label: "", onClick: () => {} },
+                      {
+                        label: "Delete",
+                        icon: Trash2,
+                        variant: "danger" as const,
+                        onClick: () => handleDeleteReport(row),
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -682,18 +696,26 @@ export default function ReportsPage() {
                           icon: FileText,
                           onClick: () => router.push(`/reports/${report.id}`),
                         },
-                        {
-                          label: "Edit Report",
-                          icon: Edit,
-                          onClick: () => handleEditReport(report),
-                        },
-                        { divider: true, label: "", onClick: () => {} },
-                        {
-                          label: "Delete",
-                          icon: Trash2,
-                          variant: "danger",
-                          onClick: () => handleDeleteReport(report),
-                        },
+                        ...(can(REPORTS_WRITE)
+                          ? [
+                              {
+                                label: "Edit Report",
+                                icon: Edit,
+                                onClick: () => handleEditReport(report),
+                              },
+                            ]
+                          : []),
+                        ...(can(REPORTS_WRITE)
+                          ? [
+                              { divider: true, label: "", onClick: () => {} },
+                              {
+                                label: "Delete",
+                                icon: Trash2,
+                                variant: "danger" as const,
+                                onClick: () => handleDeleteReport(report),
+                              },
+                            ]
+                          : []),
                     ]}
                     />
                   </div>

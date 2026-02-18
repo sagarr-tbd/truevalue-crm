@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { showSuccessToast } from "@/lib/toast";
 import { ReportFormDrawer, type Report } from "@/components/Forms/Reports";
+import { usePermission, REPORTS_WRITE, REPORTS_EXPORT } from "@/lib/permissions";
 
 // Mock reports data (from reports page)
 const reportsData = [
@@ -185,6 +186,7 @@ export default function ReportDetailPage() {
   const params = useParams();
   const reportId = parseInt(params.id as string);
 
+  const { can } = usePermission();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -286,29 +288,35 @@ export default function ReportDetailPage() {
             <Share2 className="h-4 w-4 mr-2" />
             Share
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDuplicate}
-          >
-            <Copy className="h-4 w-4 mr-2" />
-            Duplicate
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsFormOpen(true)}
-          >
-            <Edit className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsDeleteModalOpen(true)}
-          >
-            <Trash2 className="h-4 w-4 mr-2 text-destructive" />
-          </Button>
+          {can(REPORTS_WRITE) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDuplicate}
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Duplicate
+            </Button>
+          )}
+          {can(REPORTS_WRITE) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFormOpen(true)}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          )}
+          {can(REPORTS_WRITE) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteModalOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2 text-destructive" />
+            </Button>
+          )}
           <Button
             className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
             onClick={handleRunReport}
@@ -415,16 +423,18 @@ export default function ReportDetailPage() {
                   <LineChart className="h-5 w-5 text-primary" />
                   Data Visualization
                 </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleExport('pdf')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export PDF
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export CSV
-                  </Button>
-                </div>
+                {can(REPORTS_EXPORT) && (
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleExport('pdf')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export PDF
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export CSV
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent>

@@ -6,8 +6,11 @@ from typing import List, Dict, Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Count, Sum, Q, Prefetch
+from django.db.models.functions import Coalesce
 from django.conf import settings
 from django.core.cache import cache
+from decimal import Decimal
 
 from ..models import Pipeline, PipelineStage, Deal
 from ..exceptions import InvalidOperationError, EntityNotFoundError
@@ -25,6 +28,21 @@ class PipelineService(BaseService[Pipeline]):
     model = Pipeline
     entity_type = 'pipeline'
     billing_feature_code = 'pipelines'
+    
+    @staticmethod
+    def _get_annotated_stages_prefetch():
+        """
+        Return a Prefetch object for pipeline stages with deal_count and deal_value
+        annotations. Eliminates N+1 queries in PipelineStageSerializer.
+        """
+        annotated_qs = PipelineStage.objects.annotate(
+            deal_count=Count('deals', filter=Q(deals__status='open')),
+            deal_value=Coalesce(
+                Sum('deals__value', filter=Q(deals__status='open')),
+                Decimal('0'),
+            ),
+        ).order_by('order')
+        return Prefetch('stages', queryset=annotated_qs)
     
     def _get_pipeline_list_cache_key(self, is_active: bool = None) -> str:
         """Generate cache key for pipeline list."""
@@ -70,7 +88,7 @@ class PipelineService(BaseService[Pipeline]):
             if cached is not None:
                 return cached
         
-        qs = self.get_queryset().prefetch_related('stages')
+        qs = self.get_queryset().prefetch_related(self._get_annotated_stages_prefetch())
         
         if filters:
             qs = qs.filter(**filters)
@@ -201,14 +219,24 @@ class PipelineService(BaseService[Pipeline]):
     # Stage operations
     
     def get_stages(self, pipeline_id: UUID) -> List[PipelineStage]:
-        """Get stages for a pipeline with caching."""
+        """Get stages for a pipeline with caching and annotated deal stats."""
         cache_key = self._get_stages_cache_key(pipeline_id)
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         pipeline = self.get_by_id(pipeline_id)
-        stages = list(pipeline.stages.order_by('order'))
+        stages = list(
+            PipelineStage.objects.filter(pipeline=pipeline)
+            .annotate(
+                deal_count=Count('deals', filter=Q(deals__status='open')),
+                deal_value=Coalesce(
+                    Sum('deals__value', filter=Q(deals__status='open')),
+                    Decimal('0'),
+                ),
+            )
+            .order_by('order')
+        )
         
         cache.set(cache_key, stages, PIPELINE_CACHE_TIMEOUT)
         return stages
@@ -315,16 +343,19 @@ class PipelineService(BaseService[Pipeline]):
     def reorder_stages(self, pipeline_id: UUID, stage_order: List[UUID]) -> List[PipelineStage]:
         """Reorder stages in a pipeline."""
         pipeline = self.get_by_id(pipeline_id)
-        
+
         stages = {str(s.id): s for s in pipeline.stages.all()}
-        
+
+        updated = []
         for order, stage_id in enumerate(stage_order, start=1):
             stage = stages.get(str(stage_id))
             if stage:
                 stage.order = order
-                stage.save(update_fields=['order', 'updated_at'])
-        
-        # Invalidate cache
+                updated.append(stage)
+
+        if updated:
+            PipelineStage.objects.bulk_update(updated, ['order', 'updated_at'])
+
         self._invalidate_pipeline_cache(pipeline_id)
-        
+
         return list(pipeline.stages.order_by('order'))

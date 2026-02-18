@@ -696,8 +696,8 @@ export default function MeetingsPage() {
 
       <AdvancedFilter fields={filterFields} onApply={(group) => { setFilterGroup(group); setCurrentPage(1); }} onClear={() => { setFilterGroup(null); setCurrentPage(1); }} initialGroup={filterGroup || undefined} presets={presets} onSavePreset={addPreset} onLoadPreset={(preset) => { setFilterGroup(preset.group); setCurrentPage(1); }} onDeletePreset={deletePreset} isDrawer={true} isOpen={showAdvancedFilter} onClose={() => setShowAdvancedFilter(false)} drawerPosition="right" />
 
-      {selectedMeetings.length > 0 && can(ACTIVITIES_WRITE) && (
-        <BulkActionsToolbar selectedCount={selectedMeetings.length} totalCount={totalItems} onSelectAll={handleSelectAllMeetings} onDeselectAll={handleDeselectAll} onDelete={() => setShowBulkDelete(true)} onExport={handleBulkExport} onUpdateStatus={() => setShowBulkUpdateStatus(true)} isProcessing={isBulkProcessing} />
+      {selectedMeetings.length > 0 && (can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)) && (
+        <BulkActionsToolbar selectedCount={selectedMeetings.length} totalCount={totalItems} onSelectAll={handleSelectAllMeetings} onDeselectAll={handleDeselectAll} onDelete={can(ACTIVITIES_DELETE) ? () => setShowBulkDelete(true) : undefined} onExport={handleBulkExport} onUpdateStatus={can(ACTIVITIES_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined} isProcessing={isBulkProcessing} />
       )}
 
       <AnimatePresence>{showStats && <StatsCards stats={stats} columns={4} />}</AnimatePresence>

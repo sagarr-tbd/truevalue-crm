@@ -79,6 +79,17 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             time_in_stage_seconds=time_in_stage_seconds,
         )
     
+    def get_by_id(self, entity_id):
+        """Get deal by ID with optimized queryset for detail serialization."""
+        try:
+            return self.get_queryset().select_related(
+                'pipeline', 'stage', 'contact', 'company'
+            ).prefetch_related('tags').annotate(
+                activity_count=Count('activities', distinct=True),
+            ).get(id=entity_id)
+        except self.model.DoesNotExist:
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+
     def get_optimized_queryset(self):
         """
         Get queryset with select_related and prefetch_related for performance.

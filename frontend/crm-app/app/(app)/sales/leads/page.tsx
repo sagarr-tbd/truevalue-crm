@@ -55,7 +55,7 @@ import {
 } from "@/lib/queries/useLeads";
 import { leadsApi } from "@/lib/api/leads";
 import { useUIStore } from "@/stores";
-import { usePermission, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
+import { usePermission, LEADS_READ, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
 
 // Lazy load heavy components that are only used conditionally
 const LeadFormDrawer = dynamic(
@@ -884,12 +884,14 @@ export default function LeadsPage() {
                 Import
               </Button>
             )}
-            <ExportButton
-              data={leads}
-              columns={exportColumns}
-              filename={`leads-${new Date().toISOString().split('T')[0]}`}
-              title="Leads Export"
-            />
+            {can(LEADS_READ) && (
+              <ExportButton
+                data={leads}
+                columns={exportColumns}
+                filename={`leads-${new Date().toISOString().split('T')[0]}`}
+                title="Leads Export"
+              />
+            )}
             {can(LEADS_WRITE) && (
               <Button 
                 onClick={() => {

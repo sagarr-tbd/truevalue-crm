@@ -3,14 +3,23 @@ CRM Service API Views.
 
 REST API endpoints for CRM entities.
 """
+import hashlib
+import hmac as hmac_mod
+import json
 import logging
+import time as time_mod
 from typing import Optional
 from uuid import UUID
 
+import httpx
+from django.conf import settings as django_settings
+from django.db import models
+from django.db.models import Sum, Count, Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import SimpleRateThrottle
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
@@ -21,9 +30,9 @@ from .models import (
 )
 from .serializers import (
     ContactSerializer, ContactListSerializer,
-    ContactCompanySerializer,
+    ContactCompanySerializer, ContactMergeSerializer, ContactMergeResultSerializer,
     CompanySerializer, CompanyListSerializer,
-    LeadSerializer, LeadListSerializer, LeadConvertSerializer,
+    LeadSerializer, LeadListSerializer, LeadConvertSerializer, LeadWebFormSerializer,
     DealSerializer, DealListSerializer,
     PipelineSerializer, PipelineListSerializer, PipelineStageSerializer, PipelineStageWriteSerializer,
     ActivitySerializer, ActivityListSerializer,
@@ -62,6 +71,15 @@ class BaseAPIView(APIView):
             org_id=self.get_org_id(),
             user_id=self.get_user_id()
         )
+
+    def check_obj_perms(self, obj):
+        """Convenience wrapper — runs object-level permission checks."""
+        self.check_object_permissions(self.request, obj)
+
+    def get_scope(self) -> str:
+        """Get scope filter from query params. Valid: mine, team, org (default)."""
+        scope = self.request.query_params.get('scope', 'org')
+        return scope if scope in ('mine', 'team', 'org') else 'org'
     
     def get_int_param(
         self, 
@@ -130,15 +148,16 @@ class ContactListView(BaseAPIView):
     
     def get(self, request):
         """List contacts with filtering."""
-        import json
         
         service = self.get_service(ContactService)
         
         # Parse query params
         filters = {}
-        owner_id = request.query_params.get('owner_id')
+        owner_id = self.get_uuid_param('owner_id')
+        if not owner_id and self.get_scope() == 'mine':
+            owner_id = self.get_user_id()
         status_param = request.query_params.get('status')
-        company_id = request.query_params.get('company_id')
+        company_id = self.get_uuid_param('company_id')
         search = request.query_params.get('search')
         order_by = request.query_params.get('order_by', '-created_at')
         
@@ -166,9 +185,9 @@ class ContactListView(BaseAPIView):
             order_by=order_by,
             limit=None,  # No limit for count
             offset=0,
-            owner_id=UUID(owner_id) if owner_id else None,
+            owner_id=owner_id,
             status=status_param,
-            company_id=UUID(company_id) if company_id else None,
+            company_id=company_id,
             advanced_filters=advanced_filters,
             filter_logic=filter_logic,
         )
@@ -229,6 +248,7 @@ class ContactDetailView(BaseAPIView):
         """Update a contact."""
         service = self.get_service(ContactService)
         contact = service.get_by_id(contact_id)
+        self.check_obj_perms(contact)
         
         serializer = ContactSerializer(contact, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -239,6 +259,8 @@ class ContactDetailView(BaseAPIView):
     def delete(self, request, contact_id):
         """Delete a contact."""
         service = self.get_service(ContactService)
+        contact = service.get_by_id(contact_id)
+        self.check_obj_perms(contact)
         service.delete(contact_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -376,8 +398,6 @@ class ContactMergeView(BaseAPIView):
         The secondary contact will be deleted after merging its data
         into the primary contact.
         """
-        from .serializers import ContactMergeSerializer, ContactMergeResultSerializer
-        
         serializer = ContactMergeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -420,7 +440,6 @@ class CompanyListView(BaseAPIView):
     
     def get(self, request):
         """List companies with pagination, filtering, and stats."""
-        import json
         
         service = self.get_service(CompanyService)
         
@@ -428,7 +447,9 @@ class CompanyListView(BaseAPIView):
         search = request.query_params.get('search')
         industry = request.query_params.get('industry')
         size = request.query_params.get('size')
-        owner_id = request.query_params.get('owner_id')
+        owner_id = self.get_uuid_param('owner_id')
+        if not owner_id and self.get_scope() == 'mine':
+            owner_id = self.get_user_id()
         order_by = request.query_params.get('order_by', '-created_at')
         
         # Parse advanced filters (JSON string) - consistent with Lead/Contact views
@@ -454,7 +475,7 @@ class CompanyListView(BaseAPIView):
             order_by=order_by,
             limit=None,  # No limit for count
             offset=0,
-            owner_id=UUID(owner_id) if owner_id else None,
+            owner_id=owner_id,
             industry=industry,
             size=size,
             advanced_filters=advanced_filters,
@@ -514,6 +535,7 @@ class CompanyDetailView(BaseAPIView):
         """Update a company."""
         service = self.get_service(CompanyService)
         company = service.get_by_id(company_id)
+        self.check_obj_perms(company)
         
         serializer = CompanySerializer(company, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -524,6 +546,8 @@ class CompanyDetailView(BaseAPIView):
     def delete(self, request, company_id):
         """Delete a company."""
         service = self.get_service(CompanyService)
+        company = service.get_by_id(company_id)
+        self.check_obj_perms(company)
         service.delete(company_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -595,7 +619,6 @@ class LeadListView(BaseAPIView):
     
     def get(self, request):
         """List leads."""
-        import json
         
         service = self.get_service(LeadService)
         
@@ -603,6 +626,9 @@ class LeadListView(BaseAPIView):
         status_param = request.query_params.get('status')
         source = request.query_params.get('source')
         order_by = request.query_params.get('order_by', '-created_at')
+        owner_id = self.get_uuid_param('owner_id')
+        if not owner_id and self.get_scope() == 'mine':
+            owner_id = self.get_user_id()
         
         # Parse advanced filters (JSON string)
         advanced_filters = None
@@ -625,6 +651,7 @@ class LeadListView(BaseAPIView):
             search=search,
             status=status_param,
             source=source,
+            owner_id=owner_id,
             order_by=order_by,
             limit=None,  # No limit for count
             offset=0,
@@ -685,6 +712,7 @@ class LeadDetailView(BaseAPIView):
         """Update a lead."""
         service = self.get_service(LeadService)
         lead = service.get_by_id(lead_id)
+        self.check_obj_perms(lead)
         
         serializer = LeadSerializer(lead, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -695,6 +723,8 @@ class LeadDetailView(BaseAPIView):
     def delete(self, request, lead_id):
         """Delete a lead."""
         service = self.get_service(LeadService)
+        lead = service.get_by_id(lead_id)
+        self.check_obj_perms(lead)
         service.delete(lead_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -772,18 +802,18 @@ class DealListView(BaseAPIView):
     
     def get(self, request):
         """List deals with filtering, pagination, and search."""
-        import json
-        
         service = self.get_service(DealService)
         
         # Parse query parameters
         search = request.query_params.get('search')
         status_param = request.query_params.get('status')
-        pipeline_id = request.query_params.get('pipeline_id')
-        stage_id = request.query_params.get('stage_id')
-        owner_id = request.query_params.get('owner_id')
-        contact_id = request.query_params.get('contact_id')
-        company_id = request.query_params.get('company_id')
+        pipeline_id = self.get_uuid_param('pipeline_id')
+        stage_id = self.get_uuid_param('stage_id')
+        owner_id = self.get_uuid_param('owner_id')
+        if not owner_id and self.get_scope() == 'mine':
+            owner_id = self.get_user_id()
+        contact_id = self.get_uuid_param('contact_id')
+        company_id = self.get_uuid_param('company_id')
         order_by = request.query_params.get('order_by', '-created_at')
         
         # Parse advanced filters (JSON string)
@@ -806,30 +836,22 @@ class DealListView(BaseAPIView):
         filter_kwargs = {
             'search': search,
             'status': status_param,
-            'pipeline_id': UUID(pipeline_id) if pipeline_id else None,
-            'stage_id': UUID(stage_id) if stage_id else None,
-            'owner_id': UUID(owner_id) if owner_id else None,
-            'contact_id': UUID(contact_id) if contact_id else None,
-            'company_id': UUID(company_id) if company_id else None,
+            'pipeline_id': pipeline_id,
+            'stage_id': stage_id,
+            'owner_id': owner_id,
+            'contact_id': contact_id,
+            'company_id': company_id,
             'order_by': order_by,
             'advanced_filters': advanced_filters,
             'filter_logic': filter_logic,
         }
         
-        # Get paginated deals
-        deals = service.list(
-            **filter_kwargs,
-            limit=page_size,
-            offset=offset,
-        )
-        
-        # Get total count with same filters (no limit/offset for count)
-        # Use .count() for efficiency instead of loading all objects
-        total = service.list(**filter_kwargs).count()
+        # Build filtered queryset once, then use for both count and pagination
+        all_deals_qs = service.list(**filter_kwargs)
+        total = all_deals_qs.count()
+        deals = all_deals_qs[offset:offset + page_size]
         
         # Calculate stats from all deals (not filtered) using aggregation
-        from django.db.models import Sum, Count, Q
-        from .models import Deal
         stats_aggregation = Deal.objects.filter(
             org_id=service.org_id
         ).aggregate(
@@ -909,6 +931,7 @@ class DealDetailView(BaseAPIView):
         """Update a deal."""
         service = self.get_service(DealService)
         deal = service.get_by_id(deal_id)
+        self.check_obj_perms(deal)
         
         serializer = DealSerializer(deal, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -919,6 +942,8 @@ class DealDetailView(BaseAPIView):
     def delete(self, request, deal_id):
         """Delete a deal."""
         service = self.get_service(DealService)
+        deal = service.get_by_id(deal_id)
+        self.check_obj_perms(deal)
         service.delete(deal_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1060,7 +1085,12 @@ class DealBulkDeleteView(BaseAPIView):
 class PipelineListView(BaseAPIView):
     """List and create pipelines."""
     resource = 'deals'
-    
+
+    def get_permission_action(self, request):
+        if request.method == 'GET':
+            return 'read'
+        return 'manage_pipeline'
+
     def get(self, request):
         """List pipelines."""
         service = self.get_service(PipelineService)
@@ -1074,7 +1104,7 @@ class PipelineListView(BaseAPIView):
         return Response({'data': serializer.data})
     
     def post(self, request):
-        """Create a new pipeline."""
+        """Create a new pipeline. Requires deals:manage_pipeline."""
         serializer = PipelineSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1090,7 +1120,12 @@ class PipelineListView(BaseAPIView):
 class PipelineDetailView(BaseAPIView):
     """Get, update, delete a pipeline."""
     resource = 'deals'
-    
+
+    def get_permission_action(self, request):
+        if request.method == 'GET':
+            return 'read'
+        return 'manage_pipeline'
+
     def get(self, request, pipeline_id):
         """Get pipeline with stages."""
         service = self.get_service(PipelineService)
@@ -1129,7 +1164,12 @@ class PipelineStatsView(BaseAPIView):
 class PipelineStageListView(BaseAPIView):
     """List and create pipeline stages."""
     resource = 'deals'
-    
+
+    def get_permission_action(self, request):
+        if request.method == 'GET':
+            return 'read'
+        return 'manage_pipeline'
+
     def get(self, request, pipeline_id):
         """List stages."""
         service = self.get_service(PipelineService)
@@ -1157,7 +1197,8 @@ class PipelineStageListView(BaseAPIView):
 class PipelineStageDetailView(BaseAPIView):
     """Update, delete a pipeline stage."""
     resource = 'deals'
-    
+    permission_action = 'manage_pipeline'
+
     def patch(self, request, pipeline_id, stage_id):
         """Update a stage."""
         # Use write serializer for input validation with partial=True for PATCH
@@ -1215,14 +1256,36 @@ class PipelineStageReorderView(BaseAPIView):
 # ACTIVITY VIEWS
 # =============================================================================
 
-class ActivityListView(BaseAPIView):
-    """List and create activities."""
+class ActivityResourceMixin:
+    """Resolves resource to 'tasks' when the request targets task activities."""
+
     resource = 'activities'
+
+    def get_resource(self, request):
+        activity_type = (
+            request.query_params.get('type')
+            or request.query_params.get('activity_type')
+        )
+        if not activity_type and request.method in ('POST', 'PUT', 'PATCH'):
+            activity_type = request.data.get('activity_type')
+        return 'tasks' if activity_type == 'task' else 'activities'
+
+    def _resource_for_activity(self, activity_id):
+        """Lightweight lookup — single column, no serializer overhead."""
+        from .models import Activity
+        atype = (
+            Activity.objects.filter(id=activity_id)
+            .values_list('activity_type', flat=True)
+            .first()
+        )
+        return 'tasks' if atype == 'task' else 'activities'
+
+
+class ActivityListView(ActivityResourceMixin, BaseAPIView):
+    """List and create activities."""
     
     def get(self, request):
         """List activities."""
-        import json
-        
         service = self.get_service(ActivityService)
         
         search = request.query_params.get('search')
@@ -1233,6 +1296,9 @@ class ActivityListView(BaseAPIView):
         deal_id = self.get_uuid_param('deal_id')
         lead_id = self.get_uuid_param('lead_id')
         overdue = request.query_params.get('overdue')
+        owner_id = self.get_uuid_param('owner_id')
+        if not owner_id and self.get_scope() == 'mine':
+            owner_id = self.get_user_id()
         order_by = request.query_params.get('order_by', '-created_at')
         
         # Parse advanced filters (JSON string) — matches leads pattern
@@ -1260,6 +1326,7 @@ class ActivityListView(BaseAPIView):
             company_id=company_id,
             deal_id=deal_id,
             lead_id=lead_id,
+            owner_id=owner_id,
             overdue=overdue.lower() == 'true' if overdue else None,
             order_by=order_by,
             advanced_filters=advanced_filters,
@@ -1307,9 +1374,14 @@ class ActivityListView(BaseAPIView):
         )
 
 
-class ActivityDetailView(BaseAPIView):
+class ActivityDetailView(ActivityResourceMixin, BaseAPIView):
     """Get, update, delete an activity."""
-    resource = 'activities'
+    
+    def get_resource(self, request):
+        activity_id = self.kwargs.get('activity_id')
+        if activity_id:
+            return self._resource_for_activity(activity_id)
+        return 'activities'
     
     def get(self, request, activity_id):
         """Get activity details."""
@@ -1321,6 +1393,7 @@ class ActivityDetailView(BaseAPIView):
         """Update an activity."""
         service = self.get_service(ActivityService)
         activity = service.get_by_id(activity_id)
+        self.check_obj_perms(activity)
         
         serializer = ActivitySerializer(activity, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -1331,17 +1404,26 @@ class ActivityDetailView(BaseAPIView):
     def delete(self, request, activity_id):
         """Delete an activity."""
         service = self.get_service(ActivityService)
+        activity = service.get_by_id(activity_id)
+        self.check_obj_perms(activity)
         service.delete(activity_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ActivityCompleteView(BaseAPIView):
+class ActivityCompleteView(ActivityResourceMixin, BaseAPIView):
     """Mark activity as complete."""
-    resource = 'activities'
+    
+    def get_resource(self, request):
+        activity_id = self.kwargs.get('activity_id')
+        if activity_id:
+            return self._resource_for_activity(activity_id)
+        return 'activities'
     
     def post(self, request, activity_id):
         """Complete activity."""
         service = self.get_service(ActivityService)
+        activity = service.get_by_id(activity_id)
+        self.check_obj_perms(activity)
         activity = service.complete(activity_id)
         return Response(ActivitySerializer(activity).data)
 
@@ -1413,9 +1495,9 @@ class ActivityTrendView(BaseAPIView):
 # =============================================================================
 
 class TagListView(BaseAPIView):
-    """List and create tags."""
+    """List and create tags. Read is open; write requires contacts:write."""
     resource = 'contacts'
-    
+
     def get(self, request):
         """List tags."""
         service = self.get_service(TagService)
@@ -1439,9 +1521,9 @@ class TagListView(BaseAPIView):
 
 
 class TagDetailView(BaseAPIView):
-    """Get, update, delete a tag."""
+    """Get, update, delete a tag. Write/delete requires contacts:write/contacts:delete."""
     resource = 'contacts'
-    
+
     def get(self, request, tag_id):
         """Get tag details."""
         service = self.get_service(TagService)
@@ -1471,8 +1553,12 @@ class TagDetailView(BaseAPIView):
 # =============================================================================
 
 class CustomFieldListView(BaseAPIView):
-    """List and create custom fields."""
-    resource = 'contacts'
+    """List and create custom fields. Read is open; write requires org:write."""
+
+    def get_resource(self, request):
+        if request.method == 'GET':
+            return None
+        return 'org'
     
     def get(self, request):
         """List custom fields."""
@@ -1501,8 +1587,8 @@ class CustomFieldListView(BaseAPIView):
 
 
 class CustomFieldDetailView(BaseAPIView):
-    """Get, update, delete a custom field."""
-    resource = 'contacts'
+    """Get, update, delete a custom field. Requires org:write or org:delete."""
+    resource = 'org'
     
     def patch(self, request, field_id):
         """Update a custom field."""
@@ -1540,8 +1626,7 @@ class CustomFieldDetailView(BaseAPIView):
 # =============================================================================
 
 class GlobalSearchView(BaseAPIView):
-    """Global search across all entities. Requires at least contacts:read."""
-    resource = 'contacts'
+    """Global search across all entities. IsAuthenticated — results are org-scoped."""
     
     def get(self, request):
         """Search all entities."""
@@ -1560,7 +1645,9 @@ class GlobalSearchView(BaseAPIView):
         
         contacts = Contact.objects.filter(
             org_id=org_id
-        ).filter(
+        ).select_related(
+            'primary_company'
+        ).prefetch_related('tags').filter(
             models.Q(first_name__icontains=query) |
             models.Q(last_name__icontains=query) |
             models.Q(email__icontains=query)
@@ -1569,16 +1656,18 @@ class GlobalSearchView(BaseAPIView):
         companies = Company.objects.filter(
             org_id=org_id,
             name__icontains=query
-        )[:limit]
+        ).prefetch_related('tags')[:limit]
         
         deals = Deal.objects.filter(
             org_id=org_id,
             name__icontains=query
-        )[:limit]
+        ).select_related(
+            'stage', 'contact', 'company'
+        ).prefetch_related('tags')[:limit]
         
         leads = Lead.objects.filter(
             org_id=org_id
-        ).filter(
+        ).prefetch_related('tags').filter(
             models.Q(first_name__icontains=query) |
             models.Q(last_name__icontains=query) |
             models.Q(email__icontains=query)
@@ -1593,8 +1682,7 @@ class GlobalSearchView(BaseAPIView):
 
 
 class DuplicateCheckView(BaseAPIView):
-    """Check for duplicates."""
-    resource = 'contacts'
+    """Check for duplicates across entity types. IsAuthenticated — org-scoped."""
     
     def post(self, request):
         """Check for duplicates."""
@@ -1636,14 +1724,26 @@ class DuplicateCheckView(BaseAPIView):
 # WEB FORM LEAD CAPTURE (Public Endpoint)
 # =============================================================================
 
+class WebFormThrottle(SimpleRateThrottle):
+    """Rate limit public web form submissions by IP + org_id."""
+    scope = 'webform'
+
+    def get_cache_key(self, request, view):
+        org_id = request.data.get('org_id', 'unknown')
+        ident = self.get_ident(request)
+        return self.cache_format % {'scope': self.scope, 'ident': f'{ident}:{org_id}'}
+
+
 class LeadWebFormView(APIView):
     """
     Public endpoint for capturing leads from website forms.
     
     No authentication required - validates by org API key or form token.
+    Rate-limited to 10 submissions/minute per IP+org.
     """
     
     permission_classes = [AllowAny]
+    throttle_classes = [WebFormThrottle]
     
     def post(self, request):
         """
@@ -1665,8 +1765,6 @@ class LeadWebFormView(APIView):
             "utm_campaign": "string",  # Optional
         }
         """
-        from .serializers import LeadWebFormSerializer
-        
         serializer = LeadWebFormSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1695,14 +1793,12 @@ class LeadWebFormView(APIView):
                 lead_data['custom_fields'][field] = data[field]
         
         # For web forms, find the org owner to use as default lead owner
-        from django.conf import settings
-        import httpx, hmac as hmac_mod, hashlib, time as time_mod
 
         default_owner_id = None
         try:
-            org_service_url = getattr(settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
-            service_name = getattr(settings, 'SERVICE_NAME', 'crm-service')
-            service_secret = getattr(settings, 'SERVICE_AUTH_SECRET', '')
+            org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
+            service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
+            service_secret = getattr(django_settings, 'SERVICE_AUTH_SECRET', '')
             path = f"/internal/orgs/{org_id}/owner"
             ts = str(int(time_mod.time()))
             sig = hmac_mod.new(

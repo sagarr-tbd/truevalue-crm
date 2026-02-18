@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from django.db import transaction
 from django.db.models import Q, Count
 from django.db.models.functions import TruncDate
+from django.core.cache import cache
 from django.utils import timezone
 
 from ..models import Activity, Contact, Company, Deal, Lead
@@ -46,6 +47,15 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
     
     UUID_FIELDS = {'contact_id', 'company_id', 'deal_id', 'lead_id', 'assigned_to'}
     
+    def get_optimized_queryset(self):
+        """
+        Get queryset with select_related for performance.
+        Prevents N+1 queries when serializing activities with related entities.
+        """
+        return self.get_queryset().select_related(
+            'contact', 'company', 'deal', 'lead'
+        )
+    
     def list(
         self,
         filters: Dict[str, Any] = None,
@@ -69,7 +79,7 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         filter_logic: str = 'and',
     ):
         """List activities with advanced filtering."""
-        qs = self.get_queryset()
+        qs = self.get_optimized_queryset()
         
         # Apply basic filters
         if filters:
@@ -211,7 +221,7 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         limit: int = 50,
     ) -> List[Activity]:
         """Get upcoming activities for a user."""
-        qs = self.get_queryset().filter(
+        qs = self.get_optimized_queryset().filter(
             status__in=['pending', 'in_progress'],
             due_date__gte=timezone.now(),
             due_date__lte=timezone.now() + timedelta(days=days),
@@ -228,7 +238,7 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         limit: int = 50,
     ) -> List[Activity]:
         """Get overdue activities for a user."""
-        qs = self.get_queryset().filter(
+        qs = self.get_optimized_queryset().filter(
             status__in=['pending', 'in_progress'],
             due_date__lt=timezone.now(),
         )
@@ -247,7 +257,7 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         limit: int = 50,
     ) -> List[Activity]:
         """Get activity timeline for an entity."""
-        qs = self.get_queryset()
+        qs = self.get_optimized_queryset()
         
         if contact_id:
             qs = qs.filter(contact_id=contact_id)
@@ -381,82 +391,116 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         return self.create(data)
     
     def get_stats(self, user_id: UUID = None) -> Dict:
-        """Get activity statistics."""
+        """
+        Get activity statistics using a single aggregation query.
+        Cached for 60 seconds to reduce DB load on dashboard refreshes.
+        """
+        cache_key = f"activity_stats:{self.org_id}:{user_id or 'all'}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         qs = self.get_queryset()
-        
+
         if user_id:
             qs = qs.filter(Q(owner_id=user_id) | Q(assigned_to=user_id))
-        
+
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=today_start.weekday())
-        
-        return {
-            'total': qs.count(),
-            'pending': qs.filter(status='pending').count(),
-            'in_progress': qs.filter(status='in_progress').count(),
-            'completed': qs.filter(status='completed').count(),
-            'overdue': qs.filter(
+
+        stats_agg = qs.aggregate(
+            total=Count('id'),
+            pending=Count('id', filter=Q(status='pending')),
+            in_progress=Count('id', filter=Q(status='in_progress')),
+            completed=Count('id', filter=Q(status='completed')),
+            overdue=Count('id', filter=Q(
                 status__in=['pending', 'in_progress'],
-                due_date__lt=now
-            ).count(),
-            'due_today': qs.filter(
+                due_date__lt=now,
+            )),
+            due_today=Count('id', filter=Q(
                 status__in=['pending', 'in_progress'],
                 due_date__gte=today_start,
-                due_date__lt=today_start + timedelta(days=1)
-            ).count(),
-            'completed_this_week': qs.filter(
+                due_date__lt=today_start + timedelta(days=1),
+            )),
+            completed_this_week=Count('id', filter=Q(
                 status='completed',
-                completed_at__gte=week_start
-            ).count(),
+                completed_at__gte=week_start,
+            )),
+            tasks=Count('id', filter=Q(activity_type='task')),
+            calls=Count('id', filter=Q(activity_type='call')),
+            emails=Count('id', filter=Q(activity_type='email')),
+            meetings=Count('id', filter=Q(activity_type='meeting')),
+            notes=Count('id', filter=Q(activity_type='note')),
+        )
+
+        result = {
+            'total': stats_agg['total'],
+            'pending': stats_agg['pending'],
+            'in_progress': stats_agg['in_progress'],
+            'completed': stats_agg['completed'],
+            'overdue': stats_agg['overdue'],
+            'due_today': stats_agg['due_today'],
+            'completed_this_week': stats_agg['completed_this_week'],
             'by_type': {
-                'tasks': qs.filter(activity_type='task').count(),
-                'calls': qs.filter(activity_type='call').count(),
-                'emails': qs.filter(activity_type='email').count(),
-                'meetings': qs.filter(activity_type='meeting').count(),
-                'notes': qs.filter(activity_type='note').count(),
+                'tasks': stats_agg['tasks'],
+                'calls': stats_agg['calls'],
+                'emails': stats_agg['emails'],
+                'meetings': stats_agg['meetings'],
+                'notes': stats_agg['notes'],
             }
         }
+
+        cache.set(cache_key, result, 60)
+        return result
     
     def get_type_stats(self, activity_type: str = None) -> Dict[str, Any]:
         """
         Get activity statistics by status and priority, optionally scoped to an activity type.
-        Matches the leads get_stats() response shape for frontend consistency.
+        Single aggregate query with conditional counts.
         """
         qs = self.get_queryset()
-        
+
         if activity_type:
             qs = qs.filter(activity_type=activity_type)
-        
+
         now = timezone.now()
-        
-        # Counts by status
-        status_counts = qs.values('status').annotate(count=Count('id'))
-        by_status = {}
-        total = 0
-        for item in status_counts:
-            s = item['status'] or 'unknown'
-            c = item['count']
-            by_status[s] = c
-            total += c
-        
-        # Counts by priority
-        priority_counts = qs.values('priority').annotate(count=Count('id'))
-        by_priority = {}
-        for item in priority_counts:
-            by_priority[item['priority'] or 'unknown'] = item['count']
-        
-        # Overdue count
-        overdue = qs.filter(
-            status__in=['pending', 'in_progress'],
-            due_date__lt=now,
-        ).count()
-        
+
+        agg = qs.aggregate(
+            total=Count('id'),
+            overdue=Count('id', filter=Q(
+                status__in=['pending', 'in_progress'],
+                due_date__lt=now,
+            )),
+            s_pending=Count('id', filter=Q(status='pending')),
+            s_in_progress=Count('id', filter=Q(status='in_progress')),
+            s_completed=Count('id', filter=Q(status='completed')),
+            s_cancelled=Count('id', filter=Q(status='cancelled')),
+            p_low=Count('id', filter=Q(priority='low')),
+            p_medium=Count('id', filter=Q(priority='medium')),
+            p_high=Count('id', filter=Q(priority='high')),
+            p_urgent=Count('id', filter=Q(priority='urgent')),
+        )
+
+        by_status = {k: v for k, v in {
+            'pending': agg['s_pending'],
+            'in_progress': agg['s_in_progress'],
+            'completed': agg['s_completed'],
+            'cancelled': agg['s_cancelled'],
+        }.items() if v > 0}
+
+        by_priority = {k: v for k, v in {
+            'low': agg['p_low'],
+            'medium': agg['p_medium'],
+            'high': agg['p_high'],
+            'urgent': agg['p_urgent'],
+        }.items() if v > 0}
+
         return {
-            'total': total,
+            'total': agg['total'],
             'by_status': by_status,
             'by_priority': by_priority,
-            'overdue': overdue,
+            'overdue': agg['overdue'],
         }
     
     def get_activity_trend(self, days: int = 30) -> List[Dict]:

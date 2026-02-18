@@ -13,7 +13,7 @@ import {
   useSetRolePermissions,
 } from "@/lib/queries/useRolesPermissions";
 import type { PermissionItem, RoleItem } from "@/lib/api/permissions-api";
-import { usePermission, ROLE_SUPER_ADMIN } from "@/lib/permissions";
+import { usePermission, ROLE_SUPER_ADMIN, ROLES_WRITE } from "@/lib/permissions";
 
 // Group permissions by category + resource for a clear matrix layout
 interface PermissionGroup {
@@ -65,6 +65,7 @@ const ROLE_LEVEL_BADGE: Record<string, string> = {
   org_admin: "bg-orange-500/10 text-orange-600",
   admin: "bg-orange-500/10 text-orange-600",
   owner: "bg-purple-500/10 text-purple-600",
+  manager: "bg-blue-500/10 text-blue-600",
   member: "bg-green-500/10 text-green-600",
   viewer: "bg-gray-500/10 text-gray-600",
 };
@@ -72,17 +73,18 @@ const ROLE_LEVEL_BADGE: Record<string, string> = {
 // Roles that should be hidden from the CRM Roles & Permissions UI
 // super_admin: platform-level only, not relevant to org admins
 // manager: exists in Permission Service but not in Org Service (can't be assigned)
-const HIDDEN_ROLE_CODES = new Set(["super_admin", "manager"]);
+const HIDDEN_ROLE_CODES = new Set(["super_admin"]);
 
 export default function RolesPermissionsSettings() {
-  const { roles: userRoles } = usePermission();
+  const { roles: userRoles, can } = usePermission();
   const isSuperAdmin = userRoles.includes(ROLE_SUPER_ADMIN);
+  const canEditRoles = can(ROLES_WRITE);
 
   // API data
   const { data: allPermissions = [], isLoading: loadingPerms } = usePermissions();
   const { data: allRoles = [], isLoading: loadingRoles } = useRoles();
 
-  // Filter roles: hide super_admin (unless user is super_admin) and manager
+  // Filter roles: hide super_admin unless user is super_admin
   const roles = useMemo(() => {
     return allRoles.filter((r) => {
       if (r.code === "super_admin") return isSuperAdmin;
@@ -174,8 +176,7 @@ export default function RolesPermissionsSettings() {
   };
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
-  // Only lock super_admin permissions - all other roles (including system roles) are editable by admins
-  const isLocked = selectedRole?.code === "super_admin";
+  const isLocked = selectedRole?.code === "super_admin" || !canEditRoles;
   const isLoading = loadingPerms || loadingRoles;
 
   if (isLoading) {
@@ -299,7 +300,9 @@ export default function RolesPermissionsSettings() {
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 text-sm">
                   <Info className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
-                    Super Admin permissions cannot be edited.
+                    {selectedRole?.code === "super_admin"
+                      ? "Super Admin permissions cannot be edited."
+                      : "You don't have permission to edit role permissions."}
                   </span>
                 </div>
               )}

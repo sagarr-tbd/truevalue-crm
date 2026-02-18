@@ -11,6 +11,7 @@ from decimal import Decimal
 from django.db import models, transaction
 from django.db.models import Q
 from django.conf import settings
+from django.core.cache import cache
 
 from ..models import CRMAuditLog, Tag, EntityTag
 from ..exceptions import EntityNotFoundError, LimitExceededError, PermissionDeniedError
@@ -267,6 +268,7 @@ class BaseService(Generic[T]):
     - Audit logging
     - Tag management
     - Plan limit checking
+    - Scope-based filtering (mine / team / org)
     """
     
     model: Type[T] = None
@@ -280,6 +282,24 @@ class BaseService(Generic[T]):
     def get_queryset(self) -> models.QuerySet:
         """Get base queryset scoped to organization."""
         return self.model.objects.filter(org_id=self.org_id)
+    
+    def get_scoped_queryset(self, scope: str = 'org', team_member_ids: list = None) -> models.QuerySet:
+        """
+        Get queryset filtered by ownership scope.
+        
+        Args:
+            scope: 'mine' (own records), 'team' (team members' records), 'org' (all)
+            team_member_ids: list of user UUIDs in the user's team (for scope='team')
+        """
+        qs = self.get_queryset()
+        if not hasattr(self.model, 'owner_id'):
+            return qs
+        
+        if scope == 'mine':
+            return qs.filter(owner_id=self.user_id)
+        elif scope == 'team' and team_member_ids:
+            return qs.filter(owner_id__in=team_member_ids)
+        return qs
     
     def get_by_id(self, entity_id: UUID) -> T:
         """Get entity by ID."""

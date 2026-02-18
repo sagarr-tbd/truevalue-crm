@@ -1032,15 +1032,15 @@ export default function ContactsPage() {
 
       {/* Bulk Actions Toolbar */}
       <AnimatePresence>
-        {selectedContacts.length > 0 && can(CONTACTS_WRITE) && (
+        {selectedContacts.length > 0 && (can(CONTACTS_WRITE) || can(CONTACTS_DELETE)) && (
           <BulkActionsToolbar
             selectedCount={selectedContacts.length}
             totalCount={totalItems}
             onSelectAll={handleSelectAllContacts}
             onDeselectAll={handleDeselectAll}
-            onDelete={() => setShowBulkDelete(true)}
+            onDelete={can(CONTACTS_DELETE) ? () => setShowBulkDelete(true) : undefined}
             onExport={handleBulkExport}
-            onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+            onUpdateStatus={can(CONTACTS_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
             statusLabel="Status"
             isProcessing={isBulkProcessing}
           />

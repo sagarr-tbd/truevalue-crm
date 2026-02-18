@@ -268,7 +268,37 @@ class APIClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
 
-        // If 401 and not already retried, try refreshing token
+        // Handle stale permissions — role was changed, token needs refresh
+        const isPermissionStale =
+          error.response?.status === 401 &&
+          (error.response?.headers?.['x-permission-stale'] === 'true' ||
+            (error.response?.data as Record<string, unknown>)?.error &&
+            ((error.response?.data as Record<string, Record<string, unknown>>)?.error?.code === 'PERMISSIONS_STALE'));
+
+        if (isPermissionStale && !originalRequest._retry) {
+          originalRequest._retry = true;
+          try {
+            await this.refreshAccessToken();
+            const token = TokenManager.getAccessToken();
+            if (originalRequest.headers && token) {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+            }
+            if (typeof window !== 'undefined') {
+              const { toast } = await import('sonner');
+              toast.info('Your permissions were updated. Retrying...');
+            }
+            return this.client(originalRequest);
+          } catch (refreshError) {
+            TokenManager.clearTokens();
+            if (typeof window !== 'undefined') {
+              const shellUrl = process.env.NEXT_PUBLIC_SHELL_URL || 'http://localhost:3000';
+              window.location.href = `${shellUrl}/login`;
+            }
+            return Promise.reject(refreshError);
+          }
+        }
+
+        // Generic 401 — try refreshing token
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
 
@@ -281,7 +311,6 @@ class APIClient {
             return this.client(originalRequest);
           } catch (refreshError) {
             TokenManager.clearTokens();
-            // Redirect to main app login
             if (typeof window !== 'undefined') {
               const shellUrl = process.env.NEXT_PUBLIC_SHELL_URL || 'http://localhost:3000';
               window.location.href = `${shellUrl}/login`;

@@ -40,17 +40,34 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         'country': 'country',
     }
     
-    def get_optimized_queryset(self):
+    def get_by_id(self, entity_id):
+        """Get contact by ID with optimized queryset for detail serialization."""
+        try:
+            return self.get_optimized_queryset(annotate_counts=True).get(id=entity_id)
+        except self.model.DoesNotExist:
+            raise EntityNotFoundError(self.entity_type, str(entity_id))
+
+    def get_optimized_queryset(self, annotate_counts=False):
         """
         Get queryset with select_related and prefetch_related for performance.
         Prevents N+1 queries when serializing contacts.
+        
+        Args:
+            annotate_counts: If True, annotates deal_count and activity_count
+                           to avoid N+1 on list serializer method fields.
         """
-        return self.get_queryset().select_related(
+        qs = self.get_queryset().select_related(
             'primary_company'
         ).prefetch_related(
             'tags',
             'company_associations__company'
         )
+        if annotate_counts:
+            qs = qs.annotate(
+                deal_count=Count('deals', distinct=True),
+                activity_count=Count('activities', distinct=True),
+            )
+        return qs
     
     def list(
         self,
@@ -67,8 +84,8 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         filter_logic: str = 'and',
     ):
         """List contacts with advanced filtering."""
-        # Use optimized queryset to prevent N+1 queries
-        qs = self.get_optimized_queryset()
+        # Use optimized queryset with annotated counts to prevent N+1 queries
+        qs = self.get_optimized_queryset(annotate_counts=True)
         
         # Apply basic filters
         if filters:

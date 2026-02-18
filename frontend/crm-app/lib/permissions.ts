@@ -59,7 +59,22 @@ export const DASHBOARDS_WRITE = 'dashboards:write';
 
 // Org management
 export const ORG_READ = 'org:read';
+export const ORG_WRITE = 'org:write';
+export const ORG_DELETE = 'org:delete';
 export const ORG_MANAGE_MEMBERS = 'org:manage_members';
+export const ORG_MANAGE_INVITES = 'org:manage_invites';
+export const ORG_MANAGE_SETTINGS = 'org:manage_settings';
+
+// Roles
+export const ROLES_READ = 'roles:read';
+export const ROLES_WRITE = 'roles:write';
+export const ROLES_DELETE = 'roles:delete';
+export const ROLES_ASSIGN = 'roles:assign';
+
+// Administration
+export const BILLING_READ = 'billing:read';
+export const BILLING_WRITE = 'billing:write';
+export const AUDIT_READ = 'audit:read';
 
 // ---------------------------------------------------------------------------
 // Role constants
@@ -69,6 +84,7 @@ export const ROLE_SUPER_ADMIN = 'super_admin';
 export const ROLE_ORG_ADMIN = 'org_admin';
 export const ROLE_OWNER = 'owner';
 export const ROLE_ADMIN = 'admin';
+export const ROLE_MANAGER = 'manager';
 export const ROLE_MEMBER = 'member';
 export const ROLE_VIEWER = 'viewer';
 

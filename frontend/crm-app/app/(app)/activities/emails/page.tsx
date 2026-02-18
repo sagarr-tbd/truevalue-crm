@@ -932,15 +932,15 @@ export default function EmailsPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedEmails.length > 0 && can(ACTIVITIES_WRITE) && (
+      {selectedEmails.length > 0 && (can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)) && (
         <BulkActionsToolbar
           selectedCount={selectedEmails.length}
           totalCount={totalItems}
           onSelectAll={handleSelectAllEmails}
           onDeselectAll={handleDeselectAll}
-          onDelete={() => setShowBulkDelete(true)}
+          onDelete={can(ACTIVITIES_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
-          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          onUpdateStatus={can(ACTIVITIES_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}

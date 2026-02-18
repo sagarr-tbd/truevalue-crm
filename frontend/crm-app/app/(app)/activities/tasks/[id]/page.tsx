@@ -34,7 +34,7 @@ import {
   type TaskFormData,
 } from "@/lib/queries/useTasks";
 import { useMemberOptions } from "@/lib/queries/useMembers";
-import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { usePermission, TASKS_WRITE, TASKS_DELETE } from "@/lib/permissions";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -322,13 +322,13 @@ export default function TaskDetailPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {can(ACTIVITIES_WRITE) && (
+              {can(TASKS_WRITE) && (
                 <Button variant="outline" size="sm" className="gap-2" onClick={handleEditTask}>
                   <Edit className="h-4 w-4" />
                   Edit
                 </Button>
               )}
-              {can(ACTIVITIES_WRITE) && (
+              {can(TASKS_WRITE) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -349,7 +349,7 @@ export default function TaskDetailPage() {
                   )}
                 </Button>
               )}
-              {can(ACTIVITIES_DELETE) && (
+              {can(TASKS_DELETE) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -573,7 +573,7 @@ export default function TaskDetailPage() {
                 <CardTitle className="text-base">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {can(ACTIVITIES_WRITE) && (
+                {can(TASKS_WRITE) && (
                   <Button 
                     className="w-full justify-start gap-2" 
                     variant="outline" 
@@ -593,7 +593,7 @@ export default function TaskDetailPage() {
                     )}
                   </Button>
                 )}
-                {can(ACTIVITIES_WRITE) && (
+                {can(TASKS_WRITE) && (
                   <Button 
                     className="w-full justify-start gap-2" 
                     variant="outline" 

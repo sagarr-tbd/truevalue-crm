@@ -62,13 +62,16 @@ class CRMResourcePermission(BasePermission):
             return True
 
         # Determine the resource from the view
-        resource = getattr(view, 'resource', None)
+        # Views can implement get_resource(request) for dynamic resolution
+        get_resource = getattr(view, 'get_resource', None)
+        resource = get_resource(request) if callable(get_resource) else getattr(view, 'resource', None)
         if not resource:
-            # No resource declared — fall back to IsAuthenticated behavior
             return True
 
         # Determine the action
-        action = getattr(view, 'permission_action', None)
+        # Views can implement get_permission_action(request) for dynamic resolution
+        get_action = getattr(view, 'get_permission_action', None)
+        action = get_action(request) if callable(get_action) else getattr(view, 'permission_action', None)
         if not action:
             action = METHOD_ACTION_MAP.get(request.method, 'read')
 
@@ -83,3 +86,37 @@ class CRMResourcePermission(BasePermission):
                 f"has={user_permissions}"
             )
         return has_perm
+
+    def has_object_permission(self, request, view, obj):
+        """
+        Object-level check: reads are org-wide, writes/deletes restricted to
+        the record owner. Admins and managers bypass.
+
+        Views must call self.check_object_permissions(request, obj) for this
+        to take effect — typically done in detail views after fetching the object.
+        """
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+
+        user = request.user
+        user_roles = set(getattr(user, 'roles', []))
+        if user_roles & ADMIN_ROLES:
+            return True
+
+        # Manager role can write/delete any record in their org
+        if 'manager' in user_roles:
+            return True
+
+        owner_id = getattr(obj, 'owner_id', None)
+        if owner_id is None:
+            return True
+
+        user_id = getattr(user, 'user_id', None)
+        if user_id and str(owner_id) == str(user_id):
+            return True
+
+        logger.info(
+            f"Object permission denied: user={user_id} tried to "
+            f"modify {obj.__class__.__name__} owned by {owner_id}"
+        )
+        return False

@@ -180,20 +180,24 @@ class TagService(BaseService[Tag]):
             entity_id=entity_id,
         ).delete()
         
-        # Add new tags
+        # Add new tags in bulk
         tags = Tag.objects.filter(
             id__in=tag_ids,
             org_id=self.org_id,
         )
-        
-        for tag in tags:
-            if tag.entity_type == 'all' or tag.entity_type == entity_type:
-                EntityTag.objects.create(
-                    tag=tag,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                )
-        
+
+        entity_tags = [
+            EntityTag(
+                tag=tag,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+            for tag in tags
+            if tag.entity_type == 'all' or tag.entity_type == entity_type
+        ]
+        if entity_tags:
+            EntityTag.objects.bulk_create(entity_tags, ignore_conflicts=True)
+
         return self.get_entity_tags(entity_type, entity_id)
     
     def bulk_tag(
@@ -202,18 +206,21 @@ class TagService(BaseService[Tag]):
         entity_type: str,
         entity_ids: List[UUID],
     ) -> int:
-        """Add a tag to multiple entities."""
-        tag = self.get_by_id(tag_id)
-        
-        count = 0
-        for entity_id in entity_ids:
-            try:
-                self.add_to_entity(tag_id, entity_type, entity_id)
-                count += 1
-            except Exception:
-                pass
-        
-        return count
+        """Add a tag to multiple entities in bulk."""
+        self.get_by_id(tag_id)
+
+        entity_tags = [
+            EntityTag(
+                tag_id=tag_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
+            for entity_id in entity_ids
+        ]
+        if entity_tags:
+            created = EntityTag.objects.bulk_create(entity_tags, ignore_conflicts=True)
+            return len(created)
+        return 0
     
     def bulk_untag(
         self,

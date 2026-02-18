@@ -56,7 +56,7 @@ import { useCompanyOptions } from "@/lib/queries/useCompanies";
 import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
-import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { usePermission, TASKS_WRITE, TASKS_DELETE } from "@/lib/permissions";
 import type { Task } from "@/lib/types";
 
 // Lazy load heavy components that are only used conditionally
@@ -871,7 +871,7 @@ export default function TasksPage() {
               )}
             </Button>
 
-            {can(ACTIVITIES_WRITE) && (
+            {can(TASKS_WRITE) && (
               <ExportButton
                 data={tasks}
                 columns={exportColumns}
@@ -879,7 +879,7 @@ export default function TasksPage() {
                 title="Tasks Export"
               />
             )}
-            {can(ACTIVITIES_WRITE) && (
+            {can(TASKS_WRITE) && (
               <Button 
                 onClick={() => {
                   setFormMode("add");
@@ -933,15 +933,15 @@ export default function TasksPage() {
       />
 
       {/* Bulk Actions Toolbar */}
-      {selectedTasks.length > 0 && can(ACTIVITIES_WRITE) && (
+      {selectedTasks.length > 0 && (can(TASKS_WRITE) || can(TASKS_DELETE)) && (
         <BulkActionsToolbar
           selectedCount={selectedTasks.length}
           totalCount={totalItems}
           onSelectAll={handleSelectAllTasks}
           onDeselectAll={handleDeselectAll}
-          onDelete={() => setShowBulkDelete(true)}
+          onDelete={can(TASKS_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
-          onUpdateStatus={() => setShowBulkUpdateStatus(true)}
+          onUpdateStatus={can(TASKS_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}
@@ -971,7 +971,7 @@ export default function TasksPage() {
                   icon: FileText,
                   onClick: () => router.push(`/activities/tasks/${row.id}`),
                 },
-                ...(can(ACTIVITIES_WRITE)
+                ...(can(TASKS_WRITE)
                   ? [
                       {
                         label: "Edit Task",
@@ -985,7 +985,7 @@ export default function TasksPage() {
                       },
                     ]
                   : []),
-                ...(can(ACTIVITIES_DELETE)
+                ...(can(TASKS_DELETE)
                   ? [
                       { divider: true, label: "", onClick: () => {} },
                       {
@@ -1035,7 +1035,7 @@ export default function TasksPage() {
                           icon: FileText,
                           onClick: () => router.push(`/activities/tasks/${task.id}`),
                         },
-                        ...(can(ACTIVITIES_WRITE)
+                        ...(can(TASKS_WRITE)
                           ? [
                               {
                                 label: "Edit Task",
@@ -1049,7 +1049,7 @@ export default function TasksPage() {
                               },
                             ]
                           : []),
-                        ...(can(ACTIVITIES_DELETE)
+                        ...(can(TASKS_DELETE)
                           ? [
                               { divider: true, label: "", onClick: () => {} },
                               {
