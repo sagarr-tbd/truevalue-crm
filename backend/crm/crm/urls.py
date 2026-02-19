@@ -53,6 +53,7 @@ urlpatterns = [
     path('deals/export', views.DealExportView.as_view(), name='deal-export'),
     path('deals/bulk-delete', views.DealBulkDeleteView.as_view(), name='deal-bulk-delete'),
     path('deals/forecast', views.DealForecastView.as_view(), name='deal-forecast'),
+    path('deals/analysis', views.DealAnalysisView.as_view(), name='deal-analysis'),
     path('deals/<uuid:deal_id>', views.DealDetailView.as_view(), name='deal-detail'),
     path('deals/<uuid:deal_id>/move-stage', views.DealMoveStageView.as_view(), name='deal-move-stage'),
     path('deals/<uuid:deal_id>/win', views.DealWinView.as_view(), name='deal-win'),

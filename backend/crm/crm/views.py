@@ -1063,6 +1063,31 @@ class DealForecastView(BaseAPIView):
         return Response(forecast)
 
 
+class DealAnalysisView(BaseAPIView):
+    """Won/lost analysis: summary, trend, loss reasons."""
+    resource = 'deals'
+
+    def get(self, request):
+        try:
+            days = int(request.query_params.get('days', 90))
+            if days < 1 or days > 365:
+                return Response(
+                    {'error': {'code': 'VALIDATION_ERROR', 'message': 'days must be between 1 and 365'}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': {'code': 'VALIDATION_ERROR', 'message': 'Invalid days parameter'}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pipeline_id = request.query_params.get('pipeline_id')
+
+        service = self.get_service(DealService)
+        data = service.get_analysis(days=days, pipeline_id=pipeline_id or None)
+        return Response(data)
+
+
 class DealBulkDeleteView(BaseAPIView):
     """Bulk delete deals."""
     resource = 'deals'
@@ -1932,35 +1957,7 @@ from .resources import (
     ContactResource, CompanyResource, LeadResource,
     DealResource, ActivityResource,
 )
-
-
-def _fetch_member_names(org_id):
-    """Fetch {user_id: display_name} map from the org service."""
-    try:
-        org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
-        service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
-        service_secret = getattr(django_settings, 'SERVICE_SECRET', '') or ''
-        path = f"/internal/orgs/{org_id}/members/names"
-        ts = str(int(time_mod.time()))
-        sig = hmac_mod.new(
-            service_secret.encode(),
-            f"{service_name}:{ts}:{path}".encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        resp = httpx.get(
-            f"{org_service_url}{path}",
-            headers={
-                'X-Service-Name': service_name,
-                'X-Service-Timestamp': ts,
-                'X-Service-Signature': sig,
-            },
-            timeout=5.0,
-        )
-        if resp.status_code == 200:
-            return resp.json().get('members', {})
-    except Exception as e:
-        logger.warning(f"Could not fetch member names: {e}")
-    return {}
+from .utils import fetch_member_names as _fetch_member_names
 
 
 def _export_csv(resource_class, queryset, org_id, filename):
