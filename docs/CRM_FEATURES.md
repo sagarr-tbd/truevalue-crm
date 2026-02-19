@@ -1297,7 +1297,7 @@
 
 These are non-negotiable. Without these, it's not a CRM.
 
-### **1. Contact Management** — 95% Done
+### **1. Contact Management** — 97% Done
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Contacts | Individual people with details (name, email, phone, etc.) | P0 | 16h | ✅ Done |
@@ -1306,7 +1306,7 @@ These are non-negotiable. Without these, it's not a CRM.
 | Contact timeline | Activity history per contact | P0 | 10h | ✅ Done |
 | Custom fields | User-defined fields for contacts/companies | P0 | 20h | ⚠️ Backend API done, frontend form UI pending (~16h) |
 | Tags/Labels | Categorize contacts | P0 | 6h | ✅ Done |
-| Import/Export | CSV import, bulk export | P0 | 16h | ⚠️ Import done, client-side export done (CSV/Excel/PDF), backend export endpoint pending (~6h) |
+| Import/Export | CSV import, bulk export | P0 | 16h | ✅ Done (CSV import + server-side CSV export via `django-import-export`) |
 | Duplicate detection | Prevent/merge duplicate contacts | P0 | 12h | ✅ Done |
 | Search & filters | Advanced search across all fields | P0 | 14h | ✅ Done |
 | **Subtotal** | | | **112h** | |
@@ -1316,8 +1316,8 @@ These are non-negotiable. Without these, it's not a CRM.
 - Endpoints: CRUD, search, filters, duplicate detection, merge, timeline, tags, CSV import, bulk-delete, bulk-update, company associations
 - Frontend: List/detail views, form drawers, quick actions, validation aligned with backend
 - Tags: Full CRUD in Settings, displayed in list views with color badges, entity-type scoping
-- Client-side export: CSV, Excel, PDF, Clipboard via `ExportButton` component (no backend endpoint)
-- Pending: Custom fields form UI (render/edit `CustomFieldDefinition` in create/edit forms), server-side export endpoint
+- Export: Server-side CSV export via `django-import-export` package (`/crm/api/v1/{entity}/export`), supports bulk export (selected IDs), search/filter params, max 10k rows. `ExportButton` component triggers backend download.
+- Pending: Custom fields form UI (render/edit `CustomFieldDefinition` in create/edit forms)
 
 ### **2. Deal/Opportunity Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1598,20 +1598,19 @@ Leave for other services:
 ## **Recommended MVP Build Order**
 
 ```
-Phase 1 (MVP) - 333 hours (~8.5 weeks) — ~90% DONE
-├── Contacts + Companies                 112h  ✅ 95% (custom fields UI + export endpoint pending)
+Phase 1 (MVP) - 333 hours (~8.5 weeks) — ~92% DONE
+├── Contacts + Companies                 112h  ✅ 97% (custom fields UI pending)
 ├── Deals + Pipeline (Kanban)            61h   ✅ 100%
 ├── Activities (Tasks, Notes, Calls)     54h   ✅ 95% (reminder delivery pending)
 ├── Leads + Conversion                   44h   ✅ 100%
 ├── Basic Dashboard                      38h   ⚠️ 70% (some widgets mock, won/lost view pending)
 └── User & Team Management               24h   ✅ 100%
 
-Remaining MVP work: ~44 hours
+Remaining MVP work: ~38 hours
 ├── Custom fields frontend form UI       16h
 ├── Activity reminder delivery           8h
 ├── Dashboard real data wiring           6h
-├── Won/Lost analysis view               8h
-└── Backend export endpoint              6h
+└── Won/Lost analysis view               8h
 
 Phase 2 - 412 hours (~10.5 weeks) — NOT STARTED
 ├── Email integration                    70h   ❌
@@ -1636,14 +1635,14 @@ Phase 3 - 710 hours (~18 weeks) — NOT STARTED
 
 | Phase | Features | Hours | Remaining | Status |
 |-------|----------|-------|-----------|--------|
-| MVP | Must Have | 333h | ~44h | 90% Done |
+| MVP | Must Have | 333h | ~38h | 92% Done |
 | Phase 2 | Should Have | 412h | ~412h | Not started (some frontend scaffolds exist) |
 | Phase 3 | Could Have | 710h | ~690h | Not started (REST API done) |
 | **TOTAL** | **All Features** | **1,455h** | **~1,146h** | |
 
 > **Note:** Estimates assume Cursor Enterprise AI-assisted development (30-40% faster than traditional). Add 20% buffer for testing, bug fixes, and code reviews.
 >
-> **Updated Feb 18, 2026:** MVP is ~90% complete. Core Sales, Activities, and User Management are fully integrated with real backend. Remaining MVP work is ~44 hours (custom fields UI, reminders, dashboard data, won/lost view, export endpoint).
+> **Updated Feb 18, 2026:** MVP is ~92% complete. Core Sales, Activities, and User Management are fully integrated with real backend. Server-side CSV export (via `django-import-export`) is done for all 5 entities. Remaining MVP work is ~38 hours (custom fields UI, reminders, dashboard data, won/lost view).
 
 ---
 

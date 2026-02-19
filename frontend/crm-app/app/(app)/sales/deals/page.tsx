@@ -37,8 +37,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { DealFormDrawer, type Deal as DealType } from "@/components/Forms/Sales";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { getDealActionMenuItems } from "@/lib/utils/actionMenus";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -58,6 +56,7 @@ import {
 import { usePipelines, usePipelineKanban, useDefaultPipeline } from "@/lib/queries/usePipelines";
 import { useUIStore } from "@/stores";
 import { usePermission, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import { KanbanBoard, type KanbanDeal } from "@/components/KanbanBoard";
 
 // Lazy load heavy components
@@ -139,6 +138,23 @@ export default function DealsPage() {
     } : undefined,
   }), [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: filterGroup.logic.toLowerCase(),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: c.operator,
+          value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query - Server-side data
   const { data: dealsResponse, isLoading, isError, error } = useDeals(queryParams);
   const deals = dealsResponse?.data || [];
@@ -190,25 +206,6 @@ export default function DealsPage() {
   const [editingDealForm, setEditingDealForm] = useState<Partial<DealType> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
-
-  // Export columns configuration
-  const exportColumns: ExportColumn<DealViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'name', label: 'Deal Name' },
-    { key: 'companyName', label: 'Company' },
-    { key: 'contactName', label: 'Contact' },
-    { key: 'contactEmail', label: 'Contact Email' },
-    { key: 'value', label: 'Value' },
-    { key: 'currency', label: 'Currency' },
-    { key: 'weightedValue', label: 'Weighted Value' },
-    { key: 'stageName', label: 'Stage' },
-    { key: 'status', label: 'Status' },
-    { key: 'probability', label: 'Probability (%)' },
-    { key: 'expectedCloseDate', label: 'Expected Close Date' },
-    { key: 'stageEnteredAt', label: 'Stage Entered At' },
-    { key: 'lastActivityAt', label: 'Last Activity' },
-    { key: 'createdAt', label: 'Created Date' },
-  ], []);
 
   // Get stages from pipeline for filter options
   const pipelineStages = defaultPipeline?.stages || [];
@@ -524,22 +521,36 @@ export default function DealsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = deals.filter(deal => selectedDeals.includes(deal.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedDeals.length === 0) {
       toast.error("No deals selected for export");
       return;
     }
 
     try {
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-deals-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      
-      toast.success(`Successfully exported ${selectedData.length} deals`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({
+        ids: selectedDeals.join(","),
+      });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/deals/export?${params}`, {
+        headers: {
+          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
+        },
+      });
+
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-deals-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${selectedDeals.length} deals`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export deals");
@@ -926,10 +937,10 @@ export default function DealsPage() {
             )}
             {can(DEALS_WRITE) && (
               <ExportButton
-                data={deals}
-                columns={exportColumns}
-                filename="deals-export"
-                title="Deals Export"
+                exportUrl="/crm/api/v1/deals/export"
+                exportParams={exportParams}
+                filename="deals"
+                totalRecords={totalDeals}
               />
             )}
             {can(DEALS_WRITE) && (

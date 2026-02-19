@@ -31,8 +31,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { MeetingFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -57,6 +55,7 @@ import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import type { Meeting } from "@/lib/types";
 
 const DeleteConfirmationModal = dynamic(
@@ -208,6 +207,21 @@ export default function MeetingsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = { type: 'meeting' };
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field, operator: toSnakeCaseOperator(c.operator), value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   const { data: meetingsResponse, isLoading } = useMeetings(queryParams);
   const meetings = useMemo(() => meetingsResponse?.data ?? [], [meetingsResponse?.data]);
   const totalItems = meetingsResponse?.meta?.total ?? 0;
@@ -247,18 +261,6 @@ export default function MeetingsPage() {
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  const exportColumns: ExportColumn<MeetingViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Title' },
-    { key: 'description', label: 'Description' },
-    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'durationMinutes', label: 'Duration (min)' },
-    { key: 'relatedTo', label: 'Related To' },
-    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
-  ], []);
 
   const filterFields: FilterField[] = useMemo(() => [
     {
@@ -421,12 +423,28 @@ export default function MeetingsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = meetings.filter(m => selectedMeetings.includes(m.id));
-    if (selectedData.length === 0) { toast.error("No meetings selected for export"); return; }
+  const handleBulkExport = async () => {
+    if (selectedMeetings.length === 0) {
+      toast.error("No meetings selected for export");
+      return;
+    }
     try {
-      exportToCSV(selectedData, exportColumns, `selected-meetings-${new Date().toISOString().split('T')[0]}.csv`);
-      toast.success(`Successfully exported ${selectedData.length} meetings`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({ type: "meeting", ids: selectedMeetings.join(",") });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/activities/export?${params}`, {
+        headers: { ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}) },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-meetings-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedMeetings.length} meetings`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export meetings");
@@ -680,7 +698,12 @@ export default function MeetingsPage() {
             </Button>
 
             {can(ACTIVITIES_WRITE) && (
-              <ExportButton data={meetings} columns={exportColumns} filename={`meetings-${new Date().toISOString().split('T')[0]}`} title="Meetings Export" />
+              <ExportButton
+                exportUrl="/crm/api/v1/activities/export"
+                exportParams={exportParams}
+                filename="meetings"
+                totalRecords={totalItems}
+              />
             )}
             {can(ACTIVITIES_WRITE) && (
               <Button onClick={() => { setFormMode("add"); setEditingMeeting(null); setDefaultView("quick"); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90" title="Schedule a new meeting">

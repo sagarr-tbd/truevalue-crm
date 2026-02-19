@@ -12,6 +12,7 @@ urlpatterns = [
     # CONTACTS
     # ==========================================================================
     path('contacts', views.ContactListView.as_view(), name='contact-list'),
+    path('contacts/export', views.ContactExportView.as_view(), name='contact-export'),
     path('contacts/bulk-delete', views.ContactBulkDeleteView.as_view(), name='contact-bulk-delete'),
     path('contacts/bulk-update', views.ContactBulkUpdateView.as_view(), name='contact-bulk-update'),
     path('contacts/import', views.ContactImportView.as_view(), name='contact-import'),
@@ -25,6 +26,7 @@ urlpatterns = [
     # COMPANIES
     # ==========================================================================
     path('companies', views.CompanyListView.as_view(), name='company-list'),
+    path('companies/export', views.CompanyExportView.as_view(), name='company-export'),
     path('companies/<uuid:company_id>', views.CompanyDetailView.as_view(), name='company-detail'),
     path('companies/<uuid:company_id>/contacts', views.CompanyContactsView.as_view(), name='company-contacts'),
     path('companies/<uuid:company_id>/contacts/<uuid:contact_id>', views.CompanyContactDetailView.as_view(), name='company-contact-detail'),
@@ -34,6 +36,7 @@ urlpatterns = [
     # LEADS
     # ==========================================================================
     path('leads', views.LeadListView.as_view(), name='lead-list'),
+    path('leads/export', views.LeadExportView.as_view(), name='lead-export'),
     path('leads/bulk-delete', views.LeadBulkDeleteView.as_view(), name='lead-bulk-delete'),
     path('leads/bulk-update', views.LeadBulkUpdateView.as_view(), name='lead-bulk-update'),
     path('leads/web-form', views.LeadWebFormView.as_view(), name='lead-web-form'),
@@ -47,6 +50,7 @@ urlpatterns = [
     # DEALS
     # ==========================================================================
     path('deals', views.DealListView.as_view(), name='deal-list'),
+    path('deals/export', views.DealExportView.as_view(), name='deal-export'),
     path('deals/bulk-delete', views.DealBulkDeleteView.as_view(), name='deal-bulk-delete'),
     path('deals/forecast', views.DealForecastView.as_view(), name='deal-forecast'),
     path('deals/<uuid:deal_id>', views.DealDetailView.as_view(), name='deal-detail'),
@@ -70,6 +74,7 @@ urlpatterns = [
     # ACTIVITIES
     # ==========================================================================
     path('activities', views.ActivityListView.as_view(), name='activity-list'),
+    path('activities/export', views.ActivityExportView.as_view(), name='activity-export'),
     path('activities/upcoming', views.ActivityUpcomingView.as_view(), name='activity-upcoming'),
     path('activities/overdue', views.ActivityOverdueView.as_view(), name='activity-overdue'),
     path('activities/stats', views.ActivityStatsView.as_view(), name='activity-stats'),

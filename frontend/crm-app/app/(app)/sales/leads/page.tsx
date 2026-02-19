@@ -33,8 +33,6 @@ import ActionMenu from "@/components/ActionMenu";
 import type { Lead, LeadStatus } from "@/lib/types";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator, getStatusColor } from "@/lib/utils";
 import { getLeadActionMenuItems } from "@/lib/utils/actionMenus";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
@@ -56,6 +54,7 @@ import {
 import { leadsApi } from "@/lib/api/leads";
 import { useUIStore } from "@/stores";
 import { usePermission, LEADS_READ, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 
 // Lazy load heavy components that are only used conditionally
 const LeadFormDrawer = dynamic(
@@ -137,6 +136,23 @@ export default function LeadsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
   
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query (server data) - now with pagination
   const { data: leadsResponse, isLoading } = useLeads(queryParams);
   const leads = useMemo(() => leadsResponse?.data ?? [], [leadsResponse?.data]);
@@ -188,20 +204,6 @@ export default function LeadsPage() {
   // Conversion modal state
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [leadToConvert, setLeadToConvert] = useState<LeadViewModel | null>(null);
-
-  // Export columns configuration - fields from list API
-  const exportColumns: ExportColumn<LeadViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'firstName', label: 'First Name' },
-    { key: 'lastName', label: 'Last Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'companyName', label: 'Company' },
-    { key: 'status', label: 'Status', format: (value) => value ? String(value).charAt(0).toUpperCase() + String(value).slice(1) : '' },
-    { key: 'source', label: 'Source', format: (value) => value ? String(value).replace(/_/g, ' ') : '' },
-    { key: 'score', label: 'Score' },
-    { key: 'created', label: 'Created Date' },
-  ], []);
 
   // Advanced filter fields configuration
   const filterFields: FilterField[] = useMemo(() => [
@@ -481,22 +483,36 @@ export default function LeadsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = leads.filter(lead => selectedLeads.includes(lead.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedLeads.length === 0) {
       toast.error("No leads selected for export");
       return;
     }
 
     try {
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-leads-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      
-      toast.success(`Successfully exported ${selectedData.length} leads`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({
+        ids: selectedLeads.join(","),
+      });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/leads/export?${params}`, {
+        headers: {
+          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
+        },
+      });
+
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-leads-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${selectedLeads.length} leads`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export leads");
@@ -886,10 +902,10 @@ export default function LeadsPage() {
             )}
             {can(LEADS_READ) && (
               <ExportButton
-                data={leads}
-                columns={exportColumns}
-                filename={`leads-${new Date().toISOString().split('T')[0]}`}
-                title="Leads Export"
+                exportUrl="/crm/api/v1/leads/export"
+                exportParams={exportParams}
+                filename="leads"
+                totalRecords={totalItems}
               />
             )}
             {can(LEADS_WRITE) && (

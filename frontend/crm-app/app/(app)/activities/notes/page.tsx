@@ -30,8 +30,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { NoteFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -55,6 +53,7 @@ import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import type { Note } from "@/lib/types";
 
 const DeleteConfirmationModal = dynamic(
@@ -185,6 +184,21 @@ export default function NotesPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = { type: 'note' };
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field, operator: toSnakeCaseOperator(c.operator), value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   const { data: notesResponse, isLoading } = useNotes(queryParams);
   const notes = useMemo(() => notesResponse?.data ?? [], [notesResponse?.data]);
   const totalItems = notesResponse?.meta?.total ?? 0;
@@ -223,16 +237,6 @@ export default function NotesPage() {
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  const exportColumns: ExportColumn<NoteViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Subject' },
-    { key: 'description', label: 'Content' },
-    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'relatedTo', label: 'Related To' },
-    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
-  ], []);
 
   const filterFields: FilterField[] = useMemo(() => [
     {
@@ -470,19 +474,28 @@ export default function NotesPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = notes.filter(note => selectedNotes.includes(note.id));
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedNotes.length === 0) {
       toast.error("No notes selected for export");
       return;
     }
     try {
-      exportToCSV(
-        selectedData,
-        exportColumns,
-        `selected-notes-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      toast.success(`Successfully exported ${selectedData.length} notes`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({ type: "note", ids: selectedNotes.join(",") });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/activities/export?${params}`, {
+        headers: { ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}) },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-notes-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedNotes.length} notes`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export notes");
@@ -780,10 +793,10 @@ export default function NotesPage() {
 
             {can(ACTIVITIES_WRITE) && (
               <ExportButton
-                data={notes}
-                columns={exportColumns}
-                filename={`notes-${new Date().toISOString().split('T')[0]}`}
-                title="Notes Export"
+                exportUrl="/crm/api/v1/activities/export"
+                exportParams={exportParams}
+                filename="notes"
+                totalRecords={totalItems}
               />
             )}
             {can(ACTIVITIES_WRITE) && (
