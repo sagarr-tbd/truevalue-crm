@@ -33,8 +33,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { CallFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -59,6 +57,7 @@ import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import type { Call } from "@/lib/types";
 
 // Lazy load heavy components
@@ -216,6 +215,21 @@ export default function CallsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = { type: 'call' };
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field, operator: toSnakeCaseOperator(c.operator), value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query (server data) - with pagination
   const { data: callsResponse, isLoading } = useCalls(queryParams);
   const calls = useMemo(() => callsResponse?.data ?? [], [callsResponse?.data]);
@@ -263,20 +277,6 @@ export default function CallsPage() {
 
   // Filter dropdown ref
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Export columns
-  const exportColumns: ExportColumn<CallViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Subject' },
-    { key: 'description', label: 'Description' },
-    { key: 'callDirection', label: 'Direction', format: (v) => v ? DIRECTION_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'callOutcome', label: 'Outcome', format: (v) => v ? OUTCOME_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'durationMinutes', label: 'Duration (min)' },
-    { key: 'relatedTo', label: 'Related To' },
-    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
-  ], []);
 
   // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
@@ -543,21 +543,28 @@ export default function CallsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = calls.filter(call => selectedCalls.includes(call.id));
-
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedCalls.length === 0) {
       toast.error("No calls selected for export");
       return;
     }
-
     try {
-      exportToCSV(
-        selectedData,
-        exportColumns,
-        `selected-calls-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      toast.success(`Successfully exported ${selectedData.length} calls`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({ type: "call", ids: selectedCalls.join(",") });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/activities/export?${params}`, {
+        headers: { ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}) },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-calls-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedCalls.length} calls`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export calls");
@@ -916,10 +923,10 @@ export default function CallsPage() {
 
             {can(ACTIVITIES_WRITE) && (
               <ExportButton
-                data={calls}
-                columns={exportColumns}
-                filename={`calls-${new Date().toISOString().split('T')[0]}`}
-                title="Calls Export"
+                exportUrl="/crm/api/v1/activities/export"
+                exportParams={exportParams}
+                filename="calls"
+                totalRecords={totalItems}
               />
             )}
             {can(ACTIVITIES_WRITE) && (

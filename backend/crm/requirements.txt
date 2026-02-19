@@ -32,6 +32,9 @@ redis>=5.0.1
 # HTTP client
 httpx>=0.26.0
 
+# Import/Export
+django-import-export>=4.0
+
 # Search (Elasticsearch)
 elasticsearch>=8.11.0
 

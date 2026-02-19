@@ -15,6 +15,7 @@ import httpx
 from django.conf import settings as django_settings
 from django.db import models
 from django.db.models import Sum, Count, Q
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -1919,3 +1920,245 @@ class LeadStatusUpdateView(BaseAPIView):
 
 # Import models for global search
 from django.db import models
+
+
+# =============================================================================
+# EXPORT VIEWS
+# =============================================================================
+
+EXPORT_MAX_ROWS = 10000
+
+from .resources import (
+    ContactResource, CompanyResource, LeadResource,
+    DealResource, ActivityResource,
+)
+
+
+def _fetch_member_names(org_id):
+    """Fetch {user_id: display_name} map from the org service."""
+    try:
+        org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
+        service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
+        service_secret = getattr(django_settings, 'SERVICE_SECRET', '') or ''
+        path = f"/internal/orgs/{org_id}/members/names"
+        ts = str(int(time_mod.time()))
+        sig = hmac_mod.new(
+            service_secret.encode(),
+            f"{service_name}:{ts}:{path}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        resp = httpx.get(
+            f"{org_service_url}{path}",
+            headers={
+                'X-Service-Name': service_name,
+                'X-Service-Timestamp': ts,
+                'X-Service-Signature': sig,
+            },
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            return resp.json().get('members', {})
+    except Exception as e:
+        logger.warning(f"Could not fetch member names: {e}")
+    return {}
+
+
+def _export_csv(resource_class, queryset, org_id, filename):
+    """Build an HttpResponse with CSV data using django-import-export."""
+    member_map = _fetch_member_names(org_id)
+    resource = resource_class(member_map=member_map)
+    dataset = resource.export(list(queryset))
+    response = HttpResponse(dataset.csv, content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _parse_ids(request):
+    """Parse comma-separated UUIDs from 'ids' query param."""
+    ids_param = request.query_params.get('ids', '')
+    if not ids_param:
+        return None
+    parsed = []
+    for raw in ids_param.split(','):
+        raw = raw.strip()
+        if raw:
+            try:
+                parsed.append(UUID(raw))
+            except (ValueError, TypeError):
+                pass
+    return parsed or None
+
+
+def _parse_advanced_filters(request):
+    """Parse advanced filters JSON from query params."""
+    advanced_filters = None
+    filter_logic = 'and'
+    filters_param = request.query_params.get('filters')
+    if filters_param:
+        try:
+            filter_data = json.loads(filters_param)
+            advanced_filters = filter_data.get('conditions', [])
+            filter_logic = filter_data.get('logic', 'and')
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return advanced_filters, filter_logic
+
+
+class ContactExportView(BaseAPIView):
+    """Export contacts as CSV."""
+    resource = 'contacts'
+    permission_action = 'export'
+
+    def get(self, request):
+        service = self.get_service(ContactService)
+        ids = _parse_ids(request)
+
+        if ids:
+            qs = service.get_optimized_queryset(annotate_counts=True).filter(id__in=ids)
+        else:
+            owner_id = self.get_uuid_param('owner_id')
+            if not owner_id and self.get_scope() == 'mine':
+                owner_id = self.get_user_id()
+            advanced_filters, filter_logic = _parse_advanced_filters(request)
+            qs = service.list(
+                search=request.query_params.get('search'),
+                order_by=request.query_params.get('order_by', '-created_at'),
+                owner_id=owner_id,
+                status=request.query_params.get('status'),
+                company_id=self.get_uuid_param('company_id'),
+                advanced_filters=advanced_filters,
+                filter_logic=filter_logic,
+            )
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        ts = time_mod.strftime('%Y-%m-%d')
+        return _export_csv(ContactResource, qs, self.get_org_id(), f'contacts-{ts}.csv')
+
+
+class CompanyExportView(BaseAPIView):
+    """Export companies as CSV."""
+    resource = 'companies'
+
+    def get(self, request):
+        service = self.get_service(CompanyService)
+        ids = _parse_ids(request)
+
+        if ids:
+            qs = service.get_optimized_queryset().filter(id__in=ids)
+        else:
+            owner_id = self.get_uuid_param('owner_id')
+            if not owner_id and self.get_scope() == 'mine':
+                owner_id = self.get_user_id()
+            advanced_filters, filter_logic = _parse_advanced_filters(request)
+            qs = service.list(
+                search=request.query_params.get('search'),
+                order_by=request.query_params.get('order_by', '-created_at'),
+                owner_id=owner_id,
+                industry=request.query_params.get('industry'),
+                size=request.query_params.get('size'),
+                advanced_filters=advanced_filters,
+                filter_logic=filter_logic,
+            )
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        ts = time_mod.strftime('%Y-%m-%d')
+        return _export_csv(CompanyResource, qs, self.get_org_id(), f'companies-{ts}.csv')
+
+
+class LeadExportView(BaseAPIView):
+    """Export leads as CSV."""
+    resource = 'leads'
+
+    def get(self, request):
+        service = self.get_service(LeadService)
+        ids = _parse_ids(request)
+
+        if ids:
+            qs = service.get_optimized_queryset().filter(id__in=ids)
+        else:
+            owner_id = self.get_uuid_param('owner_id')
+            if not owner_id and self.get_scope() == 'mine':
+                owner_id = self.get_user_id()
+            advanced_filters, filter_logic = _parse_advanced_filters(request)
+            qs = service.list(
+                search=request.query_params.get('search'),
+                order_by=request.query_params.get('order_by', '-created_at'),
+                owner_id=owner_id,
+                status=request.query_params.get('status'),
+                source=request.query_params.get('source'),
+                advanced_filters=advanced_filters,
+                filter_logic=filter_logic,
+            )
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        ts = time_mod.strftime('%Y-%m-%d')
+        return _export_csv(LeadResource, qs, self.get_org_id(), f'leads-{ts}.csv')
+
+
+class DealExportView(BaseAPIView):
+    """Export deals as CSV."""
+    resource = 'deals'
+
+    def get(self, request):
+        service = self.get_service(DealService)
+        ids = _parse_ids(request)
+
+        if ids:
+            qs = service.get_optimized_queryset().filter(id__in=ids)
+        else:
+            owner_id = self.get_uuid_param('owner_id')
+            if not owner_id and self.get_scope() == 'mine':
+                owner_id = self.get_user_id()
+            advanced_filters, filter_logic = _parse_advanced_filters(request)
+            qs = service.list(
+                search=request.query_params.get('search'),
+                order_by=request.query_params.get('order_by', '-created_at'),
+                owner_id=owner_id,
+                status=request.query_params.get('status'),
+                pipeline_id=self.get_uuid_param('pipeline_id'),
+                stage_id=self.get_uuid_param('stage_id'),
+                contact_id=self.get_uuid_param('contact_id'),
+                company_id=self.get_uuid_param('company_id'),
+                advanced_filters=advanced_filters,
+                filter_logic=filter_logic,
+            )
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        ts = time_mod.strftime('%Y-%m-%d')
+        return _export_csv(DealResource, qs, self.get_org_id(), f'deals-{ts}.csv')
+
+
+class ActivityExportView(BaseAPIView):
+    """Export activities as CSV."""
+    resource = 'activities'
+
+    def get(self, request):
+        service = self.get_service(ActivityService)
+        ids = _parse_ids(request)
+
+        if ids:
+            qs = service.get_optimized_queryset().filter(id__in=ids)
+        else:
+            owner_id = self.get_uuid_param('owner_id')
+            if not owner_id and self.get_scope() == 'mine':
+                owner_id = self.get_user_id()
+            advanced_filters, filter_logic = _parse_advanced_filters(request)
+            overdue = request.query_params.get('overdue')
+            qs = service.list(
+                search=request.query_params.get('search'),
+                order_by=request.query_params.get('order_by', '-created_at'),
+                owner_id=owner_id,
+                activity_type=request.query_params.get('type'),
+                status=request.query_params.get('status'),
+                contact_id=self.get_uuid_param('contact_id'),
+                company_id=self.get_uuid_param('company_id'),
+                deal_id=self.get_uuid_param('deal_id'),
+                lead_id=self.get_uuid_param('lead_id'),
+                overdue=overdue.lower() == 'true' if overdue else None,
+                advanced_filters=advanced_filters,
+                filter_logic=filter_logic,
+            )
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        ts = time_mod.strftime('%Y-%m-%d')
+        return _export_csv(ActivityResource, qs, self.get_org_id(), f'activities-{ts}.csv')

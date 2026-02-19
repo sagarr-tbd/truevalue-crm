@@ -33,8 +33,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { EmailFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -59,6 +57,7 @@ import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import type { Email } from "@/lib/types";
 
 // Lazy load heavy components
@@ -208,6 +207,21 @@ export default function EmailsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = { type: 'email' };
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field, operator: toSnakeCaseOperator(c.operator), value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query (server data) - with pagination
   const { data: emailsResponse, isLoading } = useEmails(queryParams);
   const emails = useMemo(() => emailsResponse?.data ?? [], [emailsResponse?.data]);
@@ -255,18 +269,6 @@ export default function EmailsPage() {
 
   // Filter dropdown ref
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Export columns
-  const exportColumns: ExportColumn<EmailViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Subject' },
-    { key: 'description', label: 'Description' },
-    { key: 'emailDirection', label: 'Direction', format: (v) => v ? DIRECTION_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'relatedTo', label: 'Related To' },
-    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
-  ], []);
 
   // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
@@ -521,21 +523,28 @@ export default function EmailsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = emails.filter(email => selectedEmails.includes(email.id));
-
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedEmails.length === 0) {
       toast.error("No emails selected for export");
       return;
     }
-
     try {
-      exportToCSV(
-        selectedData,
-        exportColumns,
-        `selected-emails-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      toast.success(`Successfully exported ${selectedData.length} emails`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({ type: "email", ids: selectedEmails.join(",") });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/activities/export?${params}`, {
+        headers: { ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}) },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-emails-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedEmails.length} emails`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export emails");
@@ -872,10 +881,10 @@ export default function EmailsPage() {
 
             {can(ACTIVITIES_WRITE) && (
               <ExportButton
-                data={emails}
-                columns={exportColumns}
-                filename={`emails-${new Date().toISOString().split('T')[0]}`}
-                title="Emails Export"
+                exportUrl="/crm/api/v1/activities/export"
+                exportParams={exportParams}
+                filename="emails"
+                totalRecords={totalItems}
               />
             )}
             {can(ACTIVITIES_WRITE) && (

@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'drf_yasg',
+    'import_export',
     # Local
     'crm',
 ]

@@ -34,8 +34,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { AccountFormDrawer, type Account as AccountType } from "@/components/Forms/Sales";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
@@ -52,6 +50,7 @@ import {
 import { getSizeDisplayLabel, companiesApi } from "@/lib/api/companies";
 import { useUIStore } from "@/stores";
 import { usePermission, COMPANIES_READ, COMPANIES_WRITE, COMPANIES_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -148,6 +147,16 @@ export default function AccountsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, industryFilter, sortColumn, sortDirection, filterGroup]);
   
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (industryFilter) p.industry = industryFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify(filterGroup);
+    }
+    return p;
+  }, [debouncedSearchQuery, industryFilter, filterGroup]);
+
   // React Query - fetch accounts with server-side pagination
   const { data: accountsResponse, isLoading } = useAccounts(queryParams);
   const accounts = useMemo(() => accountsResponse?.data ?? [], [accountsResponse?.data]);
@@ -178,26 +187,6 @@ export default function AccountsPage() {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
-
-  // Export columns configuration
-  const exportColumns: ExportColumn<typeof accounts[0]>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'accountName', label: 'Account Name' },
-    { key: 'industry', label: 'Industry' },
-    { key: 'type', label: 'Type' },
-    { key: 'website', label: 'Website' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'email', label: 'Email' },
-    { key: 'city', label: 'City' },
-    { key: 'state', label: 'State' },
-    { key: 'country', label: 'Country' },
-    { key: 'employees', label: 'Employees' },
-    { key: 'annualRevenue', label: 'Annual Revenue' },
-    { key: 'status', label: 'Status' },
-    { key: 'owner', label: 'Owner' },
-    { key: 'created', label: 'Created Date' },
-    { key: 'lastActivity', label: 'Last Activity' },
-  ], []);
 
   // Advanced filter fields (match backend fields)
   const filterFields: FilterField[] = useMemo(() => [
@@ -519,23 +508,36 @@ export default function AccountsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = accounts.filter(account => account.id !== undefined && selectedAccounts.includes(account.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedAccounts.length === 0) {
       toast.error("No accounts selected for export");
       return;
     }
 
     try {
-      // Use the same export columns as the main ExportButton
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-accounts-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      
-      toast.success(`Successfully exported ${selectedData.length} accounts`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({
+        ids: selectedAccounts.join(","),
+      });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/companies/export?${params}`, {
+        headers: {
+          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
+        },
+      });
+
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-accounts-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${selectedAccounts.length} accounts`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export accounts");
@@ -859,10 +861,10 @@ export default function AccountsPage() {
             )}
             {can(COMPANIES_READ) && (
               <ExportButton
-                data={accounts}
-                columns={exportColumns}
-                filename="accounts-export"
-                title="Accounts Export"
+                exportUrl="/crm/api/v1/companies/export"
+                exportParams={exportParams}
+                filename="accounts"
+                totalRecords={totalItems}
               />
             )}
             {can(COMPANIES_WRITE) && (
