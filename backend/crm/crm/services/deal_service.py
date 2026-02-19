@@ -8,7 +8,8 @@ from decimal import Decimal
 from datetime import date, timedelta
 
 from django.db import transaction
-from django.db.models import Q, Sum, Count, Avg
+from django.db.models import Q, Sum, Count, Avg, F, ExpressionWrapper, fields as db_fields
+from django.db.models.functions import TruncMonth, Coalesce
 from django.utils import timezone
 
 from ..models import Deal, DealStageHistory, Pipeline, PipelineStage, CRMAuditLog, Contact, Company
@@ -639,6 +640,109 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             ]
         }
     
+    def get_analysis(self, days: int = 90, pipeline_id: UUID = None) -> Dict:
+        """Won/lost analysis: summary, monthly trend, and loss-reason breakdown."""
+        from decimal import Decimal
+
+        cutoff = date.today() - timedelta(days=days)
+        base = Deal.objects.filter(
+            org_id=self.org_id,
+            status__in=['won', 'lost'],
+            actual_close_date__gte=cutoff,
+        )
+        if pipeline_id:
+            base = base.filter(pipeline_id=pipeline_id)
+
+        # -- summary --
+        agg = base.aggregate(
+            total_won=Count('id', filter=Q(status='won')),
+            total_lost=Count('id', filter=Q(status='lost')),
+            won_value=Coalesce(Sum('value', filter=Q(status='won')), Decimal('0')),
+            lost_value=Coalesce(Sum('value', filter=Q(status='lost')), Decimal('0')),
+            avg_won_value=Coalesce(Avg('value', filter=Q(status='won')), Decimal('0')),
+            avg_lost_value=Coalesce(Avg('value', filter=Q(status='lost')), Decimal('0')),
+        )
+
+        closed = agg['total_won'] + agg['total_lost']
+        win_rate = (agg['total_won'] / closed * 100) if closed > 0 else 0
+
+        # avg time to close for won deals (actual_close_date - created_at)
+        won_deals = base.filter(status='won', actual_close_date__isnull=False).annotate(
+            close_days=ExpressionWrapper(
+                F('actual_close_date') - F('created_at__date'),
+                output_field=db_fields.DurationField(),
+            )
+        )
+        # DurationField math on DateField isn't fully portable; fall back to Python
+        close_day_counts = []
+        for d in base.filter(status='won', actual_close_date__isnull=False).values_list(
+            'actual_close_date', 'created_at'
+        ):
+            delta = (d[0] - d[1].date()).days
+            if delta >= 0:
+                close_day_counts.append(delta)
+        avg_time_to_close_days = (
+            round(sum(close_day_counts) / len(close_day_counts), 1)
+            if close_day_counts else 0
+        )
+
+        summary = {
+            'total_won': agg['total_won'],
+            'total_lost': agg['total_lost'],
+            'won_value': agg['won_value'],
+            'lost_value': agg['lost_value'],
+            'win_rate': round(win_rate, 1),
+            'avg_won_value': agg['avg_won_value'],
+            'avg_lost_value': agg['avg_lost_value'],
+            'avg_time_to_close_days': avg_time_to_close_days,
+        }
+
+        # -- trend (grouped by month) --
+        trend_qs = (
+            base.annotate(period=TruncMonth('actual_close_date'))
+            .values('period')
+            .annotate(
+                won=Count('id', filter=Q(status='won')),
+                lost=Count('id', filter=Q(status='lost')),
+                won_value=Coalesce(Sum('value', filter=Q(status='won')), Decimal('0')),
+                lost_value=Coalesce(Sum('value', filter=Q(status='lost')), Decimal('0')),
+            )
+            .order_by('period')
+        )
+        trend = [
+            {
+                'period': t['period'].strftime('%Y-%m'),
+                'won': t['won'],
+                'lost': t['lost'],
+                'won_value': t['won_value'],
+                'lost_value': t['lost_value'],
+            }
+            for t in trend_qs
+        ]
+
+        # -- loss reasons --
+        loss_qs = (
+            base.filter(status='lost')
+            .exclude(loss_reason__isnull=True)
+            .exclude(loss_reason='')
+            .values('loss_reason')
+            .annotate(
+                count=Count('id'),
+                value=Coalesce(Sum('value'), Decimal('0')),
+            )
+            .order_by('-count')
+        )
+        loss_reasons = [
+            {'reason': lr['loss_reason'], 'count': lr['count'], 'value': lr['value']}
+            for lr in loss_qs
+        ]
+
+        return {
+            'summary': summary,
+            'trend': trend,
+            'loss_reasons': loss_reasons,
+        }
+
     @transaction.atomic
     def bulk_delete(self, ids: List[UUID]) -> Dict[str, Any]:
         """Delete multiple deals by IDs."""

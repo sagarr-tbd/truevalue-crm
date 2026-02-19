@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { dealsApi, DealQueryParams, DealFormData, DealViewModel, LoseDealRequest, WinDealRequest, ReopenDealRequest } from "../api/deals";
+import { dealsApi, DealQueryParams, DealFormData, DealViewModel, LoseDealRequest, WinDealRequest, ReopenDealRequest, DealAnalysisParams } from "../api/deals";
 import { toast } from "sonner";
 import { KanbanResponse } from "../api/pipelines";
 
@@ -15,6 +15,7 @@ export const dealKeys = {
   detail: (id: string) => [...dealKeys.details(), id] as const,
   options: () => [...dealKeys.all, "options"] as const,
   forecast: (params?: { days?: number; pipeline_id?: string }) => [...dealKeys.all, "forecast", params] as const,
+  analysis: (params?: DealAnalysisParams) => [...dealKeys.all, "analysis", params] as const,
 };
 
 // =============================================================================
@@ -52,6 +53,17 @@ export function useDealForecast(params?: { days?: number; pipeline_id?: string }
     queryKey: dealKeys.forecast(params),
     queryFn: () => dealsApi.getForecast(params),
     staleTime: 5 * 60 * 1000, // 5 minutes - forecast changes less frequently
+  });
+}
+
+/**
+ * Get won/lost analysis data
+ */
+export function useDealAnalysis(params?: DealAnalysisParams) {
+  return useQuery({
+    queryKey: dealKeys.analysis(params),
+    queryFn: () => dealsApi.getAnalysis(params),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

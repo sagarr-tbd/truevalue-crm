@@ -77,6 +77,95 @@ services:
       - platform_infra
 
   # =============================================================================
+  # CRM CELERY WORKER
+  # Processes background tasks (e.g., sending activity reminder emails)
+  # Uses Redis as message broker
+  # =============================================================================
+  crm-celery-worker:
+    build:
+      context: ./backend/crm
+      dockerfile: Dockerfile
+    container_name: crm-celery-worker
+    environment:
+      # Database: Using local PostgreSQL on port 5433
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/crm_db
+      - REDIS_URL=redis://truevalue-redis:6379/3
+      - KAFKA_BOOTSTRAP_SERVERS=truevalue-kafka:9092
+      - ELASTICSEARCH_URL=http://truevalue-elasticsearch:9200
+      # Platform service URLs (internal network)
+      - AUTH_SERVICE_URL=http://truevalue-auth:8000
+      - ORG_SERVICE_URL=http://truevalue-org:8000
+      - PERMISSION_SERVICE_URL=http://truevalue-permission:8000
+      - BILLING_SERVICE_URL=http://truevalue-billing:8000
+      - DEBUG=${DEBUG:-true}
+      # Security
+      - GATEWAY_SECRET=${GATEWAY_SECRET}
+      - SERVICE_NAME=crm-service
+      - SERVICE_SECRET=${CRM_SERVICE_SECRET}
+      - GATEWAY_SERVICE_SECRET=${GATEWAY_SERVICE_SECRET}
+      - AUTH_SERVICE_SECRET=${AUTH_SERVICE_SECRET}
+      - ORG_SERVICE_SECRET=${ORG_SERVICE_SECRET}
+      - BILLING_SERVICE_SECRET=${BILLING_SERVICE_SECRET}
+      - GATEWAY_TRUST_ENABLED=true
+      - PYTHONPATH=/app:/shared
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/crm:/app
+      - ../TrueValueCRM/shared/python/truevalue-common/src:/shared
+    command: celery -A crm_service worker --loglevel=info
+    depends_on:
+      - crm-backend
+    networks:
+      - platform_internal
+      - platform_infra
+
+  # =============================================================================
+  # CRM CELERY BEAT (SCHEDULER)
+  # Schedules periodic tasks (e.g., send_activity_reminders runs every 5 minutes)
+  # Uses django-celery-beat for database-backed schedule
+  # =============================================================================
+  crm-celery-beat:
+    build:
+      context: ./backend/crm
+      dockerfile: Dockerfile
+    container_name: crm-celery-beat
+    environment:
+      # Database: Using local PostgreSQL on port 5433
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@host.docker.internal:5433/crm_db
+      - REDIS_URL=redis://truevalue-redis:6379/3
+      - KAFKA_BOOTSTRAP_SERVERS=truevalue-kafka:9092
+      - ELASTICSEARCH_URL=http://truevalue-elasticsearch:9200
+      # Platform service URLs (internal network)
+      - AUTH_SERVICE_URL=http://truevalue-auth:8000
+      - ORG_SERVICE_URL=http://truevalue-org:8000
+      - PERMISSION_SERVICE_URL=http://truevalue-permission:8000
+      - BILLING_SERVICE_URL=http://truevalue-billing:8000
+      - DEBUG=${DEBUG:-true}
+      # Security
+      - GATEWAY_SECRET=${GATEWAY_SECRET}
+      - SERVICE_NAME=crm-service
+      - SERVICE_SECRET=${CRM_SERVICE_SECRET}
+      - GATEWAY_SERVICE_SECRET=${GATEWAY_SERVICE_SECRET}
+      - AUTH_SERVICE_SECRET=${AUTH_SERVICE_SECRET}
+      - ORG_SERVICE_SECRET=${ORG_SERVICE_SECRET}
+      - BILLING_SERVICE_SECRET=${BILLING_SERVICE_SECRET}
+      - GATEWAY_TRUST_ENABLED=true
+      - PYTHONPATH=/app:/shared
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/crm:/app
+      - ../TrueValueCRM/shared/python/truevalue-common/src:/shared
+    command: celery -A crm_service beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      - crm-backend
+      - crm-celery-worker
+    networks:
+      - platform_internal
+      - platform_infra
+
+  # =============================================================================
   # CRM FRONTEND
   # =============================================================================
   crm-frontend:
