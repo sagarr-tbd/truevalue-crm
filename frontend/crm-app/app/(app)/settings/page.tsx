@@ -12,6 +12,7 @@ import {
   GitBranch,
   Lock,
   Tag,
+  Sliders,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import PageHeader from "@/components/PageHeader";
@@ -24,6 +25,7 @@ import {
   PipelinesSettings,
   RolesPermissionsSettings,
   TagManagementSettings,
+  CustomFieldsSettings,
 } from "@/components/Settings";
 import { usePermission, ORG_MANAGE_MEMBERS, ROLES_READ, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
 
@@ -39,6 +41,12 @@ const allSettingsSections = [
     label: "Tags",
     icon: Tag,
     color: "from-brand-teal to-secondary",
+  },
+  {
+    id: "customFields",
+    label: "Custom Fields",
+    icon: Sliders,
+    color: "from-brand-purple to-brand-coral",
   },
   // { id: "notifications", label: "Notifications", icon: Bell, color: "from-secondary to-brand-purple" },
   // { id: "security", label: "Security & Privacy", icon: Shield, color: "from-destructive to-brand-coral" },
@@ -67,6 +75,7 @@ export default function SettingsPage() {
       if (s.id === "roles") return isAdmin || can(ROLES_READ);
       if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
       if (s.id === "tags") return can(CONTACTS_WRITE);
+      if (s.id === "customFields") return can(CONTACTS_WRITE);
       return true;
     });
   }, [can, isAdmin]);
@@ -81,6 +90,8 @@ export default function SettingsPage() {
         return <PipelinesSettings />;
       case "tags":
         return <TagManagementSettings />;
+      case "customFields":
+        return <CustomFieldsSettings />;
       // case "notifications":
       //   return <NotificationsSettings />;
       // case "security":

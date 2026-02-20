@@ -11,11 +11,8 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Edit,
-  Trash2,
   Mail,
   Phone,
-  FileText,
   UserPlus,
   Calendar,
   ChevronDown,
@@ -617,6 +614,8 @@ export default function LeadsPage() {
         description: fullLead.description,
         tagIds: fullLead.tagIds,
         ownerId: fullLead.ownerId,
+        // Custom fields - IMPORTANT for edit!
+        customFields: fullLead.customFields || {},
       } as Lead);
     } catch (error) {
       console.error("Failed to fetch lead details:", error);

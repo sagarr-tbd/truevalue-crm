@@ -231,5 +231,13 @@ export const dealFormConfig: FormDrawerConfig = {
         },
       ],
     },
+    {
+      id: "custom_fields",
+      label: "Custom Fields",
+      icon: <DollarSign className="h-4 w-4" />,
+      fields: [],
+      isCustomFields: true,
+      entityType: "deal",
+    },
   ],
 };

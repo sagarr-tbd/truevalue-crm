@@ -67,6 +67,7 @@ export interface LeadListApiResponse {
   score?: number | null;
   owner_id?: string | null;
   tags?: Array<{ id: string; name: string; color?: string }>;
+  custom_fields?: Record<string, unknown>;
   last_activity_at?: string | null;
   created_at: string;
 }
@@ -298,6 +299,7 @@ function toLeadViewModel(response: LeadListApiResponse): LeadViewModel {
     status: response.status,
     source: response.source,
     score: nullToUndefined(response.score),
+    customFields: nullToUndefined(response.custom_fields),
     ownerId: nullToUndefined(response.owner_id),
     tagIds: tagIds && tagIds.length > 0 ? tagIds : undefined,
     tags: response.tags,

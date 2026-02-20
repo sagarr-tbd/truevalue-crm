@@ -107,11 +107,8 @@ export const leadSchema = z.object({
     z.string().optional()
   ),
   
-  // Custom Fields (JSON object)
-  customFields: z.preprocess(
-    (val) => (val === null ? undefined : val),
-    z.record(z.any()).optional()
-  ),
+  // Custom Fields (dynamic fields validated at render time by CustomFieldsRenderer)
+  customFields: z.record(z.string(), z.unknown()).optional(),
   
   // Tags & Assignment
   tagIds: z.preprocess(
@@ -209,6 +206,7 @@ export const accountSchema = z.object({
     }),
   // Tags (array of tag UUIDs)
   tagIds: z.array(z.string()).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // Contact validation schema - aligned with backend API (ALL fields)
@@ -338,6 +336,7 @@ export const contactSchema = z.object({
     (val) => (val === null ? undefined : val),
     z.array(z.string()).optional()
   ),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // Deal validation schema
@@ -402,6 +401,7 @@ export const dealSchema = z.object({
   
   // Tags - validate UUIDs
   tagIds: z.array(z.string().uuid("Invalid tag ID")).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 });
 
 // Forecast validation schema
