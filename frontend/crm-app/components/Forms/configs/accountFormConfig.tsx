@@ -10,6 +10,7 @@ import {
   Linkedin,
   Twitter,
   Facebook,
+  Sliders,
 } from "lucide-react";
 import { accountSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
@@ -39,6 +40,7 @@ export const accountFormConfig: FormDrawerConfig = {
     twitterUrl: "",
     facebookUrl: "",
     tagIds: [],
+    customFields: {},
   },
 
   quickFormSections: [
@@ -297,9 +299,17 @@ export const accountFormConfig: FormDrawerConfig = {
           name: "tagIds",
           label: "Tags",
           type: "tags",
-          options: [], // Dynamic - populated from API
+          options: [],
         },
       ],
+    },
+    {
+      id: "customFields",
+      label: "Custom Fields",
+      icon: <Sliders className="h-4 w-4" />,
+      entityType: "company",
+      isCustomFields: true,
+      fields: [],
     },
   ],
 };

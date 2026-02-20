@@ -448,6 +448,8 @@ export default function ContactsPage() {
         doNotEmail: fullContact.doNotEmail,
         // Tags
         tagIds: fullContact.tagIds,
+        // Custom fields
+        customFields: fullContact.customFields || {},
       });
     } catch (error) {
       console.error("Failed to fetch contact details:", error);
@@ -504,6 +506,8 @@ export default function ContactsPage() {
     doNotEmail: data.doNotEmail,
     // Tags
     tagIds: data.tagIds,
+    // Custom fields
+    customFields: data.customFields,
   });
 
   // Contact action menu handlers

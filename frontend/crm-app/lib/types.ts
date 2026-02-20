@@ -26,6 +26,7 @@ export type Lead = z.infer<typeof leadSchema> & {
   // Disqualification (read-only)
   disqualifiedReason?: string;
   disqualifiedAt?: string;
+  customFields?: Record<string, unknown>;
 };
 
 export type Account = z.infer<typeof accountSchema> & {
@@ -33,6 +34,7 @@ export type Account = z.infer<typeof accountSchema> & {
   createdAt?: string;
   updatedAt?: string;
   initials?: string;
+  customFields?: Record<string, unknown>;
 };
 
 export type Contact = z.infer<typeof contactSchema> & {
@@ -41,6 +43,7 @@ export type Contact = z.infer<typeof contactSchema> & {
   updatedAt?: string;
   initials?: string;
   fullName?: string;
+  customFields?: Record<string, unknown>;
 };
 
 export type Deal = z.infer<typeof dealSchema> & {
@@ -63,6 +66,7 @@ export type Deal = z.infer<typeof dealSchema> & {
   lastActivityAt?: string;
   daysInPipeline?: number;
   convertedFromLeadId?: string;
+  customFields?: Record<string, unknown>;
 };
 
 export type Forecast = z.infer<typeof forecastSchema> & {

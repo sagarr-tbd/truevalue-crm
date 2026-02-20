@@ -106,6 +106,7 @@ export interface DealListApiResponse {
   tags?: TagMinimal[];
   owner_id?: string;
   description?: string;
+  custom_fields?: Record<string, unknown>;
   stage_entered_at: string;
   last_activity_at?: string;
   created_at: string;
@@ -395,6 +396,7 @@ function toDealViewModel(response: DealListApiResponse): DealViewModel {
     companyName: response.company?.name,
     // Additional
     description: nullToUndefined(response.description),
+    customFields: nullToUndefined(response.custom_fields),
     // Tags
     tags: response.tags,
     tagIds: tagIds && tagIds.length > 0 ? tagIds : undefined,

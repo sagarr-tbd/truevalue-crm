@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -11,10 +11,6 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Edit,
-  Trash2,
-  Mail,
-  FileText,
   TrendingUp,
   Target,
   CheckCircle2,
@@ -50,9 +46,9 @@ import {
   useBulkDeleteDeals,
   useMoveStage,
   DealViewModel,
-  DealFormData,
   DealQueryParams,
 } from "@/lib/queries/useDeals";
+import { dealsApi } from "@/lib/api/deals";
 import { usePipelines, usePipelineKanban, useDefaultPipeline } from "@/lib/queries/usePipelines";
 import { useUIStore } from "@/stores";
 import { usePermission, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
@@ -389,68 +385,69 @@ export default function DealsPage() {
     setFormDrawerOpen(true);
   };
 
-  const handleEditDeal = (deal: DealViewModel) => {
+  const handleEditDeal = useCallback(async (deal: DealViewModel) => {
     setFormMode("edit");
-    // Store original deal for accessing IDs during submit
-    setEditingDeal(deal);
-    // Convert DealViewModel to form data format for the form
-    // Use current pipeline context as fallback since list API doesn't return pipeline_id
-    const formData: Partial<DealType> = {
-      name: deal.name,
-      pipelineId: deal.pipelineId || pipelineId,
-      stageId: deal.stageId,
-      value: deal.value,
-      currency: deal.currency,
-      probability: deal.probability,
-      expectedCloseDate: deal.expectedCloseDate,
-      contactId: deal.contactId,
-      companyId: deal.companyId,
-      ownerId: deal.ownerId,
-      description: deal.description,
-      tagIds: deal.tagIds || [],
-    };
-    setEditingDealForm(formData);
+    
+    try {
+      // Fetch full deal details to ensure all fields including custom_fields are available
+      const fullDeal = await dealsApi.getById(deal.id);
+      
+      // Store original deal for accessing IDs during submit
+      setEditingDeal(fullDeal);
+      
+      // Convert DealViewModel to form data format for the form
+      const formData: Partial<DealType> = {
+        name: fullDeal.name,
+        pipelineId: fullDeal.pipelineId || pipelineId,
+        stageId: fullDeal.stageId,
+        value: fullDeal.value,
+        currency: fullDeal.currency,
+        probability: fullDeal.probability,
+        expectedCloseDate: fullDeal.expectedCloseDate,
+        contactId: fullDeal.contactId,
+        companyId: fullDeal.companyId,
+        ownerId: fullDeal.ownerId,
+        description: fullDeal.description,
+        tagIds: fullDeal.tagIds || [],
+        // Custom fields - IMPORTANT for edit!
+        customFields: fullDeal.customFields || {},
+      };
+      setEditingDealForm(formData);
+    } catch (error) {
+      console.error("Failed to fetch deal details:", error);
+      // Fallback to minimal data from list
+      setEditingDeal(deal);
+      const formData: Partial<DealType> = {
+        name: deal.name,
+        pipelineId: deal.pipelineId || pipelineId,
+        stageId: deal.stageId,
+        value: deal.value,
+        currency: deal.currency,
+        tagIds: deal.tagIds || [],
+      };
+      setEditingDealForm(formData);
+    }
+    
     setFormDrawerOpen(true);
-  };
+  }, [pipelineId]);
 
   const handleFormSubmit = async (data: Partial<DealType>) => {
     try {
       if (formMode === "add") {
-        // Use the stage from form data, or fallback to first stage from pipeline
-        const firstStage = pipelineStages[0];
-        const formData: DealFormData = {
+        // Ensure required fields have defaults
+        const dealData = {
+          ...data,
           name: data.name || "",
           pipelineId: data.pipelineId || pipelineId,
-          stageId: data.stageId || firstStage?.id || "",
+          stageId: data.stageId || pipelineStages[0]?.id || "",
           value: data.value || 0,
           currency: data.currency || "INR",
-          probability: data.probability,
-          expectedCloseDate: data.expectedCloseDate,
-          contactId: data.contactId,
-          companyId: data.companyId,
-          ownerId: data.ownerId,
-          description: data.description,
-          tagIds: data.tagIds,
         };
-        await createDeal.mutateAsync(formData);
+        await createDeal.mutateAsync(dealData);
       } else if (editingDeal) {
-        const formData: DealFormData = {
-          name: data.name || editingDeal.name,
-          pipelineId: data.pipelineId || editingDeal.pipelineId,
-          stageId: data.stageId || editingDeal.stageId,
-          value: data.value ?? editingDeal.value,
-          currency: data.currency || editingDeal.currency,
-          probability: data.probability ?? editingDeal.probability,
-          expectedCloseDate: data.expectedCloseDate || editingDeal.expectedCloseDate,
-          contactId: data.contactId || editingDeal.contactId,
-          companyId: data.companyId || editingDeal.companyId,
-          ownerId: data.ownerId || editingDeal.ownerId,
-          description: data.description ?? editingDeal.description,
-          tagIds: data.tagIds,
-        };
-        await updateDeal.mutateAsync({ id: editingDeal.id, data: formData });
+        await updateDeal.mutateAsync({ id: editingDeal.id, data });
       }
-      
+
       setFormDrawerOpen(false);
       setEditingDeal(null);
     } catch (error) {

@@ -90,6 +90,43 @@ class TagMinimalSerializer(serializers.ModelSerializer):
 class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
     """Serializer for CustomFieldDefinition model."""
     
+    # Reserved field names for each entity type (built-in model fields)
+    RESERVED_FIELDS = {
+        'contact': [
+            'id', 'org_id', 'owner_id', 'first_name', 'last_name', 'full_name',
+            'email', 'phone', 'mobile', 'title', 'department', 'description',
+            'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country',
+            'linkedin_url', 'twitter_url', 'facebook_url', 'birth_date', 'lead_source',
+            'do_not_call', 'do_not_email', 'opt_out', 'custom_fields', 'tags',
+            'created_at', 'updated_at', 'deleted_at', 'is_deleted'
+        ],
+        'company': [
+            'id', 'org_id', 'owner_id', 'name', 'website', 'industry', 'size',
+            'phone', 'email', 'address_line1', 'address_line2', 'city', 'state',
+            'postal_code', 'country', 'description', 'annual_revenue', 'employee_count',
+            'linkedin_url', 'twitter_url', 'facebook_url', 'custom_fields', 'tags',
+            'parent_company', 'created_at', 'updated_at'
+        ],
+        'lead': [
+            'id', 'org_id', 'owner_id', 'first_name', 'last_name', 'full_name',
+            'email', 'phone', 'mobile', 'company_name', 'title', 'website',
+            'address_line1', 'city', 'state', 'postal_code', 'country', 'status',
+            'source', 'source_detail', 'score', 'description', 'custom_fields',
+            'tags', 'converted_at', 'converted_contact_id', 'converted_company_id',
+            'converted_deal_id', 'converted_by', 'disqualified_reason', 'disqualified_at',
+            'last_activity_at', 'last_contacted_at', 'created_at', 'updated_at',
+            'deleted_at', 'is_deleted'
+        ],
+        'deal': [
+            'id', 'org_id', 'owner_id', 'name', 'pipeline', 'stage', 'value',
+            'currency', 'probability', 'weighted_value', 'expected_close_date',
+            'actual_close_date', 'stage_entered_at', 'status', 'loss_reason',
+            'loss_notes', 'contact', 'company', 'converted_from_lead_id', 'description',
+            'custom_fields', 'tags', 'line_items', 'last_activity_at', 'activity_count',
+            'created_at', 'updated_at', 'deleted_at', 'is_deleted'
+        ]
+    }
+
     class Meta:
         model = CustomFieldDefinition
         fields = [
@@ -99,14 +136,29 @@ class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
-    
+
     def validate_name(self, value):
-        """Validate field name is a valid identifier."""
+        """Validate field name is a valid identifier and not reserved."""
         if not value.replace('_', '').isalnum():
             raise serializers.ValidationError(
                 "Field name must contain only letters, numbers, and underscores"
             )
         return value.lower()
+    
+    def validate(self, attrs):
+        """Validate that field name doesn't conflict with built-in fields."""
+        entity_type = attrs.get('entity_type')
+        field_name = attrs.get('name', '').lower()
+        
+        # Check if field name conflicts with reserved/built-in fields
+        reserved_fields = self.RESERVED_FIELDS.get(entity_type, [])
+        if field_name in reserved_fields:
+            raise serializers.ValidationError({
+                'name': f"Field name '{field_name}' is reserved and conflicts with a built-in field for {entity_type}. "
+                        f"Please use a different name (e.g., '{field_name}_custom')."
+            })
+        
+        return attrs
 
 
 class CustomFieldValueSerializer(serializers.ModelSerializer):

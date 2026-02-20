@@ -44,7 +44,9 @@ export interface FormSection {
   label: string;
   icon: ReactNode;
   fields: FormFieldConfig[];
-  layout?: FieldGroup[]; // Optional custom layout groupings
+  layout?: FieldGroup[];
+  isCustomFields?: boolean;
+  entityType?: 'contact' | 'company' | 'deal' | 'lead';
 }
 
 export interface QuickFormSection {

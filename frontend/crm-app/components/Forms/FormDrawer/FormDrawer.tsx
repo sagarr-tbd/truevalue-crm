@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "./FormField";
 import { TagsSelector } from "./TagsSelector";
 import { ProfilePictureField } from "./ProfilePictureField";
+import { CustomFieldsRenderer } from "./CustomFieldsRenderer";
 import { useKeyboardShortcuts } from "@/hooks";
 import type { FormDrawerProps, FormView } from "./types";
 
@@ -169,12 +170,11 @@ export function FormDrawer<T = any>({
   });
 
   // Submit handler
-  // Note: Toast notifications are handled by the mutation hooks, not here
   const onSubmitForm = useCallback(
     async (data: any) => {
       const formDataWithExtras = {
         ...data,
-        tagIds: selectedTags, // Use tagIds to match form field name and backend expectation
+        tagIds: selectedTags,
         profilePicture: profilePicture ? await convertFileToBase64(profilePicture) : undefined,
       };
       await onSubmit(formDataWithExtras);
@@ -484,7 +484,17 @@ export function FormDrawer<T = any>({
                               <h3 className="text-lg font-semibold text-foreground">{section.label}</h3>
                             </div>
 
-                            {section.layout ? (
+                            {/* Custom Fields Section */}
+                            {section.isCustomFields && section.entityType ? (
+                              <CustomFieldsRenderer
+                                entityType={section.entityType}
+                                register={register}
+                                errors={errors}
+                                watch={watch}
+                                setValue={setValue}
+                                isSubmitting={isSubmitting}
+                              />
+                            ) : section.layout ? (
                               /* Render with custom layout */
                               <>
                                 {section.layout.map((group, idx) => (

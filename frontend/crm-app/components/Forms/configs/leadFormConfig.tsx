@@ -316,5 +316,13 @@ export const leadFormConfig: FormDrawerConfig = {
         },
       ],
     },
+    {
+      id: "custom_fields",
+      label: "Custom Fields",
+      icon: <Target className="h-4 w-4" />,
+      fields: [],
+      isCustomFields: true,
+      entityType: "lead",
+    },
   ],
 };

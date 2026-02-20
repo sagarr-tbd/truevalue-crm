@@ -421,6 +421,8 @@ export default function AccountsPage() {
         facebookUrl: fullAccount.facebookUrl || '',
         // Tags (as UUIDs)
         tagIds: fullAccount.tagIds || [],
+        // Custom fields
+        customFields: fullAccount.customFields || {},
       });
       setFormDrawerOpen(true);
     } catch (error) {
@@ -455,6 +457,8 @@ export default function AccountsPage() {
         facebookUrl: data.facebookUrl || "",
         // Tags (UUIDs from form)
         tagIds: Array.isArray(data.tagIds) ? data.tagIds : [],
+        // Custom fields
+        customFields: data.customFields || {},
       };
 
       if (formMode === "add") {
