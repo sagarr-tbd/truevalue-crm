@@ -103,6 +103,7 @@ export interface CompanyApiRequest {
   facebook_url?: string;
   tag_ids?: string[];
   owner_id?: string;
+  custom_fields?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -144,6 +145,7 @@ export interface AccountDisplay {
   tagIds?: string[];
   contactCount?: number;
   dealCount?: number;
+  customFields?: Record<string, unknown>;
 }
 
 /**
@@ -172,6 +174,7 @@ export interface AccountFormData {
   owner?: string;
   status?: string;
   tagIds?: string[];
+  customFields?: Record<string, unknown>;
 }
 
 /**
@@ -354,6 +357,8 @@ function toFullAccountDisplay(response: CompanyApiResponse): AccountDisplay {
     tagIds: response.tags?.map(t => t.id) || response.tag_ids,
     contactCount: response.contact_count,
     dealCount: response.deal_count,
+    // Custom fields - IMPORTANT for edit!
+    customFields: response.custom_fields || {},
   };
 }
 
@@ -392,6 +397,9 @@ function toApiRequest(data: AccountFormData): CompanyApiRequest {
   if (data.facebookUrl) payload.facebook_url = data.facebookUrl;
   if (data.ownerId) payload.owner_id = data.ownerId;
   if (data.tagIds && data.tagIds.length > 0) payload.tag_ids = data.tagIds;
+  
+  // Include custom_fields if present
+  if (data.customFields) payload.custom_fields = data.customFields;
 
   return payload;
 }
@@ -704,6 +712,8 @@ export const accountsApi = {
       // Relations
       ownerId: data.ownerId,
       tagIds: data.tagIds,
+      // Custom fields
+      customFields: data.customFields,
     });
   },
 
@@ -733,6 +743,8 @@ export const accountsApi = {
       // Relations
       ownerId: data.ownerId,
       tagIds: data.tagIds,
+      // Custom fields
+      customFields: data.customFields,
     });
   },
 
@@ -770,6 +782,8 @@ export const accountsApi = {
       // Relations
       ownerId: data.ownerId,
       tagIds: data.tagIds,
+      // Custom fields
+      customFields: data.customFields,
     });
   },
 };

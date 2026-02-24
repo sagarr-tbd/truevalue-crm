@@ -106,6 +106,7 @@ export interface DealListApiResponse {
   tags?: TagMinimal[];
   owner_id?: string;
   description?: string;
+  custom_fields?: Record<string, unknown>;
   stage_entered_at: string;
   last_activity_at?: string;
   created_at: string;
@@ -395,6 +396,7 @@ function toDealViewModel(response: DealListApiResponse): DealViewModel {
     companyName: response.company?.name,
     // Additional
     description: nullToUndefined(response.description),
+    customFields: nullToUndefined(response.custom_fields),
     // Tags
     tags: response.tags,
     tagIds: tagIds && tagIds.length > 0 ? tagIds : undefined,
@@ -727,6 +729,24 @@ export const dealsApi = {
   },
 
   /**
+   * Get won/lost analysis data
+   */
+  getAnalysis: async (params?: DealAnalysisParams): Promise<DealAnalysisResponse> => {
+    const queryParams = new URLSearchParams();
+    if (params?.days) queryParams.set('days', params.days.toString());
+    if (params?.pipeline_id) queryParams.set('pipeline_id', params.pipeline_id);
+
+    const url = `/crm/api/v1/deals/analysis${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    const response = await apiClient.get<DealAnalysisResponse>(url);
+
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+
+    return response.data!;
+  },
+
+  /**
    * Get deals as select options (for dropdowns)
    */
   getAsOptions: async (): Promise<Array<{ value: string; label: string }>> => {
@@ -737,6 +757,42 @@ export const dealsApi = {
     }));
   },
 };
+
+/**
+ * Deal analysis query params
+ */
+export interface DealAnalysisParams {
+  days?: number;
+  pipeline_id?: string;
+}
+
+/**
+ * Deal analysis response (won/lost stats)
+ */
+export interface DealAnalysisResponse {
+  summary: {
+    total_won: number;
+    total_lost: number;
+    won_value: number;
+    lost_value: number;
+    win_rate: number;
+    avg_won_value: number;
+    avg_lost_value: number;
+    avg_time_to_close_days: number;
+  };
+  trend: Array<{
+    period: string;
+    won: number;
+    lost: number;
+    won_value: number;
+    lost_value: number;
+  }>;
+  loss_reasons: Array<{
+    reason: string;
+    count: number;
+    value: number;
+  }>;
+}
 
 /**
  * Deal forecast response

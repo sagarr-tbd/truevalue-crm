@@ -31,8 +31,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { ContactFormDrawer, type Contact as ContactType } from "@/components/Forms/Sales";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator, getStatusColor } from "@/lib/utils";
 import { getContactActionMenuItems } from "@/lib/utils/actionMenus";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
@@ -55,6 +53,7 @@ import { contactsApi, type ImportResult } from "@/lib/api/contacts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUIStore } from "@/stores";
 import { usePermission, CONTACTS_WRITE, CONTACTS_DELETE, CONTACTS_IMPORT, CONTACTS_EXPORT } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -156,6 +155,24 @@ export default function ContactsPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
   
+  // Build export params (same filters, no pagination)
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query - fetch contacts with server-side pagination
   const { data: contactsResponse, isLoading } = useContacts(queryParams);
   const contacts = useMemo(() => contactsResponse?.data ?? [], [contactsResponse?.data]);
@@ -198,24 +215,6 @@ export default function ContactsPage() {
   const [editingContact, setEditingContact] = useState<(Partial<ContactType> & { id?: string }) | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
-
-  // Export columns configuration - fields available from list API
-  const exportColumns: ExportColumn<typeof contacts[0]>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'name', label: 'Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'mobile', label: 'Mobile' },
-    { key: 'jobTitle', label: 'Job Title' },
-    { key: 'department', label: 'Department' },
-    { key: 'company', label: 'Company' },
-    { key: 'status', label: 'Status', format: (value) => value ? value.charAt(0).toUpperCase() + value.slice(1) : '' },
-    { key: 'source', label: 'Source' },
-    { key: 'dealCount', label: 'Deal Count' },
-    { key: 'activityCount', label: 'Activity Count' },
-    { key: 'lastActivityAt', label: 'Last Activity' },
-    { key: 'created', label: 'Created Date' },
-  ], []);
 
   // Advanced filter fields
   const filterFields: FilterField[] = useMemo(() => [
@@ -449,6 +448,8 @@ export default function ContactsPage() {
         doNotEmail: fullContact.doNotEmail,
         // Tags
         tagIds: fullContact.tagIds,
+        // Custom fields
+        customFields: fullContact.customFields || {},
       });
     } catch (error) {
       console.error("Failed to fetch contact details:", error);
@@ -505,6 +506,8 @@ export default function ContactsPage() {
     doNotEmail: data.doNotEmail,
     // Tags
     tagIds: data.tagIds,
+    // Custom fields
+    customFields: data.customFields,
   });
 
   // Contact action menu handlers
@@ -619,23 +622,36 @@ export default function ContactsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = contacts.filter(contact => selectedContacts.includes(contact.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedContacts.length === 0) {
       toast.error("No contacts selected for export");
       return;
     }
 
     try {
-      // Use the same export columns as the main ExportButton
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-contacts-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      
-      toast.success(`Successfully exported ${selectedData.length} contacts`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({
+        ids: selectedContacts.join(","),
+      });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/contacts/export?${params}`, {
+        headers: {
+          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
+        },
+      });
+
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-contacts-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${selectedContacts.length} contacts`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export contacts");
@@ -996,10 +1012,10 @@ export default function ContactsPage() {
             )}
             {can(CONTACTS_EXPORT) && (
             <ExportButton
-              data={contacts}
-              columns={exportColumns}
-              filename="contacts-export"
-              title="Contacts Export"
+              exportUrl="/crm/api/v1/contacts/export"
+              exportParams={exportParams}
+              filename="contacts"
+              totalRecords={totalItems}
             />
             )}
             {can(CONTACTS_WRITE) && (

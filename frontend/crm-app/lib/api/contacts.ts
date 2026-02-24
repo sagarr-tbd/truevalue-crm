@@ -62,6 +62,7 @@ export interface ContactApiResponse {
   source_detail?: string;
   do_not_call?: boolean;
   do_not_email?: boolean;
+  custom_fields?: Record<string, unknown>;
   tags?: Array<{ id: string; name: string; color?: string }>;
   tag_ids?: string[];
   deal_count?: number;
@@ -164,6 +165,8 @@ export interface ContactViewModel {
   lastContactedAt?: string;
   dealCount?: number;
   activityCount?: number;
+  // Custom fields
+  customFields?: Record<string, unknown>;
 }
 
 /**
@@ -197,6 +200,7 @@ export interface ContactApiRequest {
   do_not_call?: boolean;
   do_not_email?: boolean;
   tag_ids?: string[];
+  custom_fields?: Record<string, unknown>;
 }
 
 /**
@@ -381,6 +385,7 @@ function toFullContactViewModel(response: ContactApiResponse): ContactViewModel 
     lastContactedAt: nullToUndefined(response.last_contacted_at),
     dealCount: response.deal_count,
     activityCount: response.activity_count,
+    customFields: response.custom_fields || {},
   };
 }
 
@@ -434,6 +439,9 @@ function toApiRequest(data: ContactFormData): ContactApiRequest {
 
   // Tags
   if (data.tagIds && data.tagIds.length > 0) payload.tag_ids = data.tagIds;
+  
+  // Custom fields
+  if (data.customFields) payload.custom_fields = data.customFields;
 
   return payload;
 }

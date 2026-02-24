@@ -8,6 +8,20 @@
 
 ---
 
+## 📋 Quick Navigation
+
+### Phase Documentation
+For detailed phase-by-phase breakdown, see:
+
+- **[Development Roadmap (Overview)](./DEVELOPMENT_ROADMAP.md)** - High-level summary of all phases
+- **[Phase 1: MVP - Must Have](./phases/PHASE_1_MVP.md)** - ✅ COMPLETE (333h, 100%)
+- **[Phase 2: Post-MVP - Should Have](./phases/PHASE_2_POST_MVP.md)** - ❌ Not Started (412h)
+- **[Phase 3: Growth - Could Have](./phases/PHASE_3_GROWTH.md)** - ❌ Not Started (710h)
+
+**Current Status:** Phase 1 ✅ Complete | Total: 1,455 hours (~36 weeks)
+
+---
+
 # Visual Feature Diagrams
 
 ## **1. Contact Management - How It Works**
@@ -1297,27 +1311,35 @@
 
 These are non-negotiable. Without these, it's not a CRM.
 
-### **1. Contact Management** — 95% Done
+### **1. Contact Management** — 97% Done
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Contacts | Individual people with details (name, email, phone, etc.) | P0 | 16h | ✅ Done |
 | Companies/Accounts | Organizations that contacts belong to | P0 | 12h | ✅ Done |
 | Contact-Company linking | Associate multiple contacts to one company | P0 | 6h | ✅ Done |
 | Contact timeline | Activity history per contact | P0 | 10h | ✅ Done |
-| Custom fields | User-defined fields for contacts/companies | P0 | 20h | ⚠️ Backend API done, frontend form UI pending (~16h) |
+| Custom fields | User-defined fields for contacts/companies/leads/deals | P0 | 20h | ✅ Done |
 | Tags/Labels | Categorize contacts | P0 | 6h | ✅ Done |
-| Import/Export | CSV import, bulk export | P0 | 16h | ⚠️ Import done, client-side export done (CSV/Excel/PDF), backend export endpoint pending (~6h) |
+| Import/Export | CSV import, bulk export | P0 | 16h | ✅ Done (CSV import + server-side CSV export via `django-import-export`) |
 | Duplicate detection | Prevent/merge duplicate contacts | P0 | 12h | ✅ Done |
 | Search & filters | Advanced search across all fields | P0 | 14h | ✅ Done |
 | **Subtotal** | | | **112h** | |
 
-**Implementation Notes (Updated Feb 18, 2026):**
+**Implementation Notes (Updated Feb 20, 2026):**
 - Backend: Full Contact & Company APIs (`/crm/api/v1/contacts`, `/crm/api/v1/companies`)
 - Endpoints: CRUD, search, filters, duplicate detection, merge, timeline, tags, CSV import, bulk-delete, bulk-update, company associations
 - Frontend: List/detail views, form drawers, quick actions, validation aligned with backend
 - Tags: Full CRUD in Settings, displayed in list views with color badges, entity-type scoping
-- Client-side export: CSV, Excel, PDF, Clipboard via `ExportButton` component (no backend endpoint)
-- Pending: Custom fields form UI (render/edit `CustomFieldDefinition` in create/edit forms), server-side export endpoint
+- Export: Server-side CSV export via `django-import-export` package (`/crm/api/v1/{entity}/export`), supports bulk export (selected IDs), search/filter params, max 10k rows. `ExportButton` component triggers backend download.
+- **Custom Fields**: ✅ FULLY IMPLEMENTED across all entities (Contacts, Companies, Leads, Deals)
+  - Backend: `CustomFieldDefinition` model with entity_type support, JSONField storage on entity models
+  - API: `/crm/api/v1/custom-fields/` with CRUD operations, entity filtering, duplicate name validation
+  - Field Types: text, textarea, number, decimal, date, datetime, checkbox, select, multi-select, email, phone, url
+  - Frontend: Settings UI for managing field definitions, dynamic rendering in entity forms via `CustomFieldsRenderer`
+  - Forms: Custom fields appear in "Detailed" view → "Custom Fields" tab for all entity types
+  - Validation: Prevents duplicate names, reserved field conflicts, frontend + backend validation
+  - Data Flow: Frontend `customFields` (camelCase) → API transformation → Backend `custom_fields` (snake_case)
+  - Database: Unique constraint on (org_id, entity_type, name), supports active/inactive toggle, field ordering
 
 ### **2. Deal/Opportunity Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1336,7 +1358,7 @@ These are non-negotiable. Without these, it's not a CRM.
 - Endpoints: CRUD, stage transitions, kanban view, deal-contact/company linking
 - Frontend: List/detail views, Kanban board, form drawers, quick actions, validation aligned
 
-### **3. Activity Tracking** — 95% Done
+### **3. Activity Tracking** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
 |---------|-------------|----------|-------|--------|
 | Tasks | To-do items linked to contacts/deals | P0 | 12h | ✅ Done |
@@ -1344,10 +1366,10 @@ These are non-negotiable. Without these, it's not a CRM.
 | Meetings/Appointments | Calendar events | P0 | 10h | ✅ Done |
 | Call logging | Log phone calls with outcomes | P0 | 8h | ✅ Done |
 | Email logging | Track emails sent/received | P0 | 10h | ✅ Done |
-| Activity reminders | Due date notifications | P0 | 8h | ⚠️ Backend fields exist (`reminder_at`, `due_date`), no delivery system (~8h) |
+| Activity reminders | Due date notifications | P0 | 8h | ✅ Done - Celery + Redis with automatic scheduling every 5 minutes |
 | **Subtotal** | | | **54h** | |
 
-**Implementation Notes (Updated Feb 18, 2026):**
+**Implementation Notes (Updated Feb 19, 2026):**
 - Backend: Full Activity API (`/crm/api/v1/activities`) with type-specific validation
 - Activity types: Task, Note, Meeting, Call, Email
 - Endpoints: CRUD, complete, upcoming, overdue, stats, trend
@@ -1357,7 +1379,17 @@ These are non-negotiable. Without these, it's not a CRM.
 - Frontend: Separate list pages for each type (tasks, calls, meetings, emails, notes), form drawers, calendar view (month/week/day/agenda)
 - Calendar: `ActivityCalendar` component with color-coded events, filter toggles, stats dashboard
 - Seed data: 25 tasks, 20 calls, 20 meetings, 25 emails via `seed_tasks` management command
-- Pending: Reminder delivery system (cron/worker to send notifications when `reminder_at` is reached)
+- **Reminders**: Fully automatic system using **Celery + Redis + Celery Beat**
+  - Architecture: Celery Beat schedules tasks every 5 minutes → Redis queue → Celery Worker processes
+  - Task: `crm.tasks.send_activity_reminders` queries activities with `reminder_at <= now` and `reminder_sent=False`
+  - Email: Fetches owner email from Org Service (with fallback to `REMINDER_FALLBACK_EMAIL` for dev/testing)
+  - SMTP: Sends via Django email backend (Mailhog on port 1025 in dev, configurable for production)
+  - Links: Email includes direct link to activity at `FRONTEND_URL/activities/{type}/{id}` (localhost:3001 in dev)
+  - Docker services: `crm-celery-worker` (task processor) + `crm-celery-beat` (scheduler)
+  - Config: `CELERY_BROKER_URL=redis://truevalue-redis:6379/3`, schedule defined in `crm_service/celery.py`
+  - Dependencies: `celery>=5.3.0`, `django-celery-beat>=2.5.0`, `redis>=5.0.1`
+  - Testing: Verified automatic scheduling (every 5 min), email delivery, database updates (reminder_sent=True)
+  - Production: Replace Mailhog with Gmail/SendGrid/AWS SES, configure ORG_SERVICE_SECRET for real user emails
 
 ### **4. Lead Management** ✅ PHASE 1 COMPLETE
 | Feature | Description | Priority | Hours | Status |
@@ -1598,20 +1630,16 @@ Leave for other services:
 ## **Recommended MVP Build Order**
 
 ```
-Phase 1 (MVP) - 333 hours (~8.5 weeks) — ~90% DONE
-├── Contacts + Companies                 112h  ✅ 95% (custom fields UI + export endpoint pending)
+Phase 1 (MVP) - 333 hours (~8.5 weeks) — ~95% DONE
+├── Contacts + Companies                 112h  ✅ 97% (custom fields UI pending)
 ├── Deals + Pipeline (Kanban)            61h   ✅ 100%
-├── Activities (Tasks, Notes, Calls)     54h   ✅ 95% (reminder delivery pending)
+├── Activities (Tasks, Notes, Calls)     54h   ✅ 100%
 ├── Leads + Conversion                   44h   ✅ 100%
-├── Basic Dashboard                      38h   ⚠️ 70% (some widgets mock, won/lost view pending)
+├── Basic Dashboard + Reports            38h   ✅ 100%
 └── User & Team Management               24h   ✅ 100%
 
-Remaining MVP work: ~44 hours
-├── Custom fields frontend form UI       16h
-├── Activity reminder delivery           8h
-├── Dashboard real data wiring           6h
-├── Won/Lost analysis view               8h
-└── Backend export endpoint              6h
+Remaining MVP work: ~16 hours
+└── Custom fields frontend form UI       16h
 
 Phase 2 - 412 hours (~10.5 weeks) — NOT STARTED
 ├── Email integration                    70h   ❌
@@ -1636,14 +1664,14 @@ Phase 3 - 710 hours (~18 weeks) — NOT STARTED
 
 | Phase | Features | Hours | Remaining | Status |
 |-------|----------|-------|-----------|--------|
-| MVP | Must Have | 333h | ~44h | 90% Done |
+| MVP | Must Have | 333h | ~16h | 95% Done |
 | Phase 2 | Should Have | 412h | ~412h | Not started (some frontend scaffolds exist) |
 | Phase 3 | Could Have | 710h | ~690h | Not started (REST API done) |
 | **TOTAL** | **All Features** | **1,455h** | **~1,146h** | |
 
 > **Note:** Estimates assume Cursor Enterprise AI-assisted development (30-40% faster than traditional). Add 20% buffer for testing, bug fixes, and code reviews.
 >
-> **Updated Feb 18, 2026:** MVP is ~90% complete. Core Sales, Activities, and User Management are fully integrated with real backend. Remaining MVP work is ~44 hours (custom fields UI, reminders, dashboard data, won/lost view, export endpoint).
+> **Updated Feb 19, 2026:** MVP is ~95% complete. Core Sales, Activities, User Management, Dashboard, and Won/Lost Analysis are fully integrated with real backend. Activity reminder delivery system implemented with `send_reminders` management command. Remaining MVP work is ~16 hours (custom fields UI only).
 
 ---
 

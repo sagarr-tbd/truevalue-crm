@@ -11,6 +11,7 @@ import {
   Twitter,
   Globe,
   PhoneOff,
+  Sliders,
 } from "lucide-react";
 import { contactSchema } from "@/lib/schemas";
 import type { FormDrawerConfig } from "../FormDrawer/types";
@@ -47,6 +48,7 @@ export const contactFormConfig: FormDrawerConfig = {
     doNotEmail: false,
     description: "",
     tagIds: [],
+    customFields: {},
   },
 
   // Quick Form - minimal fields for fast creation
@@ -408,6 +410,14 @@ export const contactFormConfig: FormDrawerConfig = {
           type: "profile",
         },
       ],
+    },
+    {
+      id: "customFields",
+      label: "Custom Fields",
+      icon: <Sliders className="h-4 w-4" />,
+      entityType: "contact",
+      isCustomFields: true,
+      fields: [],
     },
   ],
 };

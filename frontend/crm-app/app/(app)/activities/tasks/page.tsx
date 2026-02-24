@@ -31,8 +31,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { TaskFormDrawer } from "@/components/Forms/Activities";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -57,6 +55,7 @@ import { useDealOptions } from "@/lib/queries/useDeals";
 import { useLeadOptions } from "@/lib/queries/useLeads";
 import { useUIStore } from "@/stores";
 import { usePermission, TASKS_WRITE, TASKS_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import type { Task } from "@/lib/types";
 
 // Lazy load heavy components that are only used conditionally
@@ -217,6 +216,21 @@ export default function TasksPage() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = { type: 'task' };
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: (filterGroup.logic?.toLowerCase() || 'and'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field, operator: toSnakeCaseOperator(c.operator), value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query (server data) - with pagination
   const { data: tasksResponse, isLoading } = useTasks(queryParams);
   const tasks = useMemo(() => tasksResponse?.data ?? [], [tasksResponse?.data]);
@@ -264,19 +278,6 @@ export default function TasksPage() {
 
   // Filter dropdown ref for click outside
   const filterDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Export columns configuration
-  const exportColumns: ExportColumn<TaskViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'subject', label: 'Title' },
-    { key: 'description', label: 'Description' },
-    { key: 'priority', label: 'Priority', format: (v) => v ? PRIORITY_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'status', label: 'Status', format: (v) => v ? STATUS_DISPLAY[String(v)] || String(v) : '' },
-    { key: 'dueDate', label: 'Due Date', format: (v) => v ? formatDate(String(v)) : '' },
-    { key: 'assignedTo', label: 'Assigned To' },
-    { key: 'relatedTo', label: 'Related To' },
-    { key: 'createdAt', label: 'Created Date', format: (v) => v ? formatDate(String(v)) : '' },
-  ], []);
 
   // Advanced filter fields configuration
   const filterFields: FilterField[] = useMemo(() => [
@@ -522,21 +523,28 @@ export default function TasksPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = tasks.filter(task => selectedTasks.includes(task.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedTasks.length === 0) {
       toast.error("No tasks selected for export");
       return;
     }
-
     try {
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-tasks-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      toast.success(`Successfully exported ${selectedData.length} tasks`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({ type: "task", ids: selectedTasks.join(",") });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/activities/export?${params}`, {
+        headers: { ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}) },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-tasks-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedTasks.length} tasks`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export tasks");
@@ -873,10 +881,10 @@ export default function TasksPage() {
 
             {can(TASKS_WRITE) && (
               <ExportButton
-                data={tasks}
-                columns={exportColumns}
-                filename={`tasks-${new Date().toISOString().split('T')[0]}`}
-                title="Tasks Export"
+                exportUrl="/crm/api/v1/activities/export"
+                exportParams={exportParams}
+                filename="tasks"
+                totalRecords={totalItems}
               />
             )}
             {can(TASKS_WRITE) && (

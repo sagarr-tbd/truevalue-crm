@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'drf_yasg',
+    'import_export',
+    'django_celery_beat',  # Celery Beat for scheduled tasks
     # Local
     'crm',
 ]
@@ -313,6 +315,36 @@ GATEWAY_PUBLIC_PATHS = [
 GATEWAY_INTERNAL_PREFIXES = [
     '/internal/',
 ]
+
+# =============================================================================
+# CELERY CONFIGURATION
+# =============================================================================
+CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/3')
+CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://localhost:6379/3')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# =============================================================================
+# EMAIL CONFIGURATION
+# =============================================================================
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'truevalue-mailhog')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '1025'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'false').lower() == 'true'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@truevalue-crm.com')
+
+# Frontend URL for email links
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3001')
+
+# Fallback email for development/testing (when Org Service is unavailable)
+REMINDER_FALLBACK_EMAIL = os.getenv('REMINDER_FALLBACK_EMAIL', 'test@example.com')
 
 # =============================================================================
 # SECURITY: SERVICE IDENTITY

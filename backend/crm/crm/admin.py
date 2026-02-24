@@ -96,8 +96,8 @@ class EntityTagAdmin(admin.ModelAdmin):
 
 @admin.register(CustomFieldDefinition)
 class CustomFieldDefinitionAdmin(admin.ModelAdmin):
-    list_display = ['name', 'entity_type', 'field_type', 'is_required', 'is_active', 'org_id']
-    list_filter = ['entity_type', 'field_type', 'is_required', 'is_active']
+    list_display = ['name', 'entity_type', 'field_type', 'is_active', 'org_id']
+    list_filter = ['entity_type', 'field_type', 'is_active']
     search_fields = ['name', 'label']
 
 

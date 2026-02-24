@@ -28,10 +28,11 @@ import {
   PipelineChart,
   LeadSourceChart,
   ActivityChart,
+  SalesTrendChart,
 } from "@/components/Charts";
 import { useContacts } from "@/lib/queries/useContacts";
 import { useLeads } from "@/lib/queries/useLeads";
-import { useDeals, useDealForecast } from "@/lib/queries/useDeals";
+import { useDeals, useDealForecast, useDealAnalysis } from "@/lib/queries/useDeals";
 import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
 import { useActivities, useUpcomingActivities, useActivityTrend, useCompleteActivity } from "@/lib/queries/useActivities";
 import { useRouter } from "next/navigation";
@@ -168,6 +169,7 @@ export default function DashboardPage() {
     pipeline_id: defaultPipeline?.id,
   });
   const { data: activityTrend } = useActivityTrend(trendDays);
+  const { data: dealAnalysis } = useDealAnalysis({ days: trendDays, pipeline_id: defaultPipeline?.id });
   const { data: recentActivitiesData, isLoading: activitiesLoading } = useActivities({ page_size: 5 });
   const { data: upcomingTasksData, isLoading: tasksLoading } = useUpcomingActivities();
 
@@ -217,6 +219,16 @@ export default function DashboardPage() {
       emails: d.emails,
     }));
   }, [activityTrend]);
+
+  const salesTrendData = useMemo(() => {
+    const trend = dealAnalysis?.trend;
+    if (!trend || trend.length === 0) return undefined;
+    return trend.map((t) => ({
+      month: new Date(t.period + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      sales: t.won,
+      revenue: t.won_value,
+    }));
+  }, [dealAnalysis]);
 
   const recentActivities = useMemo(() => {
     return (recentActivitiesData?.data || []).slice(0, 5).map((a) => {
@@ -476,10 +488,15 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
+      {/* ─── Sales Trend (full width) ─── */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+        <SalesTrendChart data={salesTrendData} timeRange={timeRange} />
+      </motion.div>
+
       {/* ─── Activity Feed + Upcoming Tasks ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Activities */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
           <Card className="h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -533,7 +550,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Upcoming Tasks */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
           <Card className="h-full">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -599,7 +616,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ─── Quick Actions ─── */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }}>
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">

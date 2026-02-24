@@ -169,27 +169,11 @@ export function DealFormDrawer(props: DealFormDrawerProps) {
     loadingTags,
   ]);
 
-  // Custom submit handler to handle pipeline onChange
-  const handleSubmit = async (data: Partial<Deal>) => {
-    // Ensure we're using the right pipeline
-    if (!data.pipelineId && defaultPipeline) {
-      data.pipelineId = defaultPipeline.id;
-    }
-    
-    // Clean up undefined values
-    const cleanData = Object.fromEntries(
-      Object.entries(data).filter(([_, v]) => v !== undefined && v !== "")
-    ) as Partial<Deal>;
-    
-    await props.onSubmit(cleanData);
-  };
-
   return (
     <FormDrawer<Deal>
       {...props}
       initialData={initialDataWithDefaults}
       config={dynamicConfig}
-      onSubmit={handleSubmit}
     />
   );
 }

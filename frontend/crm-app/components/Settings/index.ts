@@ -6,3 +6,4 @@ export { default as DataManagementSettings } from "./DataManagementSettings";
 export { default as PipelinesSettings } from "./PipelinesSettings";
 export { default as RolesPermissionsSettings } from "./RolesPermissionsSettings";
 export { default as TagManagementSettings } from "./TagManagementSettings";
+export { default as CustomFieldsSettings } from "./CustomFieldsSettings";

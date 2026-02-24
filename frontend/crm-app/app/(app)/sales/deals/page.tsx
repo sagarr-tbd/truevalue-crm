@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -11,10 +11,6 @@ import {
   Upload,
   Eye,
   EyeOff,
-  Edit,
-  Trash2,
-  Mail,
-  FileText,
   TrendingUp,
   Target,
   CheckCircle2,
@@ -37,8 +33,6 @@ import ActionMenu from "@/components/ActionMenu";
 import { DealFormDrawer, type Deal as DealType } from "@/components/Forms/Sales";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import type { ExportColumn } from "@/lib/export";
-import { exportToCSV } from "@/lib/export";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { getDealActionMenuItems } from "@/lib/utils/actionMenus";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
@@ -52,12 +46,13 @@ import {
   useBulkDeleteDeals,
   useMoveStage,
   DealViewModel,
-  DealFormData,
   DealQueryParams,
 } from "@/lib/queries/useDeals";
+import { dealsApi } from "@/lib/api/deals";
 import { usePipelines, usePipelineKanban, useDefaultPipeline } from "@/lib/queries/usePipelines";
 import { useUIStore } from "@/stores";
 import { usePermission, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
+import { TokenManager } from "@/lib/api/client";
 import { KanbanBoard, type KanbanDeal } from "@/components/KanbanBoard";
 
 // Lazy load heavy components
@@ -139,6 +134,23 @@ export default function DealsPage() {
     } : undefined,
   }), [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
 
+  const exportParams = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (debouncedSearchQuery) p.search = debouncedSearchQuery;
+    if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        logic: filterGroup.logic.toLowerCase(),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: c.operator,
+          value: c.value,
+        })),
+      });
+    }
+    return p;
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
+
   // React Query - Server-side data
   const { data: dealsResponse, isLoading, isError, error } = useDeals(queryParams);
   const deals = dealsResponse?.data || [];
@@ -190,25 +202,6 @@ export default function DealsPage() {
   const [editingDealForm, setEditingDealForm] = useState<Partial<DealType> | null>(null);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [defaultView, setDefaultView] = useState<"quick" | "detailed">("quick");
-
-  // Export columns configuration
-  const exportColumns: ExportColumn<DealViewModel>[] = useMemo(() => [
-    { key: 'id', label: 'ID' },
-    { key: 'name', label: 'Deal Name' },
-    { key: 'companyName', label: 'Company' },
-    { key: 'contactName', label: 'Contact' },
-    { key: 'contactEmail', label: 'Contact Email' },
-    { key: 'value', label: 'Value' },
-    { key: 'currency', label: 'Currency' },
-    { key: 'weightedValue', label: 'Weighted Value' },
-    { key: 'stageName', label: 'Stage' },
-    { key: 'status', label: 'Status' },
-    { key: 'probability', label: 'Probability (%)' },
-    { key: 'expectedCloseDate', label: 'Expected Close Date' },
-    { key: 'stageEnteredAt', label: 'Stage Entered At' },
-    { key: 'lastActivityAt', label: 'Last Activity' },
-    { key: 'createdAt', label: 'Created Date' },
-  ], []);
 
   // Get stages from pipeline for filter options
   const pipelineStages = defaultPipeline?.stages || [];
@@ -392,68 +385,69 @@ export default function DealsPage() {
     setFormDrawerOpen(true);
   };
 
-  const handleEditDeal = (deal: DealViewModel) => {
+  const handleEditDeal = useCallback(async (deal: DealViewModel) => {
     setFormMode("edit");
-    // Store original deal for accessing IDs during submit
-    setEditingDeal(deal);
-    // Convert DealViewModel to form data format for the form
-    // Use current pipeline context as fallback since list API doesn't return pipeline_id
-    const formData: Partial<DealType> = {
-      name: deal.name,
-      pipelineId: deal.pipelineId || pipelineId,
-      stageId: deal.stageId,
-      value: deal.value,
-      currency: deal.currency,
-      probability: deal.probability,
-      expectedCloseDate: deal.expectedCloseDate,
-      contactId: deal.contactId,
-      companyId: deal.companyId,
-      ownerId: deal.ownerId,
-      description: deal.description,
-      tagIds: deal.tagIds || [],
-    };
-    setEditingDealForm(formData);
+    
+    try {
+      // Fetch full deal details to ensure all fields including custom_fields are available
+      const fullDeal = await dealsApi.getById(deal.id);
+      
+      // Store original deal for accessing IDs during submit
+      setEditingDeal(fullDeal);
+      
+      // Convert DealViewModel to form data format for the form
+      const formData: Partial<DealType> = {
+        name: fullDeal.name,
+        pipelineId: fullDeal.pipelineId || pipelineId,
+        stageId: fullDeal.stageId,
+        value: fullDeal.value,
+        currency: fullDeal.currency,
+        probability: fullDeal.probability,
+        expectedCloseDate: fullDeal.expectedCloseDate,
+        contactId: fullDeal.contactId,
+        companyId: fullDeal.companyId,
+        ownerId: fullDeal.ownerId,
+        description: fullDeal.description,
+        tagIds: fullDeal.tagIds || [],
+        // Custom fields - IMPORTANT for edit!
+        customFields: fullDeal.customFields || {},
+      };
+      setEditingDealForm(formData);
+    } catch (error) {
+      console.error("Failed to fetch deal details:", error);
+      // Fallback to minimal data from list
+      setEditingDeal(deal);
+      const formData: Partial<DealType> = {
+        name: deal.name,
+        pipelineId: deal.pipelineId || pipelineId,
+        stageId: deal.stageId,
+        value: deal.value,
+        currency: deal.currency,
+        tagIds: deal.tagIds || [],
+      };
+      setEditingDealForm(formData);
+    }
+    
     setFormDrawerOpen(true);
-  };
+  }, [pipelineId]);
 
   const handleFormSubmit = async (data: Partial<DealType>) => {
     try {
       if (formMode === "add") {
-        // Use the stage from form data, or fallback to first stage from pipeline
-        const firstStage = pipelineStages[0];
-        const formData: DealFormData = {
+        // Ensure required fields have defaults
+        const dealData = {
+          ...data,
           name: data.name || "",
           pipelineId: data.pipelineId || pipelineId,
-          stageId: data.stageId || firstStage?.id || "",
+          stageId: data.stageId || pipelineStages[0]?.id || "",
           value: data.value || 0,
           currency: data.currency || "INR",
-          probability: data.probability,
-          expectedCloseDate: data.expectedCloseDate,
-          contactId: data.contactId,
-          companyId: data.companyId,
-          ownerId: data.ownerId,
-          description: data.description,
-          tagIds: data.tagIds,
         };
-        await createDeal.mutateAsync(formData);
+        await createDeal.mutateAsync(dealData);
       } else if (editingDeal) {
-        const formData: DealFormData = {
-          name: data.name || editingDeal.name,
-          pipelineId: data.pipelineId || editingDeal.pipelineId,
-          stageId: data.stageId || editingDeal.stageId,
-          value: data.value ?? editingDeal.value,
-          currency: data.currency || editingDeal.currency,
-          probability: data.probability ?? editingDeal.probability,
-          expectedCloseDate: data.expectedCloseDate || editingDeal.expectedCloseDate,
-          contactId: data.contactId || editingDeal.contactId,
-          companyId: data.companyId || editingDeal.companyId,
-          ownerId: data.ownerId || editingDeal.ownerId,
-          description: data.description ?? editingDeal.description,
-          tagIds: data.tagIds,
-        };
-        await updateDeal.mutateAsync({ id: editingDeal.id, data: formData });
+        await updateDeal.mutateAsync({ id: editingDeal.id, data });
       }
-      
+
       setFormDrawerOpen(false);
       setEditingDeal(null);
     } catch (error) {
@@ -524,22 +518,36 @@ export default function DealsPage() {
     }
   };
 
-  const handleBulkExport = () => {
-    const selectedData = deals.filter(deal => selectedDeals.includes(deal.id));
-    
-    if (selectedData.length === 0) {
+  const handleBulkExport = async () => {
+    if (selectedDeals.length === 0) {
       toast.error("No deals selected for export");
       return;
     }
 
     try {
-      exportToCSV(
-        selectedData, 
-        exportColumns, 
-        `selected-deals-${new Date().toISOString().split('T')[0]}.csv`
-      );
-      
-      toast.success(`Successfully exported ${selectedData.length} deals`);
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const params = new URLSearchParams({
+        ids: selectedDeals.join(","),
+      });
+      const resp = await fetch(`${baseUrl}/crm/api/v1/deals/export?${params}`, {
+        headers: {
+          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
+        },
+      });
+
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `selected-deals-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${selectedDeals.length} deals`);
     } catch (error) {
       console.error("Bulk export error:", error);
       toast.error("Failed to export deals");
@@ -926,10 +934,10 @@ export default function DealsPage() {
             )}
             {can(DEALS_WRITE) && (
               <ExportButton
-                data={deals}
-                columns={exportColumns}
-                filename="deals-export"
-                title="Deals Export"
+                exportUrl="/crm/api/v1/deals/export"
+                exportParams={exportParams}
+                filename="deals"
+                totalRecords={totalDeals}
               />
             )}
             {can(DEALS_WRITE) && (
