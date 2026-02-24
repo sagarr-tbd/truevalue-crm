@@ -12,6 +12,10 @@ import {
   GitBranch,
   Lock,
   Tag,
+  UserCog,
+  Network,
+  Map,
+  Share2,
   Sliders,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -25,9 +29,22 @@ import {
   PipelinesSettings,
   RolesPermissionsSettings,
   TagManagementSettings,
+  ProfilesSettings,
+  RoleHierarchySettings,
+  TerritoriesSettings,
+  DataSharingSettings,
   CustomFieldsSettings,
 } from "@/components/Settings";
-import { usePermission, ORG_MANAGE_MEMBERS, ROLES_READ, DEALS_MANAGE_PIPELINE, CONTACTS_WRITE } from "@/lib/permissions";
+import {
+  usePermission,
+  ORG_MANAGE_MEMBERS,
+  ROLES_READ,
+  DEALS_MANAGE_PIPELINE,
+  CONTACTS_WRITE,
+  PROFILES_READ,
+  TERRITORIES_READ,
+  SHARING_RULES_READ,
+} from "@/lib/permissions";
 
 const allSettingsSections = [
   {
@@ -63,6 +80,30 @@ const allSettingsSections = [
     icon: Lock,
     color: "from-brand-coral to-destructive",
   },
+  {
+    id: "profiles",
+    label: "Security Profiles",
+    icon: UserCog,
+    color: "from-blue-500 to-indigo-600",
+  },
+  {
+    id: "hierarchy",
+    label: "Role Hierarchy",
+    icon: Network,
+    color: "from-purple-500 to-pink-600",
+  },
+  {
+    id: "territories",
+    label: "Territories",
+    icon: Map,
+    color: "from-teal-500 to-cyan-600",
+  },
+  {
+    id: "sharing",
+    label: "Data Sharing",
+    icon: Share2,
+    color: "from-orange-500 to-amber-600",
+  },
   // { id: "data", label: "Data Management", icon: Database, color: "from-primary to-brand-teal" },
 ];
 
@@ -75,6 +116,10 @@ export default function SettingsPage() {
       if (s.id === "roles") return isAdmin || can(ROLES_READ);
       if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
       if (s.id === "tags") return can(CONTACTS_WRITE);
+      if (s.id === "profiles") return isAdmin || can(PROFILES_READ);
+      if (s.id === "hierarchy") return isAdmin || can(ROLES_READ);
+      if (s.id === "territories") return isAdmin || can(TERRITORIES_READ);
+      if (s.id === "sharing") return isAdmin || can(SHARING_RULES_READ);
       if (s.id === "customFields") return can(CONTACTS_WRITE);
       return true;
     });
@@ -102,6 +147,14 @@ export default function SettingsPage() {
         return <TeamManagementSettings />;
       case "roles":
         return <RolesPermissionsSettings />;
+      case "profiles":
+        return <ProfilesSettings />;
+      case "hierarchy":
+        return <RoleHierarchySettings />;
+      case "territories":
+        return <TerritoriesSettings />;
+      case "sharing":
+        return <DataSharingSettings />;
       // case "data":
       //   return <DataManagementSettings />;
       default:

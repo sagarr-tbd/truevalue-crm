@@ -10,6 +10,7 @@ from .deal_service import DealService
 from .pipeline_service import PipelineService
 from .activity_service import ActivityService
 from .tag_service import TagService
+from .custom_field_service import CustomFieldService
 
 __all__ = [
     'ContactService',
@@ -19,4 +20,5 @@ __all__ = [
     'PipelineService',
     'ActivityService',
     'TagService',
+    'CustomFieldService',
 ]

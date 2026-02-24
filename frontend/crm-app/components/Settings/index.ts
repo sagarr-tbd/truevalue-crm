@@ -6,4 +6,8 @@ export { default as DataManagementSettings } from "./DataManagementSettings";
 export { default as PipelinesSettings } from "./PipelinesSettings";
 export { default as RolesPermissionsSettings } from "./RolesPermissionsSettings";
 export { default as TagManagementSettings } from "./TagManagementSettings";
+export { default as ProfilesSettings } from "./ProfilesSettings";
+export { default as RoleHierarchySettings } from "./RoleHierarchySettings";
+export { default as TerritoriesSettings } from "./TerritoriesSettings";
+export { default as DataSharingSettings } from "./DataSharingSettings";
 export { default as CustomFieldsSettings } from "./CustomFieldsSettings";

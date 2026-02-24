@@ -71,6 +71,22 @@ export const ROLES_WRITE = 'roles:write';
 export const ROLES_DELETE = 'roles:delete';
 export const ROLES_ASSIGN = 'roles:assign';
 
+// Profiles (Security Profiles)
+export const PROFILES_READ = 'profiles:read';
+export const PROFILES_WRITE = 'profiles:write';
+export const PROFILES_DELETE = 'profiles:delete';
+export const PROFILES_ASSIGN = 'profiles:assign';
+
+// Territories
+export const TERRITORIES_READ = 'territories:read';
+export const TERRITORIES_WRITE = 'territories:write';
+export const TERRITORIES_DELETE = 'territories:delete';
+export const TERRITORIES_ASSIGN = 'territories:assign';
+
+// Data Sharing Rules
+export const SHARING_RULES_READ = 'sharing_rules:read';
+export const SHARING_RULES_WRITE = 'sharing_rules:write';
+
 // Administration
 export const BILLING_READ = 'billing:read';
 export const BILLING_WRITE = 'billing:write';

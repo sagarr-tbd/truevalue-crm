@@ -9,8 +9,14 @@ Permission codes follow the format: resource:action
 System roles with bypass:
   - super_admin (level 0) — full access, bypasses all permission checks
   - org_admin   (level 10) — full org access, bypasses all permission checks
+
+Field-level security:
+  - FieldLevelSecurityMixin can be added to views for field restrictions
+  - Uses ResourcePolicy allowed_fields/denied_fields from Permission Service
 """
 import logging
+from typing import Optional
+from django.conf import settings
 from rest_framework.permissions import BasePermission
 
 logger = logging.getLogger(__name__)
@@ -119,3 +125,226 @@ class CRMResourcePermission(BasePermission):
             f"modify {obj.__class__.__name__} owned by {owner_id}"
         )
         return False
+
+
+# =============================================================================
+# FIELD-LEVEL SECURITY
+# =============================================================================
+
+class FieldLevelSecurityMixin:
+    """
+    Mixin for views to enforce field-level security from ResourcePolicy.
+    
+    Usage:
+        class ContactDetailView(FieldLevelSecurityMixin, BaseAPIView):
+            resource = 'contacts'
+            
+            def get(self, request, contact_id):
+                contact = self.get_object()
+                serializer = ContactSerializer(contact)
+                # Filter fields based on policy
+                data = self.apply_field_security(request, serializer.data)
+                return Response(data)
+    
+    Fields are filtered based on:
+    1. allowed_fields from ResourcePolicy (whitelist)
+    2. denied_fields from ResourcePolicy (blacklist)
+    """
+    
+    def get_field_restrictions(
+        self,
+        request,
+        resource: str,
+        action: str
+    ) -> tuple[Optional[set], Optional[set]]:
+        """
+        Get allowed/denied fields from Permission Service.
+        
+        Returns:
+            (allowed_fields, denied_fields) or (None, None) if no restrictions
+        """
+        try:
+            from truevalue_common.clients import PermissionClient
+            
+            client = PermissionClient()
+            result = client.evaluate_policy(
+                org_id=str(request.user.org_id),
+                resource=resource,
+                action=action,
+                user_roles=getattr(request.user, 'roles', []),
+                context={
+                    'user_id': str(request.user.user_id),
+                },
+            )
+            
+            if not result.get('allowed'):
+                return set(), set()
+            
+            allowed = result.get('allowed_fields')
+            denied = result.get('denied_fields')
+            
+            return (
+                set(allowed) if allowed else None,
+                set(denied) if denied else None
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get field restrictions: {e}")
+            return None, None
+    
+    def filter_response_fields(
+        self,
+        data,
+        allowed_fields: Optional[set],
+        denied_fields: Optional[set]
+    ):
+        """
+        Remove restricted fields from response data.
+        
+        Args:
+            data: Response data (dict or list of dicts)
+            allowed_fields: Whitelist of allowed fields (None = all allowed)
+            denied_fields: Blacklist of denied fields (None = none denied)
+        
+        Returns:
+            Filtered data
+        """
+        if not denied_fields and not allowed_fields:
+            return data
+        
+        if isinstance(data, list):
+            return [
+                self.filter_response_fields(item, allowed_fields, denied_fields)
+                for item in data
+            ]
+        
+        if isinstance(data, dict):
+            filtered = {}
+            for key, value in data.items():
+                # Check blacklist first
+                if denied_fields and key in denied_fields:
+                    continue
+                # Check whitelist
+                if allowed_fields and key not in allowed_fields:
+                    continue
+                # Recurse for nested dicts
+                if isinstance(value, (dict, list)):
+                    filtered[key] = self.filter_response_fields(
+                        value, None, None  # Don't apply restrictions to nested
+                    )
+                else:
+                    filtered[key] = value
+            return filtered
+        
+        return data
+    
+    def apply_field_security(self, request, data, resource: Optional[str] = None):
+        """
+        Apply field-level security to response data.
+        
+        Args:
+            request: DRF Request object
+            data: Response data
+            resource: Resource name (defaults to view's resource attribute)
+        
+        Returns:
+            Filtered data
+        """
+        user_roles = set(getattr(request.user, 'roles', []))
+        
+        # Admins bypass field security
+        if user_roles & ADMIN_ROLES:
+            return data
+        
+        resource = resource or getattr(self, 'resource', None)
+        if not resource:
+            return data
+        
+        action = METHOD_ACTION_MAP.get(request.method, 'read')
+        
+        allowed_fields, denied_fields = self.get_field_restrictions(
+            request, resource, action
+        )
+        
+        return self.filter_response_fields(data, allowed_fields, denied_fields)
+
+
+class HierarchyBasedAccessMixin:
+    """
+    Mixin for views to filter querysets based on role hierarchy visibility.
+    
+    Users only see records owned by themselves and their subordinates.
+    
+    Usage:
+        class ContactListView(HierarchyBasedAccessMixin, BaseAPIView):
+            resource = 'contacts'
+            
+            def get_queryset(self):
+                queryset = Contact.objects.filter(org_id=self.get_org_id())
+                return self.filter_by_visibility(self.request, queryset)
+    """
+    
+    _visible_user_ids_cache = None
+    
+    def get_visible_user_ids(self, request) -> list[str]:
+        """
+        Get list of user IDs whose records the current user can see.
+        
+        Caches result for the request.
+        """
+        if self._visible_user_ids_cache is not None:
+            return self._visible_user_ids_cache
+        
+        user_roles = set(getattr(request.user, 'roles', []))
+        
+        # Admins see all
+        if user_roles & ADMIN_ROLES:
+            self._visible_user_ids_cache = []  # Empty means no filter
+            return self._visible_user_ids_cache
+        
+        try:
+            from truevalue_common.clients import PermissionClient
+            
+            client = PermissionClient()
+            result = client.get_visible_user_ids(
+                user_id=str(request.user.user_id),
+                org_id=str(request.user.org_id),
+            )
+            
+            self._visible_user_ids_cache = result.get('visible_user_ids', [])
+            return self._visible_user_ids_cache
+        except Exception as e:
+            logger.warning(f"Failed to get visible user IDs: {e}")
+            # Fall back to own ID only
+            self._visible_user_ids_cache = [str(request.user.user_id)]
+            return self._visible_user_ids_cache
+    
+    def filter_by_visibility(self, request, queryset, owner_field: str = 'owner_id'):
+        """
+        Filter queryset to only include records visible to the user.
+        
+        Args:
+            request: DRF Request object
+            queryset: Django QuerySet
+            owner_field: Field name for record owner
+        
+        Returns:
+            Filtered QuerySet
+        """
+        visible_ids = self.get_visible_user_ids(request)
+        
+        if not visible_ids:  # Admin - no filter
+            return queryset
+        
+        return queryset.filter(**{f'{owner_field}__in': visible_ids})
+    
+    def can_access_record(self, request, record, owner_field: str = 'owner_id') -> bool:
+        """
+        Check if user can access a specific record.
+        """
+        visible_ids = self.get_visible_user_ids(request)
+        
+        if not visible_ids:  # Admin
+            return True
+        
+        owner_id = str(getattr(record, owner_field, None))
+        return owner_id in visible_ids
