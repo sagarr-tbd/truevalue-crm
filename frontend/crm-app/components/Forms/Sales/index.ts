@@ -1,6 +1,9 @@
 export { LeadFormDrawer } from "./LeadFormDrawer";
 export type { LeadFormDrawerProps } from "./LeadFormDrawer";
 
+export { LeadV2FormDrawer } from "./LeadV2FormDrawer";
+export type { LeadV2FormDrawerProps } from "./LeadV2FormDrawer";
+
 export { AccountFormDrawer } from "./AccountFormDrawer";
 export type { AccountFormDrawerProps } from "./AccountFormDrawer";
 

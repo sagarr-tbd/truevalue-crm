@@ -129,6 +129,18 @@ const navigation: NavigationItem[] = [
     ],
   },
   {
+    name: "Sales V2",
+    icon: TrendingUp,
+    type: "section",
+    children: [
+      { name: "Leads", href: "/sales-v2/leads", icon: Target, permission: LEADS_READ },
+      // Phase 2: Add more V2 modules here
+      // { name: "Contacts", href: "/sales-v2/contacts", icon: Users, permission: CONTACTS_READ },
+      // { name: "Accounts", href: "/sales-v2/accounts", icon: Building, permission: COMPANIES_READ },
+      // { name: "Deals", href: "/sales-v2/deals", icon: DollarSign, permission: DEALS_READ },
+    ],
+  },
+  {
     name: "Activities",
     icon: CheckSquare,
     type: "section",

@@ -34,6 +34,12 @@ urlpatterns = [
     # API v1
     path('api/v1/', include('crm.urls')),
     
+    # API v2 - Dynamic Forms
+    path('api/v2/forms/', include('forms_v2.urls')),
+    
+    # API v2 - Leads with Dynamic Forms
+    path('api/v2/', include('leads_v2.urls')),
+    
     # Internal endpoints (service-to-service)
     path('internal/', include('crm.internal_urls')),
     
