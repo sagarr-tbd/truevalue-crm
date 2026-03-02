@@ -51,6 +51,9 @@ INSTALLED_APPS = [
     'crm',
     'forms_v2',  # V2 Dynamic Forms System
     'leads_v2',  # V2 Leads with Dynamic Forms
+    'contacts_v2',  # V2 Contacts with Dynamic Forms
+    'companies_v2',  # V2 Companies with Dynamic Forms
+    'deals_v2',  # V2 Deals with Dynamic Forms
 ]
 
 MIDDLEWARE = [

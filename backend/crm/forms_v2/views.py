@@ -251,6 +251,8 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        data = []
+
         if entity == 'user':
             # Fetch organization members using the existing utility function
             # This handles service-to-service auth properly
@@ -306,44 +308,36 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                 }]
         
         elif entity == 'company':
-            from crm.models import Company
-            
-            # Company model doesn't use soft delete (no deleted_at field)
-            query = Company.objects.all()
+            from companies_v2.models import CompanyV2
+            v2_query = CompanyV2.objects.filter(deleted_at__isnull=True)
             if org_id:
-                query = query.filter(org_id=org_id)
-            
-            companies = query.order_by('name')[:100]
-            
-            data = [
-                {
-                    'id': str(company.id),
-                    'label': company.name,
-                    'website': getattr(company, 'website', None),
-                    'industry': getattr(company, 'industry', None),
-                }
-                for company in companies
-            ]
+                v2_query = v2_query.filter(org_id=org_id)
+            for c in v2_query.order_by('created_at')[:200]:
+                data.append({
+                    'id': str(c.id),
+                    'label': c.entity_data.get('name', 'Unnamed Company'),
+                    'website': c.entity_data.get('website'),
+                    'industry': c.industry or c.entity_data.get('industry'),
+                })
+            data.sort(key=lambda x: (x.get('label') or '').lower())
         
         elif entity == 'contact':
-            from crm.models import Contact
-            
-            # Contact model doesn't use soft delete (no deleted_at field)
-            query = Contact.objects.all()
+            from contacts_v2.models import ContactV2
+            v2_query = ContactV2.objects.filter(deleted_at__isnull=True)
             if org_id:
-                query = query.filter(org_id=org_id)
-            
-            contacts = query.order_by('first_name', 'last_name')[:100]
-            
-            data = [
-                {
-                    'id': str(contact.id),
-                    'label': f"{contact.first_name} {contact.last_name}".strip() or contact.email or 'Unknown',
-                    'email': contact.email,
-                    'phone': getattr(contact, 'phone', None),
-                }
-                for contact in contacts
-            ]
+                v2_query = v2_query.filter(org_id=org_id)
+            for c in v2_query.order_by('created_at')[:200]:
+                first = c.entity_data.get('first_name', '')
+                last = c.entity_data.get('last_name', '')
+                email = c.entity_data.get('email', '')
+                label = f"{first} {last}".strip() or email or 'Unknown'
+                data.append({
+                    'id': str(c.id),
+                    'label': label,
+                    'email': email or None,
+                    'phone': c.entity_data.get('phone') or c.entity_data.get('mobile') or None,
+                })
+            data.sort(key=lambda x: (x.get('label') or '').lower())
         
         else:
             return Response(

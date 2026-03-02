@@ -162,6 +162,9 @@ class LeadV2Serializer(serializers.ModelSerializer):
         """
         representation = super().to_representation(instance)
         
+        # Copy entity_data to avoid mutating the original instance
+        representation['entity_data'] = dict(representation['entity_data'])
+        
         # Map FK columns back into entity_data for edit forms
         if instance.assigned_to_id:
             representation['entity_data']['assigned_to'] = str(instance.assigned_to_id)
@@ -464,3 +467,21 @@ class LeadV2ListSerializer(serializers.ModelSerializer):
     def get_display_company(self, obj):
         """Get company from entity_data."""
         return obj.entity_data.get('company_name', 'N/A')
+    
+    def to_representation(self, instance):
+        """Map system DB columns back into entity_data for edit forms opened from list view."""
+        representation = super().to_representation(instance)
+        representation['entity_data'] = dict(representation['entity_data'])
+        
+        if instance.assigned_to_id:
+            representation['entity_data']['assigned_to'] = str(instance.assigned_to_id)
+        if instance.company_id:
+            representation['entity_data']['company'] = str(instance.company_id)
+        if instance.source:
+            representation['entity_data']['source'] = instance.source
+        if instance.rating:
+            representation['entity_data']['rating'] = instance.rating
+        if instance.status:
+            representation['entity_data']['status'] = instance.status
+        
+        return representation

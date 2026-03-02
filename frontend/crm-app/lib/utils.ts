@@ -32,7 +32,7 @@ export const toSnakeCaseOperator = (op: string): string => {
  * Returns Tailwind CSS classes for status badges
  * Uses theme colors: primary, secondary, accent, destructive, muted
  */
-export type StatusColorType = 'contact' | 'lead' | 'deal' | 'generic';
+export type StatusColorType = 'contact' | 'lead' | 'deal' | 'company' | 'generic';
 
 // Semantic color classes using theme variables
 export const THEME_COLORS = {
@@ -82,6 +82,14 @@ const STATUS_COLORS: Record<StatusColorType, Record<string, string>> = {
     qualified: THEME_COLORS.success.badge,
     unqualified: THEME_COLORS.neutral.badge,
     converted: THEME_COLORS.success.badge,
+  },
+  company: {
+    active: THEME_COLORS.success.badge,
+    inactive: THEME_COLORS.neutral.badge,
+    prospect: THEME_COLORS.info.badge,
+    customer: "bg-brand-purple/10 text-brand-purple",
+    partner: THEME_COLORS.warning.badge,
+    archived: THEME_COLORS.error.badge,
   },
   deal: {
     open: THEME_COLORS.info.badge,

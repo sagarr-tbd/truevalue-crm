@@ -108,7 +108,6 @@ export default function LeadV2DetailPage() {
     try {
       if (leadId) {
         await updateLead.mutateAsync({ id: leadId, data });
-        toast.success("Lead updated successfully");
       }
       setIsEditDrawerOpen(false);
     } catch (error) {

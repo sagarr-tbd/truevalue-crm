@@ -224,7 +224,33 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
             org_id=org_id,
             owner_id=user_id or org_id
         )
-    
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        deleted_by = request.user.id if hasattr(request, 'user') else None
+        instance.soft_delete(deleted_by=deleted_by)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        try:
+            lead = LeadV2.objects.filter(
+                id=pk, deleted_at__isnull=False
+            ).first()
+            if not lead:
+                return Response(
+                    {'error': 'Lead not found or not deleted'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            lead.restore()
+            serializer = self.get_serializer(lead)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """
@@ -271,6 +297,12 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
     def bulk_delete(self, request):
         """Bulk delete leads (soft delete)."""
         org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response(
+                {'error': 'X-Org-Id header required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         lead_ids = request.data.get('ids', [])
         
         if not lead_ids:
@@ -281,8 +313,8 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
         
         deleted_by = request.user.id if hasattr(request, 'user') else None
         
-        # Soft delete
-        leads = LeadV2.objects.filter(id__in=lead_ids, org_id=org_id)
+        # Soft delete (exclude already-deleted)
+        leads = LeadV2.objects.filter(id__in=lead_ids, org_id=org_id, deleted_at__isnull=True)
         count = 0
         for lead in leads:
             lead.soft_delete(deleted_by=deleted_by)
@@ -313,6 +345,12 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
         }
         """
         org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response(
+                {'error': 'X-Org-Id header required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         lead_ids = request.data.get('ids', [])
         data = request.data.get('data', {})
         
@@ -393,10 +431,8 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Limit to 10,000 rows for performance
-        queryset = queryset[:10000]
+        leads = list(queryset[:10000])
         
-        # Get form definition to determine columns
         from forms_v2.models import FormDefinition
         form = FormDefinition.objects.filter(
             org_id=org_id,
@@ -411,38 +447,53 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Build CSV
+        db_column_fields = {
+            'status', 'source', 'rating', 'assigned_to', 'company',
+        }
+
+        from crm.models import Company
+        company_ids = {l.company_id for l in leads if l.company_id}
+        company_names = {}
+        if company_ids:
+            company_names = dict(
+                Company.objects.filter(id__in=company_ids).values_list('id', 'name')
+            )
+
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="leads-{timezone.now().strftime("%Y-%m-%d")}.csv"'
         
         writer = csv.writer(response)
         
-        # Write headers
-        headers = ['ID', 'Status', 'Source', 'Created At', 'Updated At', 'Owner ID']
+        headers = ['ID', 'Status', 'Source', 'Rating', 'Company',
+                    'Assigned To', 'Created At', 'Updated At']
         field_names = []
         
         for section in form.schema.get('sections', []):
             for field in section.get('fields', []):
-                headers.append(field['label'])
-                field_names.append(field['name'])
+                if field['name'] not in db_column_fields:
+                    headers.append(field['label'])
+                    field_names.append(field['name'])
         
         writer.writerow(headers)
         
-        # Write data rows
-        for lead in queryset:
+        for lead in leads:
+            company_display = ''
+            if lead.company_id:
+                company_display = company_names.get(lead.company_id, str(lead.company_id))
+
             row = [
                 str(lead.id),
                 lead.status or '',
                 lead.source or '',
+                lead.rating or '',
+                company_display,
+                str(lead.assigned_to_id) if lead.assigned_to_id else '',
                 lead.created_at.strftime('%Y-%m-%d %H:%M:%S') if lead.created_at else '',
                 lead.updated_at.strftime('%Y-%m-%d %H:%M:%S') if lead.updated_at else '',
-                str(lead.owner_id) if lead.owner_id else '',
             ]
             
-            # Add dynamic fields from entity_data
             for field_name in field_names:
                 value = lead.entity_data.get(field_name, '')
-                # Handle complex types
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value)
                 row.append(str(value) if value is not None else '')
