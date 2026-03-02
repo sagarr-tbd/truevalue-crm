@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useQuery } from "@tanstack/react-query";
 import {
   Target,
   Plus,
@@ -28,19 +29,28 @@ import DataPagination from "@/components/DataPagination";
 import ViewToggle from "@/components/ViewToggle";
 import ActionMenu from "@/components/ActionMenu";
 import { LeadV2FormDrawer } from "@/components/Forms/Sales";
-import { useLeadsV2, useCreateLeadV2, useUpdateLeadV2, useDeleteLeadV2 } from "@/lib/queries/useLeadsV2";
-import type { CreateLeadV2Input, LeadV2 } from "@/lib/api/leadsV2";
+import { 
+  useLeadsV2, 
+  useCreateLeadV2, 
+  useUpdateLeadV2, 
+  useDeleteLeadV2,
+  useLeadsV2Stats,
+  useConvertLeadV2,
+  useBulkDeleteLeadsV2,
+  useBulkUpdateLeadsV2,
+} from "@/lib/queries/useLeadsV2";
+import type { CreateLeadV2Input, LeadV2, ConvertLeadV2Params } from "@/lib/api/leadsV2";
+import { leadsV2Api } from "@/lib/api/leadsV2";
 import { toast } from "sonner";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import { getStatusColor } from "@/lib/utils";
+import { getStatusColor, toSnakeCaseOperator } from "@/lib/utils";
 import { getLeadActionMenuItems } from "@/lib/utils/actionMenus";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { useUIStore } from "@/stores";
 import { usePermission, LEADS_READ, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
-import { TokenManager } from "@/lib/api/client";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -52,6 +62,18 @@ const BulkDeleteModal = dynamic(
   () => import("@/components/BulkDeleteModal").then(mod => ({ default: mod.BulkDeleteModal })),
   { ssr: false }
 );
+
+const BulkUpdateModal = dynamic(
+  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
+  { ssr: false }
+) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+
+const LeadConversionModal = dynamic(
+  () => import("@/components/LeadConversionModal").then(mod => ({ default: mod.LeadConversionModal })),
+  { ssr: false }
+);
+
+import type { ConversionParams } from "@/components/LeadConversionModal";
 
 export default function LeadsV2Page() {
   const router = useRouter();
@@ -94,20 +116,57 @@ export default function LeadsV2Page() {
 
   // Bulk operations state
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   
+  // Conversion modal state
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [leadToConvert, setLeadToConvert] = useState<{ id: string; name: string } | null>(null);
+  
+  // Build query params with advanced filters support
+  const queryParams = useMemo(() => {
+    const params: any = {
+      page: currentPage,
+      page_size: itemsPerPage,
+      search: debouncedSearchQuery || undefined,
+      status: statusFilter || undefined,
+      source: sourceFilter || undefined,
+    };
+    
+    // Add advanced filters if present
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      params.filters = JSON.stringify({
+        operator: (filterGroup.logic?.toUpperCase() || 'AND'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      });
+    }
+    
+    return params;
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, sourceFilter, filterGroup]);
+  
   // API queries
-  const { data: leadsResponse, isLoading } = useLeadsV2({
-    search: debouncedSearchQuery,
-    status: statusFilter || undefined,
-    source: sourceFilter || undefined,
-    page: currentPage,
-    page_size: itemsPerPage,
+  const { data: leadsResponse, isLoading } = useLeadsV2(queryParams);
+  
+  // Fetch real-time stats from API
+  const { data: statsData } = useLeadsV2Stats();
+  
+  // Fetch available sources dynamically
+  const { data: availableSources = [] } = useQuery({
+    queryKey: ['leadsV2', 'sources'],
+    queryFn: () => leadsV2Api.sources(),
+    staleTime: 300000, // 5 minutes
   });
   
   const createLead = useCreateLeadV2();
   const updateLead = useUpdateLeadV2();
   const deleteLead = useDeleteLeadV2();
+  const convertLead = useConvertLeadV2();
+  const bulkDeleteLeads = useBulkDeleteLeadsV2();
+  const bulkUpdateLeads = useBulkUpdateLeadsV2();
   
   const leads = leadsResponse?.results || [];
   const totalItems = leadsResponse?.count || 0;
@@ -233,8 +292,43 @@ export default function LeadsV2Page() {
     },
   ], [memoizedLeads, totalItems]);
 
-  // Stats calculations
+  // Stats calculations - Use API data when available
   const stats = useMemo(() => {
+    if (statsData) {
+      // Use real-time stats from API
+      return [
+        {
+          label: "Total Leads",
+          value: statsData.total,
+          icon: Target,
+          iconBgColor: "bg-primary/10",
+          iconColor: "text-primary",
+        },
+        {
+          label: "New Leads",
+          value: statsData.by_status?.new || 0,
+          icon: Target,
+          iconBgColor: "bg-accent/10",
+          iconColor: "text-accent",
+        },
+        {
+          label: "Contacted",
+          value: statsData.by_status?.contacted || 0,
+          icon: Phone,
+          iconBgColor: "bg-blue-500/10",
+          iconColor: "text-blue-500",
+        },
+        {
+          label: "Qualified",
+          value: statsData.by_status?.qualified || 0,
+          icon: UserPlus,
+          iconBgColor: "bg-primary/20",
+          iconColor: "text-primary",
+        },
+      ];
+    }
+    
+    // Fallback to client-side calculation
     const totalLeads = totalItems;
     const newLeads = memoizedLeads.filter(l => l.status === 'new').length;
     const qualified = memoizedLeads.filter(l => l.status === 'qualified').length;
@@ -247,7 +341,6 @@ export default function LeadsV2Page() {
         icon: Target,
         iconBgColor: "bg-primary/10",
         iconColor: "text-primary",
-        trend: { value: 12, isPositive: true },
       },
       {
         label: "New Leads",
@@ -271,7 +364,7 @@ export default function LeadsV2Page() {
         iconColor: "text-primary",
       },
     ];
-  }, [memoizedLeads, totalItems]);
+  }, [statsData, memoizedLeads, totalItems]);
 
   // Export params
   const exportParams = useMemo(() => {
@@ -279,8 +372,18 @@ export default function LeadsV2Page() {
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
     if (sourceFilter) p.source = sourceFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        operator: (filterGroup.logic?.toUpperCase() || 'AND'),
+        conditions: filterGroup.conditions.map(c => ({
+          field: c.field,
+          operator: toSnakeCaseOperator(c.operator),
+          value: c.value,
+        })),
+      });
+    }
     return p;
-  }, [debouncedSearchQuery, statusFilter, sourceFilter]);
+  }, [debouncedSearchQuery, statusFilter, sourceFilter, filterGroup]);
 
   // Handlers
   const handleSelectAll = () => {
@@ -341,14 +444,11 @@ export default function LeadsV2Page() {
   const handleBulkDelete = async () => {
     setIsBulkProcessing(true);
     try {
-      // Delete each lead individually (V2 API might not have bulk delete yet)
-      await Promise.all(selectedLeads.map(id => deleteLead.mutateAsync(id)));
-      toast.success(`${selectedLeads.length} leads deleted successfully`);
+      await bulkDeleteLeads.mutateAsync(selectedLeads);
       setSelectedLeads([]);
       setShowBulkDelete(false);
     } catch {
-      // Error logged for debugging
-      toast.error("Failed to delete some leads");
+      // Error handled by mutation
     } finally {
       setIsBulkProcessing(false);
     }
@@ -361,32 +461,21 @@ export default function LeadsV2Page() {
     }
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const params = new URLSearchParams({
-        ids: selectedLeads.join(","),
-      });
-      const resp = await fetch(`${baseUrl}/crm/api/v2/leads/export?${params}`, {
-        headers: {
-          ...(TokenManager.getAccessToken() ? { Authorization: `Bearer ${TokenManager.getAccessToken()}` } : {}),
-        },
-      });
-
-      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
-
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `selected-leads-${new Date().toISOString().split("T")[0]}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
+      await leadsV2Api.export({ ids: selectedLeads });
       toast.success(`Exported ${selectedLeads.length} leads`);
     } catch {
-      // Error logged for debugging
       toast.error("Failed to export leads");
+    }
+  };
+
+  const handleBulkUpdateStatus = async (newStatus: 'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted') => {
+    setIsBulkProcessing(true);
+    try {
+      await bulkUpdateLeads.mutateAsync({ ids: selectedLeads, data: { status: newStatus } });
+      setSelectedLeads([]);
+      setShowBulkUpdateStatus(false);
+    } finally {
+      setIsBulkProcessing(false);
     }
   };
 
@@ -408,6 +497,21 @@ export default function LeadsV2Page() {
   // Handle form submission
   const handleFormSubmit = async (data: CreateLeadV2Input) => {
     try {
+      // Check for duplicates before creating
+      if (formMode === "add" && data.entity_data?.email) {
+        try {
+          const duplicateCheck = await leadsV2Api.checkDuplicate(data.entity_data.email);
+          if (duplicateCheck.has_duplicates) {
+            toast.warning(
+              `Found ${duplicateCheck.count} existing lead(s) with this email. Creating anyway.`,
+              { duration: 5000 }
+            );
+          }
+        } catch {
+          // If duplicate check fails, continue with creation silently
+        }
+      }
+      
       if (formMode === "edit" && editingLead?.id) {
         await updateLead.mutateAsync({ id: editingLead.id, data });
         toast.success("Lead updated successfully");
@@ -431,11 +535,33 @@ export default function LeadsV2Page() {
     },
     onSendEmail: (email: string) => { if (email) window.location.href = `mailto:${email}`; },
     onCall: (phone: string) => { if (phone) window.location.href = `tel:${phone}`; },
-    onConvert: () => {
-      toast.info("Lead conversion feature coming soon");
+    onConvert: (lead: { id: string; firstName: string; lastName: string }) => {
+      setLeadToConvert({ id: lead.id, name: `${lead.firstName} ${lead.lastName}` });
+      setShowConversionModal(true);
     },
     onDelete: handleDeleteClick,
   }), [router, handleEditLead]);
+  
+  const handleConversionConfirm = async (params: ConversionParams) => {
+    if (!leadToConvert) return;
+    
+    try {
+      // Convert ConversionParams to ConvertLeadV2Params
+      const v2Params: ConvertLeadV2Params = {
+        create_contact: params.create_contact,
+        create_company: params.create_company,
+        create_deal: params.create_deal,
+        deal_name: params.deal_name,
+        deal_value: params.deal_value ? parseFloat(params.deal_value) : undefined,
+      };
+      
+      await convertLead.mutateAsync({ id: leadToConvert.id, params: v2Params });
+      setShowConversionModal(false);
+      setLeadToConvert(null);
+    } catch {
+      // Error handled by mutation
+    }
+  };
 
   // Get score color based on value
   const getScoreColor = (score: number | undefined) => {
@@ -528,16 +654,12 @@ export default function LeadsV2Page() {
       key: 'source',
       label: 'Source',
       type: 'select',
-      options: [
-        { label: 'Website', value: 'website' },
-        { label: 'Referral', value: 'referral' },
-        { label: 'Cold Call', value: 'cold_call' },
-        { label: 'Social Media', value: 'social_media' },
-        { label: 'Advertisement', value: 'advertisement' },
-        { label: 'Other', value: 'other' },
-      ],
+      options: availableSources.map(s => ({
+        label: s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        value: s
+      })),
     },
-  ], []);
+  ], [availableSources]);
 
   // Table columns - Using V1 pattern
   const columns = useMemo(() => [
@@ -791,6 +913,7 @@ export default function LeadsV2Page() {
           onDeselectAll={handleDeselectAll}
           onDelete={can(LEADS_DELETE) ? () => setShowBulkDelete(true) : undefined}
           onExport={handleBulkExport}
+          onUpdateStatus={can(LEADS_WRITE) ? () => setShowBulkUpdateStatus(true) : undefined}
           isProcessing={isBulkProcessing}
         />
       )}
@@ -954,6 +1077,39 @@ export default function LeadsV2Page() {
         onConfirm={handleBulkDelete}
         itemCount={selectedLeads.length}
         itemName="lead"
+      />
+
+      {/* Bulk Update Status Modal */}
+      <BulkUpdateModal<'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted'>
+        isOpen={showBulkUpdateStatus}
+        onClose={() => setShowBulkUpdateStatus(false)}
+        onConfirm={handleBulkUpdateStatus}
+        itemCount={selectedLeads.length}
+        title="Update Lead Status"
+        field="Status"
+        options={[
+          { label: 'New', value: 'new' },
+          { label: 'Contacted', value: 'contacted' },
+          { label: 'Qualified', value: 'qualified' },
+          { label: 'Unqualified', value: 'unqualified' },
+          { label: 'Converted', value: 'converted' },
+        ]}
+      />
+
+      {/* Lead Conversion Modal */}
+      <LeadConversionModal
+        isOpen={showConversionModal}
+        onClose={() => {
+          setShowConversionModal(false);
+          setLeadToConvert(null);
+        }}
+        onConvert={handleConversionConfirm}
+        lead={{
+          id: leadToConvert?.id || '',
+          firstName: leadToConvert?.name.split(' ')[0] || '',
+          lastName: leadToConvert?.name.split(' ').slice(1).join(' ') || '',
+          email: '',
+        }}
       />
     </div>
   );
