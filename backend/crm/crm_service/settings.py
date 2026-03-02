@@ -49,6 +49,8 @@ INSTALLED_APPS = [
     'django_celery_beat',  # Celery Beat for scheduled tasks
     # Local
     'crm',
+    'forms_v2',  # V2 Dynamic Forms System
+    'leads_v2',  # V2 Leads with Dynamic Forms
 ]
 
 MIDDLEWARE = [
