@@ -4,6 +4,15 @@ export type { LeadFormDrawerProps } from "./LeadFormDrawer";
 export { LeadV2FormDrawer } from "./LeadV2FormDrawer";
 export type { LeadV2FormDrawerProps } from "./LeadV2FormDrawer";
 
+export { ContactV2FormDrawer } from "./ContactV2FormDrawer";
+export type { ContactV2FormDrawerProps } from "./ContactV2FormDrawer";
+
+export { CompanyV2FormDrawer } from "./CompanyV2FormDrawer";
+export type { CompanyV2FormDrawerProps } from "./CompanyV2FormDrawer";
+
+export { DealV2FormDrawer } from "./DealV2FormDrawer";
+export type { DealV2FormDrawerProps } from "./DealV2FormDrawer";
+
 export { AccountFormDrawer } from "./AccountFormDrawer";
 export type { AccountFormDrawerProps } from "./AccountFormDrawer";
 

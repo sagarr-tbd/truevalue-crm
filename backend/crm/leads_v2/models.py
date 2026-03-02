@@ -118,10 +118,6 @@ class LeadV2(models.Model):
     # CUSTOM FIELDS (JSONB - unlimited flexibility)
     # ═════════════════════════════════════════════════════════════════
     entity_data = models.JSONField(default=dict, blank=True)
-    # ═════════════════════════════════════════════════════════════════
-    # CUSTOM FIELDS (JSONB - unlimited flexibility)
-    # ═════════════════════════════════════════════════════════════════
-    entity_data = models.JSONField(default=dict, blank=True)
     # Example: {
     #     "first_name": "John",
     #     "last_name": "Doe",

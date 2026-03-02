@@ -134,10 +134,9 @@ const navigation: NavigationItem[] = [
     type: "section",
     children: [
       { name: "Leads", href: "/sales-v2/leads", icon: Target, permission: LEADS_READ },
-      // Phase 2: Add more V2 modules here
-      // { name: "Contacts", href: "/sales-v2/contacts", icon: Users, permission: CONTACTS_READ },
-      // { name: "Accounts", href: "/sales-v2/accounts", icon: Building, permission: COMPANIES_READ },
-      // { name: "Deals", href: "/sales-v2/deals", icon: DollarSign, permission: DEALS_READ },
+      { name: "Contacts", href: "/sales-v2/contacts", icon: Users, permission: CONTACTS_READ },
+      { name: "Companies", href: "/sales-v2/companies", icon: Building, permission: COMPANIES_READ },
+      { name: "Deals", href: "/sales-v2/deals", icon: DollarSign, permission: DEALS_READ },
     ],
   },
   {
@@ -316,6 +315,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     '/sales/accounts': COMPANIES_READ,
     '/sales/deals': DEALS_READ,
     '/sales/leads': LEADS_READ,
+    '/sales-v2/contacts': CONTACTS_READ,
+    '/sales-v2/companies': COMPANIES_READ,
+    '/sales-v2/deals': DEALS_READ,
     '/activities/calendar': ACTIVITIES_READ,
     '/activities/tasks': TASKS_READ,
     '/activities/meetings': ACTIVITIES_READ,

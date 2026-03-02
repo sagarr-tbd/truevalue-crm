@@ -33,6 +33,11 @@ interface LeadForMenu {
   status?: string;
 }
 
+interface CompanyForMenu {
+  id: string;
+  email?: string;
+}
+
 interface DealForMenu {
   id: string;
   contactEmail?: string;
@@ -54,6 +59,13 @@ export interface LeadActionHandlers<T extends LeadForMenu = LeadForMenu> {
   onCall: (phone: string) => void;
   onConvert: (lead: T) => void;
   onDelete: (lead: T) => void;
+}
+
+export interface CompanyActionHandlers<T extends CompanyForMenu = CompanyForMenu> {
+  onView: (id: string) => void;
+  onEdit: (company: T) => void;
+  onSendEmail: (email: string) => void;
+  onDelete: (company: T) => void;
 }
 
 export interface DealActionHandlers<T extends DealForMenu = DealForMenu> {
@@ -150,6 +162,41 @@ export function getLeadActionMenuItems<T extends LeadForMenu>(
       icon: Trash2,
       variant: 'danger',
       onClick: () => handlers.onDelete(lead),
+    },
+  ];
+}
+
+// =============================================================================
+// COMPANY ACTION MENU
+// =============================================================================
+
+export function getCompanyActionMenuItems<T extends CompanyForMenu>(
+  company: T,
+  handlers: CompanyActionHandlers<T>
+): ActionMenuItem[] {
+  return [
+    {
+      label: 'View Details',
+      icon: FileText,
+      onClick: () => handlers.onView(company.id),
+    },
+    {
+      label: 'Edit Company',
+      icon: Edit,
+      onClick: () => handlers.onEdit(company),
+    },
+    {
+      label: 'Send Email',
+      icon: Mail,
+      onClick: () => handlers.onSendEmail(company.email || ''),
+      disabled: !company.email,
+    },
+    { divider: true, label: '', onClick: () => {} },
+    {
+      label: 'Delete',
+      icon: Trash2,
+      variant: 'danger',
+      onClick: () => handlers.onDelete(company),
     },
   ];
 }
