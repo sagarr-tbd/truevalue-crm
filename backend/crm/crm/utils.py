@@ -90,3 +90,44 @@ def fetch_member_names(org_id: str) -> dict:
     except Exception as e:
         logger.exception(f"Error fetching member names: {e}")
         return {}
+
+
+def fetch_org_owner(org_id: str) -> Optional[str]:
+    """
+    Fetch organization owner user ID from org service.
+    
+    Used for web form submissions to assign default owner.
+    Returns the owner's user ID if found, None otherwise.
+    """
+    try:
+        org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
+        service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
+        service_secret = getattr(django_settings, 'ORG_SERVICE_SECRET', '')
+        path = f"/internal/orgs/{org_id}/owner"
+        ts = str(int(time_mod.time()))
+        sig = hmac_mod.new(
+            service_secret.encode(),
+            f"{service_name}:{ts}:{path}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        
+        resp = httpx.get(
+            f"{org_service_url}{path}",
+            headers={
+                'X-Service-Name': service_name,
+                'X-Service-Timestamp': ts,
+                'X-Service-Signature': sig,
+            },
+            timeout=5.0,
+        )
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get('user_id')
+        else:
+            logger.warning(f"Failed to fetch org owner: {resp.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.exception(f"Error fetching org owner: {e}")
+        return None
