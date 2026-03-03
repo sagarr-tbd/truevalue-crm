@@ -54,6 +54,8 @@ INSTALLED_APPS = [
     'contacts_v2',  # V2 Contacts with Dynamic Forms
     'companies_v2',  # V2 Companies with Dynamic Forms
     'deals_v2',  # V2 Deals with Dynamic Forms
+    'pipelines_v2',  # V2 Pipelines with Stages
+    'activities_v2',  # V2 Activities (Tasks, Calls, Emails, Meetings, Notes)
 ]
 
 MIDDLEWARE = [

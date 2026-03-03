@@ -1306,6 +1306,36 @@ def get_default_company_schema():
     }
 
 
+def _get_pipeline_stage_options():
+    """Load stage options from the default PipelineV2, falling back to hardcoded defaults."""
+    try:
+        from pipelines_v2.models import PipelineV2
+        pipeline = PipelineV2.objects.filter(
+            is_default=True, deleted_at__isnull=True
+        ).first()
+        if not pipeline:
+            pipeline = PipelineV2.objects.filter(
+                deleted_at__isnull=True
+            ).first()
+        if pipeline:
+            stages = pipeline.stages.all().order_by('order')
+            if stages.exists():
+                return [
+                    {'value': s.name.lower().replace(' ', '_'), 'label': s.name, 'color': s.color}
+                    for s in stages
+                ], stages.first().name.lower().replace(' ', '_')
+    except Exception:
+        pass
+    return [
+        {'value': 'prospecting', 'label': 'Prospecting'},
+        {'value': 'qualification', 'label': 'Qualification'},
+        {'value': 'proposal', 'label': 'Proposal'},
+        {'value': 'negotiation', 'label': 'Negotiation'},
+        {'value': 'closed_won', 'label': 'Closed Won'},
+        {'value': 'closed_lost', 'label': 'Closed Lost'},
+    ], 'prospecting'
+
+
 def get_default_deal_schema():
     """
     Get default deal form schema.
@@ -1313,10 +1343,13 @@ def get_default_deal_schema():
     Matches V1 Deal model fields. System fields (stage, value, currency,
     probability, expected_close_date, actual_close_date, loss_reason) are
     routed to DB columns by the serializer; the rest stay in entity_data.
+    Stage options are loaded dynamically from PipelineV2.
 
     Returns:
         dict: Complete form schema for deals
     """
+    stage_options, stage_default = _get_pipeline_stage_options()
+
     return {
         'version': '1.0.0',
         'sections': [
@@ -1392,16 +1425,9 @@ def get_default_deal_schema():
                         'help_text': '',
                         'validation_rules': {},
                         'options': {
-                            'options': [
-                                {'value': 'prospecting', 'label': 'Prospecting'},
-                                {'value': 'qualification', 'label': 'Qualification'},
-                                {'value': 'proposal', 'label': 'Proposal'},
-                                {'value': 'negotiation', 'label': 'Negotiation'},
-                                {'value': 'closed_won', 'label': 'Closed Won'},
-                                {'value': 'closed_lost', 'label': 'Closed Lost'},
-                            ]
+                            'options': stage_options,
                         },
-                        'default_value': 'prospecting',
+                        'default_value': stage_default,
                         'width': 'half',
                         'readonly': False,
                     },

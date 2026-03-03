@@ -8,7 +8,7 @@ export interface DealV2 {
   updated_at?: string;
   deleted_at?: string | null;
   status: 'open' | 'won' | 'lost' | 'abandoned';
-  stage: 'prospecting' | 'qualification' | 'proposal' | 'negotiation' | 'closed_won' | 'closed_lost';
+  stage: string;
   value: string;
   currency: string;
   probability?: number | null;

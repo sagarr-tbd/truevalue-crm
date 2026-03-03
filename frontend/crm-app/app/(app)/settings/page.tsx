@@ -23,6 +23,7 @@ import {
   TeamManagementSettings,
   // DataManagementSettings,
   PipelinesSettings,
+  PipelinesSettingsV2,
   RolesPermissionsSettings,
   TagManagementSettings,
   CustomFieldsSettings,
@@ -35,6 +36,12 @@ const allSettingsSections = [
     label: "Sales Pipelines",
     icon: GitBranch,
     color: "from-brand-teal to-brand-purple",
+  },
+  {
+    id: "pipelines-v2",
+    label: "Sales Pipelines V2",
+    icon: GitBranch,
+    color: "from-brand-purple to-brand-teal",
   },
   {
     id: "tags",
@@ -74,6 +81,7 @@ export default function SettingsPage() {
       if (s.id === "team") return isAdmin || can(ORG_MANAGE_MEMBERS);
       if (s.id === "roles") return isAdmin || can(ROLES_READ);
       if (s.id === "pipelines") return can(DEALS_MANAGE_PIPELINE);
+      if (s.id === "pipelines-v2") return can(DEALS_MANAGE_PIPELINE);
       if (s.id === "tags") return can(CONTACTS_WRITE);
       if (s.id === "customFields") return can(CONTACTS_WRITE);
       return true;
@@ -88,6 +96,8 @@ export default function SettingsPage() {
     switch (activeSection) {
       case "pipelines":
         return <PipelinesSettings />;
+      case "pipelines-v2":
+        return <PipelinesSettingsV2 />;
       case "tags":
         return <TagManagementSettings />;
       case "customFields":

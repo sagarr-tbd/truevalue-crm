@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DealV2
+from .models import DealV2, DealStageHistoryV2
 
 
 @admin.register(DealV2)
@@ -50,3 +50,11 @@ class DealV2Admin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return DealV2.objects.all()
+
+
+@admin.register(DealStageHistoryV2)
+class DealStageHistoryV2Admin(admin.ModelAdmin):
+    list_display = ['deal', 'from_stage', 'to_stage', 'changed_by', 'time_in_stage_seconds', 'created_at']
+    list_filter = ['to_stage', 'created_at']
+    readonly_fields = ['id', 'deal', 'from_stage', 'to_stage', 'changed_by', 'time_in_stage_seconds', 'created_at']
+    ordering = ['-created_at']
