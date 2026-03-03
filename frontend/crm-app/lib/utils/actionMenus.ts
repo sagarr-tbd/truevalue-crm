@@ -5,7 +5,7 @@
  * They eliminate duplication between table view and grid view.
  */
 
-import { FileText, Edit, Mail, Phone, Trash2, UserPlus, type LucideIcon } from 'lucide-react';
+import { FileText, Edit, Mail, Phone, Trash2, UserPlus, Globe, type LucideIcon } from 'lucide-react';
 
 // =============================================================================
 // TYPES
@@ -36,6 +36,7 @@ interface LeadForMenu {
 interface CompanyForMenu {
   id: string;
   email?: string;
+  website?: string;
 }
 
 interface DealForMenu {
@@ -190,6 +191,15 @@ export function getCompanyActionMenuItems<T extends CompanyForMenu>(
       icon: Mail,
       onClick: () => handlers.onSendEmail(company.email || ''),
       disabled: !company.email,
+    },
+    {
+      label: 'View Website',
+      icon: Globe,
+      onClick: () => {
+        const url = company.website?.startsWith('http') ? company.website : `https://${company.website}`;
+        window.open(url, '_blank');
+      },
+      disabled: !company.website,
     },
     { divider: true, label: '', onClick: () => {} },
     {

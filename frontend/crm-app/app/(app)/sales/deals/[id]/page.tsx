@@ -415,7 +415,7 @@ export default function DealDetailPage() {
                 <h1 className="text-3xl font-bold text-foreground mb-2">{deal.name}</h1>
                 <div className="flex flex-wrap items-center gap-2">
                   {deal.companyName && (
-                    <Link href={`/sales/companies/${deal.companyId}`} className="text-lg text-muted-foreground hover:text-primary flex items-center gap-1">
+                    <Link href={`/sales/accounts/${deal.companyId}`} className="text-lg text-muted-foreground hover:text-primary flex items-center gap-1">
                       <Building2 className="h-4 w-4" />
                       {deal.companyName}
                     </Link>
@@ -804,7 +804,7 @@ export default function DealDetailPage() {
                                   <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
                                     <Building2 className="h-5 w-5 text-muted-foreground" />
                                   </div>
-                                  <Link href={`/sales/companies/${deal.companyId}`} className="text-sm font-medium text-primary hover:underline">
+                                  <Link href={`/sales/accounts/${deal.companyId}`} className="text-sm font-medium text-primary hover:underline">
                                     {deal.companyName}
                                   </Link>
                                 </div>

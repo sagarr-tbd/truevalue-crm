@@ -60,10 +60,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
-  { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 export default function CompaniesV2Page() {
   const router = useRouter();
@@ -206,6 +203,8 @@ export default function CompaniesV2Page() {
       industry: company.display_industry || company.industry || company.entity_data.industry || '',
       size: company.size || company.entity_data.size || '',
       status: company.status,
+      location: [company.entity_data?.city, company.entity_data?.state, company.entity_data?.country].filter(Boolean).join(', '),
+      revenue: company.entity_data?.annual_revenue || '',
       created: new Date(company.created_at).toLocaleDateString(),
       initials: (company.entity_data.name || 'C')[0]?.toUpperCase() || 'C',
     })),
@@ -338,7 +337,7 @@ export default function CompaniesV2Page() {
     }
   };
 
-  const handleBulkUpdateStatus = async (newStatus: 'active' | 'inactive' | 'prospect' | 'customer' | 'partner' | 'archived') => {
+  const handleBulkUpdateStatus = async (newStatus: "active" | "inactive" | "prospect" | "customer" | "partner" | "archived") => {
     setIsBulkProcessing(true);
     try {
       await bulkUpdateCompanies.mutateAsync({ ids: selectedCompanies, data: { status: newStatus } });
@@ -519,6 +518,20 @@ export default function CompaniesV2Page() {
       ),
     },
     {
+      key: "industry",
+      label: "Industry",
+      render: (value: string | undefined) => (
+        <span className="text-sm text-foreground capitalize">{value?.replace(/_/g, ' ') || "N/A"}</span>
+      ),
+    },
+    {
+      key: "location",
+      label: "Location",
+      render: (value: string | undefined) => (
+        <span className="text-sm text-muted-foreground">{value || "N/A"}</span>
+      ),
+    },
+    {
       key: "size",
       label: "Size",
       render: (value: string | undefined) => (
@@ -540,7 +553,7 @@ export default function CompaniesV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Companies (V2 Dynamic Forms)"
+        title="Companies"
         icon={Building2}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
@@ -608,7 +621,7 @@ export default function CompaniesV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/companies/export/"
                 exportParams={exportParams}
-                filename="companies-v2"
+                filename="companies"
                 totalRecords={totalItems}
               />
             )}
@@ -788,7 +801,7 @@ export default function CompaniesV2Page() {
         itemName="company"
       />
 
-      <BulkUpdateModal<'active' | 'inactive' | 'prospect' | 'customer' | 'partner' | 'archived'>
+      <BulkUpdateModal<"active" | "inactive" | "prospect" | "customer" | "partner" | "archived">
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}

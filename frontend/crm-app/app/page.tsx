@@ -23,14 +23,14 @@ export default function Home() {
       title: "Sales Management",
       description: "Manage leads, contacts, accounts, deals, and campaigns efficiently",
       color: "teal",
-      link: "/sales/leads",
+      link: "/sales-v2/leads",
     },
     {
       icon: Calendar,
       title: "Activity Tracking",
       description: "Track tasks, schedule calls and meetings seamlessly",
       color: "coral",
-      link: "/activities/tasks",
+      link: "/activities-v2/tasks",
     },
     {
       icon: Package,

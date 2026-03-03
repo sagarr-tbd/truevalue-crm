@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ContactV2
+from .models import ContactV2, ContactCompanyV2
 
 
 @admin.register(ContactV2)
@@ -59,3 +59,11 @@ class ContactV2Admin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return ContactV2.objects.all()
+
+
+@admin.register(ContactCompanyV2)
+class ContactCompanyV2Admin(admin.ModelAdmin):
+    list_display = ['id', 'contact', 'company_id', 'title', 'is_primary', 'is_current', 'created_at']
+    list_filter = ['is_primary', 'is_current']
+    search_fields = ['contact__id', 'company_id', 'title']
+    readonly_fields = ['id', 'created_at', 'updated_at']

@@ -10,10 +10,12 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
 from django.db.models import Count, Q
-from datetime import timedelta
+from django.db.models.functions import TruncDate
+from datetime import timedelta, datetime
 
 from .models import ActivityV2
 from .serializers import ActivityV2Serializer, ActivityV2ListSerializer
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
 class ActivityV2Pagination(PageNumberPagination):
@@ -22,7 +24,8 @@ class ActivityV2Pagination(PageNumberPagination):
     max_page_size = 100
 
 
-class ActivityV2ViewSet(viewsets.ModelViewSet):
+class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    audit_tracked_fields = ['status', 'priority', 'activity_type', 'owner_id', 'assigned_to_id']
     queryset = ActivityV2.objects.all()
     serializer_class = ActivityV2Serializer
     pagination_class = ActivityV2Pagination
@@ -157,6 +160,60 @@ class ActivityV2ViewSet(viewsets.ModelViewSet):
             'by_status': by_status,
             'by_priority': by_priority,
             'overdue': overdue_count,
+        })
+
+    @action(detail=False, methods=['get'])
+    def trend(self, request):
+        """Activity trend: daily counts over a date range, optionally by type."""
+        org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            days = int(request.query_params.get('days', 30))
+            days = max(1, min(days, 365))
+        except (ValueError, TypeError):
+            days = 30
+
+        now = timezone.now()
+        start = now - timedelta(days=days)
+
+        qs = ActivityV2.objects.filter(org_id=org_id, created_at__gte=start)
+
+        activity_type = request.query_params.get('activity_type')
+        if activity_type:
+            qs = qs.filter(activity_type=activity_type)
+
+        daily = (
+            qs.annotate(date=TruncDate('created_at'))
+            .values('date')
+            .annotate(count=Count('id'))
+            .order_by('date')
+        )
+
+        by_type_daily = (
+            qs.annotate(date=TruncDate('created_at'))
+            .values('date', 'activity_type')
+            .annotate(count=Count('id'))
+            .order_by('date', 'activity_type')
+        )
+
+        type_breakdown = {}
+        for row in by_type_daily:
+            t = row['activity_type']
+            type_breakdown.setdefault(t, []).append({
+                'date': row['date'].isoformat(),
+                'count': row['count'],
+            })
+
+        return Response({
+            'days': days,
+            'daily': [
+                {'date': r['date'].isoformat(), 'count': r['count']}
+                for r in daily
+            ],
+            'by_type': type_breakdown,
+            'total': qs.count(),
         })
 
     @action(detail=False, methods=['get'])

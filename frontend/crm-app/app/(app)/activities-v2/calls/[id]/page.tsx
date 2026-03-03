@@ -352,20 +352,12 @@ export default function CallV2DetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Flag className="h-4 w-4" />
-                Outcome
+                <Calendar className="h-4 w-4" />
+                Date
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {call.call_outcome ? (
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-medium inline-block ${getOutcomeColors(call.call_outcome)}`}
-                >
-                  {CALL_OUTCOME_DISPLAY[call.call_outcome] || call.call_outcome}
-                </span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+              <p className="text-sm font-medium">{formatDate(call.due_date)}</p>
             </CardContent>
           </Card>
 
@@ -390,11 +382,13 @@ export default function CallV2DetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Clock className="h-4 w-4" />
-                Last Updated
+                Duration
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm font-medium">{formatDate(call.updated_at)}</p>
+              <p className="text-sm font-medium">
+                {call.duration_minutes != null ? `${call.duration_minutes} min` : "—"}
+              </p>
             </CardContent>
           </Card>
         </motion.div>
@@ -467,7 +461,7 @@ export default function CallV2DetailPage() {
                       <div className="p-2 bg-purple-500/10 rounded-lg">
                         <Calendar className="h-4 w-4 text-purple-500" />
                       </div>
-                      <h3 className="text-base font-semibold">Schedule & Timing</h3>
+                      <h3 className="text-base font-semibold">Schedule & Duration</h3>
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between items-start">

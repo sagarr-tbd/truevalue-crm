@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Target,
   Trophy,
+  AlertCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { useUIStore } from "@/stores";
 import { usePermission, DEALS_READ, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
+import { usePipelinesV2, useDefaultPipelineV2 } from "@/lib/queries/usePipelinesV2";
+import { KanbanBoard, type KanbanColumn, type KanbanDeal } from "@/components/KanbanBoard";
 
 const DeleteConfirmationModal = dynamic(
   () => import("@/components/DeleteConfirmationModal"),
@@ -60,10 +63,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
-  { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 const STAGE_LABELS: Record<string, string> = {
   prospecting: "Prospecting",
@@ -123,6 +123,14 @@ export default function DealsV2Page() {
   const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
+  // Kanban state
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+  const { data: defaultPipeline } = useDefaultPipelineV2();
+  const { data: pipelinesData } = usePipelinesV2({ is_active: true });
+  const pipelines = pipelinesData?.results || [];
+  const activePipelineId = selectedPipelineId || defaultPipeline?.id || '';
+  const activePipeline = pipelines.find(p => p.id === activePipelineId) || defaultPipeline;
+
   const queryParams = useMemo(() => {
     const params: any = {
       page: currentPage,
@@ -146,7 +154,7 @@ export default function DealsV2Page() {
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, stageFilter, filterGroup]);
 
-  const { data: dealsResponse, isLoading } = useDealsV2(queryParams);
+  const { data: dealsResponse, isLoading, isError } = useDealsV2(queryParams);
   const { data: statsData } = useDealsV2Stats() as { data: DealV2Stats | undefined };
 
   const { data: availableStages = [] } = useQuery({
@@ -164,6 +172,62 @@ export default function DealsV2Page() {
   const deals = dealsResponse?.results || [];
   const totalItems = dealsResponse?.count || 0;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+  // Kanban: fetch all deals for the active pipeline (when in kanban mode)
+  const { data: kanbanDealsResponse, isLoading: isKanbanLoading } = useDealsV2(
+    { pipeline_id: activePipelineId, page_size: 200, status: 'open' },
+    { enabled: viewMode === 'kanban' && !!activePipelineId }
+  );
+
+  const kanbanColumns = useMemo<KanbanColumn[]>(() => {
+    if (!activePipeline?.stages || !kanbanDealsResponse?.results) return [];
+    const kanbanDeals = kanbanDealsResponse.results;
+
+    return activePipeline.stages
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map(stage => {
+        const stageDeals: KanbanDeal[] = kanbanDeals
+          .filter(d => d.stage === stage.id || d.stage === stage.name)
+          .map(d => ({
+            id: d.id,
+            name: d.display_name || d.entity_data?.name || 'Untitled',
+            value: parseFloat(String(d.value)) || 0,
+            currency: d.currency || activePipeline.currency || 'USD',
+            companyName: d.display_company,
+            contactName: d.display_contact,
+            expectedCloseDate: d.expected_close_date ?? undefined,
+            stageId: stage.id,
+          }));
+        return {
+          stage: {
+            id: stage.id,
+            name: stage.name,
+            probability: stage.probability,
+            order: stage.order,
+            isWon: stage.is_won,
+            isLost: stage.is_lost,
+            color: stage.color,
+          },
+          deals: stageDeals,
+          totalValue: stageDeals.reduce((sum, d) => sum + d.value, 0),
+        };
+      });
+  }, [activePipeline, kanbanDealsResponse]);
+
+  const handleKanbanDealMove = async (dealId: string, newStageId: string) => {
+    if (!can(DEALS_WRITE)) return;
+    try {
+      await updateDeal.mutateAsync({ id: dealId, data: { stage: newStageId } });
+      toast.success("Deal moved");
+    } catch {
+      toast.error("Failed to move deal");
+    }
+  };
+
+  const handleKanbanDealClick = (deal: KanbanDeal) => {
+    router.push(`/sales-v2/deals/${deal.id}`);
+  };
 
   useEffect(() => {
     (setModuleFilters as (module: string, filters: any) => void)('deals-v2', {
@@ -369,7 +433,7 @@ export default function DealsV2Page() {
     }
   };
 
-  const handleBulkUpdateStatus = async (newStatus: 'open' | 'won' | 'lost' | 'abandoned') => {
+  const handleBulkUpdateStatus = async (newStatus: "open" | "won" | "lost" | "abandoned") => {
     setIsBulkProcessing(true);
     try {
       await bulkUpdateDeals.mutateAsync({ ids: selectedDeals, data: { status: newStatus } });
@@ -512,6 +576,20 @@ export default function DealsV2Page() {
       ),
     },
     {
+      key: "contact",
+      label: "Contact",
+      render: (value: string) => (
+        <span className="text-sm text-muted-foreground">{value || '-'}</span>
+      ),
+    },
+    {
+      key: "company",
+      label: "Company",
+      render: (value: string) => (
+        <span className="text-sm text-muted-foreground">{value || '-'}</span>
+      ),
+    },
+    {
       key: "status",
       label: "Status",
       render: (value: string) => (
@@ -567,11 +645,11 @@ export default function DealsV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Deals (V2 Dynamic Forms)"
+        title="Deals"
         icon={DollarSign}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${totalItems} deals`}
+        subtitle={`${totalItems} deals in pipeline`}
         searchPlaceholder="Search deals by name..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
@@ -580,7 +658,7 @@ export default function DealsV2Page() {
             <Button variant="outline" size="sm" onClick={() => toggleStats()} title={showStats ? "Hide Statistics" : "Show Statistics"}>
               {showStats ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
-            <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} />
+            <ViewToggle viewMode={viewMode} onViewModeChange={setViewMode} showLabels={false} showKanban={true} />
 
             <div className="relative" ref={filterDropdownRef}>
               <Button variant="outline" size="sm" onClick={() => setShowFilterDropdown(!showFilterDropdown)} title="Filter deals by status">
@@ -635,7 +713,7 @@ export default function DealsV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/deals/export/"
                 exportParams={exportParams}
-                filename="deals-v2"
+                filename="deals"
                 totalRecords={totalItems}
               />
             )}
@@ -689,6 +767,38 @@ export default function DealsV2Page() {
         {showStats && <StatsCards stats={stats} columns={4} />}
       </AnimatePresence>
 
+      {/* Pipeline Switcher - Only show in Kanban view */}
+      {viewMode === "kanban" && pipelines.length > 1 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">Pipeline:</span>
+          <div className="relative">
+            <select
+              value={activePipelineId}
+              onChange={(e) => setSelectedPipelineId(e.target.value)}
+              className="appearance-none bg-background border border-border rounded-lg px-4 py-2 pr-10 text-sm font-medium cursor-pointer hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+            >
+              {pipelines.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {activePipeline?.stages?.length || 0} stages
+          </span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3 mb-4">
+          <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">Failed to load deals</p>
+            <p className="text-sm text-red-600/80 dark:text-red-400/80">Please try again or contact support if the issue persists.</p>
+          </div>
+        </div>
+      )}
+
       {viewMode === "list" ? (
         <DataTable
           data={transformedDeals}
@@ -712,6 +822,24 @@ export default function DealsV2Page() {
             />
           )}
         />
+      ) : viewMode === "kanban" ? (
+        activePipeline && kanbanColumns.length > 0 ? (
+          <KanbanBoard
+            columns={kanbanColumns}
+            onDealMove={handleKanbanDealMove}
+            onDealClick={handleKanbanDealClick}
+            isLoading={isKanbanLoading}
+            currency={activePipeline.currency}
+          />
+        ) : isKanbanLoading ? (
+          <div className="flex items-center justify-center h-[500px]">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-[500px] text-muted-foreground">
+            No pipeline configured. Create a pipeline to use Kanban view.
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {transformedDeals.map((deal, index) => (
@@ -773,15 +901,17 @@ export default function DealsV2Page() {
         </div>
       )}
 
-      <DataPagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={totalItems}
-        itemsPerPage={itemsPerPage}
-        onPageChange={(page) => { setCurrentPage(page); setSelectedDeals([]); }}
-        onItemsPerPageChange={(items) => { setItemsPerPage(items); setCurrentPage(1); setSelectedDeals([]); }}
-        filterInfo={statusFilter ? `filtered by ${statusFilter}` : undefined}
-      />
+      {viewMode !== "kanban" && (
+        <DataPagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          itemsPerPage={itemsPerPage}
+          onPageChange={(page) => { setCurrentPage(page); setSelectedDeals([]); }}
+          onItemsPerPageChange={(items) => { setItemsPerPage(items); setCurrentPage(1); setSelectedDeals([]); }}
+          filterInfo={statusFilter ? `filtered by ${statusFilter}` : undefined}
+        />
+      )}
 
       <DeleteConfirmationModal
         isOpen={isDeleteModalOpen}
@@ -811,7 +941,7 @@ export default function DealsV2Page() {
         itemName="deal"
       />
 
-      <BulkUpdateModal<'open' | 'won' | 'lost' | 'abandoned'>
+      <BulkUpdateModal<"open" | "won" | "lost" | "abandoned">
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}

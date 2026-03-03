@@ -30,8 +30,8 @@ class Command(BaseCommand):
             self.stdout.write(f"Seeding forms for organization: {org_id_str}")
         else:
             # Get all organizations from existing data
-            from crm.models import Contact
-            org_ids = Contact.objects.values_list('org_id', flat=True).distinct()
+            from contacts_v2.models import ContactV2
+            org_ids = ContactV2.objects.values_list('org_id', flat=True).distinct()
             
             if not org_ids:
                 self.stdout.write(self.style.WARNING('No organizations found. Please provide --org-id'))

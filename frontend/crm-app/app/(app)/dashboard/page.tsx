@@ -30,11 +30,11 @@ import {
   ActivityChart,
   SalesTrendChart,
 } from "@/components/Charts";
-import { useContacts } from "@/lib/queries/useContacts";
-import { useLeads } from "@/lib/queries/useLeads";
-import { useDeals, useDealForecast, useDealAnalysis } from "@/lib/queries/useDeals";
-import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
-import { useActivities, useUpcomingActivities, useActivityTrend, useCompleteActivity } from "@/lib/queries/useActivities";
+import { useDashboardV2 } from "@/lib/queries/useReportsV2";
+import { useDealV2Forecast, useDealV2Analysis } from "@/lib/queries/useDealsV2";
+import { useDefaultPipelineV2, usePipelineV2Stats } from "@/lib/queries/usePipelinesV2";
+import { useActivitiesV2, useActivitiesV2Upcoming, useActivityV2Trend, useCompleteActivityV2 } from "@/lib/queries/useActivitiesV2";
+import { useLeadConversionReportV2 } from "@/lib/queries/useReportsV2";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -145,49 +145,46 @@ function ListItemSkeleton() {
 // ============================================================================
 
 const ACTIVITY_TYPE_PATH: Record<string, string> = {
-  task: '/activities/tasks',
-  call: '/activities/calls',
-  meeting: '/activities/meetings',
-  note: '/activities/notes',
-  email: '/activities/tasks',
+  task: '/activities-v2/tasks',
+  call: '/activities-v2/calls',
+  meeting: '/activities-v2/meetings',
+  note: '/activities-v2/notes',
+  email: '/activities-v2/emails',
 };
 
 export default function DashboardPage() {
   const router = useRouter();
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
-  const completeActivity = useCompleteActivity();
+  const completeActivity = useCompleteActivityV2();
 
-  // Data hooks
-  const { data: contactsData, isLoading: contactsLoading } = useContacts({ page_size: 1 });
-  const { data: leadsData, isLoading: leadsLoading } = useLeads({ page_size: 1 });
-  const { data: dealsData, isLoading: dealsLoading } = useDeals({ page_size: 1 });
-  const { data: defaultPipeline } = useDefaultPipeline();
-  const { data: pipelineStats, isLoading: statsLoading } = usePipelineStats(defaultPipeline?.id || "");
+  // Data hooks — all V2
+  const { data: dashboard, isLoading: dashboardLoading } = useDashboardV2();
+  const { data: defaultPipeline } = useDefaultPipelineV2();
+  const { data: pipelineStats, isLoading: statsLoading } = usePipelineV2Stats(defaultPipeline?.id);
   const trendDays = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-  const { data: forecast, isLoading: forecastLoading } = useDealForecast({
+  const { data: forecast, isLoading: forecastLoading } = useDealV2Forecast({
     days: trendDays,
     pipeline_id: defaultPipeline?.id,
   });
-  const { data: activityTrend } = useActivityTrend(trendDays);
-  const { data: dealAnalysis } = useDealAnalysis({ days: trendDays, pipeline_id: defaultPipeline?.id });
-  const { data: recentActivitiesData, isLoading: activitiesLoading } = useActivities({ page_size: 5 });
-  const { data: upcomingTasksData, isLoading: tasksLoading } = useUpcomingActivities();
+  const { data: activityTrend } = useActivityV2Trend(trendDays);
+  const { data: dealAnalysis } = useDealV2Analysis({ days: trendDays, pipeline_id: defaultPipeline?.id });
+  const { data: leadConversion } = useLeadConversionReportV2({ days: trendDays });
+  const { data: recentActivitiesData, isLoading: activitiesLoading } = useActivitiesV2({ page_size: 5 });
+  const { data: upcomingTasksData, isLoading: tasksLoading } = useActivitiesV2Upcoming();
 
-  const metricsLoading = contactsLoading || leadsLoading || dealsLoading || statsLoading;
+  const metricsLoading = dashboardLoading || statsLoading;
 
   // ============================================================================
   // DERIVED DATA
   // ============================================================================
 
   const metrics = useMemo(() => {
-    const totalContacts = contactsData?.meta?.total || 0;
-    const totalLeads = leadsData?.meta?.total || 0;
-    const openDeals = pipelineStats?.openDeals || dealsData?.meta?.stats?.byStatus?.open || 0;
-    const wonRevenue = pipelineStats?.wonValue || dealsData?.meta?.stats?.wonValue || 0;
-    const pipelineValue = pipelineStats
-      ? pipelineStats.totalValue - pipelineStats.wonValue
-      : dealsData?.meta?.stats?.openValue || 0;
-    const totalDeals = pipelineStats?.totalDeals || 0;
+    const totalContacts = dashboard?.counts?.contacts || 0;
+    const totalLeads = dashboard?.counts?.leads || 0;
+    const openDeals = dashboard?.deals?.open || 0;
+    const wonRevenue = parseFloat(dashboard?.deals?.won_value || '0');
+    const pipelineValue = parseFloat(dashboard?.deals?.open_value || '0');
+    const totalDeals = dashboard?.counts?.deals || 0;
 
     return [
       { label: "Contacts", value: formatNumber(totalContacts), icon: Users, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/20" },
@@ -197,26 +194,34 @@ export default function DashboardPage() {
       { label: "Won Revenue", value: formatCurrency(wonRevenue), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/20" },
       { label: "Total Deals", value: formatNumber(totalDeals), icon: Handshake, color: "text-pink-600", bg: "bg-pink-50 dark:bg-pink-900/20" },
     ];
-  }, [contactsData, leadsData, dealsData, pipelineStats]);
+  }, [dashboard]);
 
   const pipelineChartData = useMemo(() => {
-    if (!pipelineStats?.byStage || pipelineStats.byStage.length === 0) return undefined;
-    return pipelineStats.byStage.map((s) => ({ stage: s.stageName, count: s.dealCount, value: s.dealValue }));
+    const byStage = pipelineStats?.by_stage;
+    if (!byStage || Object.keys(byStage).length === 0) return undefined;
+    return Object.entries(byStage).map(([stage, info]) => ({
+      stage,
+      count: (info as { count: number; value: string }).count,
+      value: parseFloat((info as { count: number; value: string }).value || '0'),
+    }));
   }, [pipelineStats]);
 
   const leadSourceChartData = useMemo(() => {
-    const bySource = leadsData?.meta?.stats?.bySource;
-    if (!bySource || Object.keys(bySource).length === 0) return undefined;
-    return Object.entries(bySource).map(([name, value]) => ({ name, value }));
-  }, [leadsData]);
+    if (!leadConversion?.by_source || leadConversion.by_source.length === 0) return undefined;
+    return leadConversion.by_source.map((s) => ({ name: s.source, value: s.total }));
+  }, [leadConversion]);
 
   const activityChartData = useMemo(() => {
-    if (!activityTrend || activityTrend.length === 0) return undefined;
-    return activityTrend.map((d) => ({
+    if (!activityTrend?.daily || activityTrend.daily.length === 0) return undefined;
+    const byType = activityTrend.by_type || {};
+    const callMap = new Map((byType.call || []).map((d) => [d.date, d.count]));
+    const meetingMap = new Map((byType.meeting || []).map((d) => [d.date, d.count]));
+    const emailMap = new Map((byType.email || []).map((d) => [d.date, d.count]));
+    return activityTrend.daily.map((d) => ({
       date: new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      calls: d.calls,
-      meetings: d.meetings,
-      emails: d.emails,
+      calls: callMap.get(d.date) || 0,
+      meetings: meetingMap.get(d.date) || 0,
+      emails: emailMap.get(d.date) || 0,
     }));
   }, [activityTrend]);
 
@@ -226,19 +231,19 @@ export default function DashboardPage() {
     return trend.map((t) => ({
       month: new Date(t.period + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
       sales: t.won,
-      revenue: t.won_value,
+      revenue: t.won_value ?? 0,
     }));
   }, [dealAnalysis]);
 
   const recentActivities = useMemo(() => {
-    return (recentActivitiesData?.data || []).slice(0, 5).map((a) => {
-      const mapping = ACTIVITY_ICONS[a.type] || { icon: Activity, color: "text-muted-foreground" };
+    return (recentActivitiesData?.results || []).slice(0, 5).map((a) => {
+      const mapping = ACTIVITY_ICONS[a.activity_type] || { icon: Activity, color: "text-muted-foreground" };
       return {
         id: a.id,
-        rawType: a.type,
-        type: a.type.charAt(0).toUpperCase() + a.type.slice(1),
+        rawType: a.activity_type,
+        type: a.activity_type.charAt(0).toUpperCase() + a.activity_type.slice(1),
         name: a.subject,
-        time: a.createdAt ? formatTimeAgo(a.createdAt) : "",
+        time: a.created_at ? formatTimeAgo(a.created_at) : "",
         icon: mapping.icon,
         color: mapping.color,
       };
@@ -246,13 +251,18 @@ export default function DashboardPage() {
   }, [recentActivitiesData]);
 
   const upcomingTasks = useMemo(() => {
-    return (upcomingTasksData || []).slice(0, 5).map((t) => ({
+    return (upcomingTasksData?.results || []).slice(0, 5).map((t) => ({
       id: t.id,
       title: t.subject,
-      due: formatDueDate(t.dueDate),
-      priority: t.priority || "medium",
+      due: formatDueDate(t.due_date ?? undefined),
+      priority: t.priority || "normal",
     }));
   }, [upcomingTasksData]);
+
+  const wonCount = dashboard?.deals?.won || 0;
+  const lostCount = dashboard?.deals?.lost || 0;
+  const closedTotal = wonCount + lostCount;
+  const winRate = closedTotal > 0 ? (wonCount / closedTotal) * 100 : 0;
 
   // ============================================================================
   // ANIMATION VARIANTS
@@ -342,10 +352,10 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-xs font-medium text-muted-foreground">Won Deals</p>
                       <p className="text-2xl font-bold text-foreground mt-1">
-                        {formatNumber(pipelineStats?.wonDeals || 0)}
+                        {formatNumber(dashboard?.deals?.won || 0)}
                       </p>
                       <p className="text-sm text-green-600 mt-0.5">
-                        {formatCurrency(pipelineStats?.wonValue || 0)}
+                        {formatCurrency(parseFloat(dashboard?.deals?.won_value || '0'))}
                       </p>
                     </div>
                     <div className="p-3 rounded-full bg-green-100 dark:bg-green-900/30">
@@ -363,10 +373,10 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-xs font-medium text-muted-foreground">Lost Deals</p>
                       <p className="text-2xl font-bold text-foreground mt-1">
-                        {formatNumber(pipelineStats?.lostDeals || 0)}
+                        {formatNumber(dashboard?.deals?.lost || 0)}
                       </p>
                       <p className="text-sm text-red-600 mt-0.5">
-                        {formatCurrency(dealsData?.meta?.stats?.lostValue || 0)}
+                        {formatCurrency(0)}
                       </p>
                     </div>
                     <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/30">
@@ -384,7 +394,7 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-xs font-medium text-muted-foreground">Win Rate</p>
                       <p className="text-2xl font-bold text-foreground mt-1">
-                        {(pipelineStats?.winRate || 0).toFixed(1)}%
+                        {winRate.toFixed(1)}%
                       </p>
                     </div>
                     <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30">
@@ -394,13 +404,13 @@ export default function DashboardPage() {
                   <div className="w-full bg-muted rounded-full h-2">
                     <motion.div
                       initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(pipelineStats?.winRate || 0, 100)}%` }}
+                      animate={{ width: `${Math.min(winRate, 100)}%` }}
                       transition={{ duration: 1, delay: 0.3 }}
                       className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground mt-1.5">
-                    {pipelineStats?.wonDeals || 0} won / {(pipelineStats?.wonDeals || 0) + (pipelineStats?.lostDeals || 0)} closed
+                    {dashboard?.deals?.won || 0} won / {(dashboard?.deals?.won || 0) + (dashboard?.deals?.lost || 0)} closed
                   </p>
                 </CardContent>
               </Card>
@@ -452,26 +462,26 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="text-center p-3 bg-muted/30 rounded-lg">
                       <p className="text-xs text-muted-foreground">Deals</p>
-                      <p className="text-xl font-bold">{forecast.total_deals}</p>
+                      <p className="text-xl font-bold">{forecast.deal_count}</p>
                     </div>
                     <div className="text-center p-3 bg-muted/30 rounded-lg">
                       <p className="text-xs text-muted-foreground">Value</p>
-                      <p className="text-xl font-bold">{formatCurrency(forecast.total_value)}</p>
+                      <p className="text-xl font-bold">{formatCurrency(parseFloat(forecast.total_value))}</p>
                     </div>
                     <div className="text-center p-3 bg-primary/5 rounded-lg border border-primary/20">
                       <p className="text-xs text-muted-foreground">Weighted</p>
-                      <p className="text-xl font-bold text-primary">{formatCurrency(forecast.weighted_value)}</p>
+                      <p className="text-xl font-bold text-primary">{formatCurrency(parseFloat(forecast.weighted_value))}</p>
                     </div>
                   </div>
-                  {forecast.by_stage && forecast.by_stage.length > 0 && (
+                  {forecast.deals && forecast.deals.length > 0 && (
                     <div className="space-y-1.5">
-                      {forecast.by_stage.map((stage) => (
-                        <div key={stage.stage_id} className="flex items-center justify-between p-2 bg-muted/20 rounded-md text-sm">
+                      {forecast.deals.slice(0, 5).map((deal) => (
+                        <div key={deal.id} className="flex items-center justify-between p-2 bg-muted/20 rounded-md text-sm">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{stage.stage_name}</span>
-                            <span className="text-xs text-muted-foreground">{stage.count}</span>
+                            <span className="font-medium">{deal.name || deal.stage}</span>
+                            <span className="text-xs text-muted-foreground">{deal.probability}%</span>
                           </div>
-                          <span className="font-semibold">{formatCurrency(stage.weighted_value)}</span>
+                          <span className="font-semibold">{formatCurrency(parseFloat(deal.weighted_value))}</span>
                         </div>
                       ))}
                     </div>
@@ -503,7 +513,7 @@ export default function DashboardPage() {
                 <Activity className="h-5 w-5 text-primary" />
                 Recent Activities
               </CardTitle>
-              <Link href="/analytics">
+              <Link href="/activities-v2/tasks">
                 <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
                   View All <ArrowUpRight className="h-3 w-3" />
                 </Button>
@@ -525,7 +535,7 @@ export default function DashboardPage() {
                       whileHover={{ x: 3 }}
                       className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-all cursor-pointer"
                       onClick={() => {
-                        const basePath = ACTIVITY_TYPE_PATH[activity.rawType] || '/activities/tasks';
+                        const basePath = ACTIVITY_TYPE_PATH[activity.rawType] || '/activities-v2/tasks';
                         router.push(`${basePath}/${activity.id}`);
                       }}
                     >
@@ -557,7 +567,7 @@ export default function DashboardPage() {
                 <Clock className="h-5 w-5 text-primary" />
                 Upcoming Tasks
               </CardTitle>
-              <Link href="/activities/tasks">
+              <Link href="/activities-v2/tasks">
                 <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
                   View All <ArrowUpRight className="h-3 w-3" />
                 </Button>
@@ -578,7 +588,7 @@ export default function DashboardPage() {
                       transition={{ delay: 0.45 + index * 0.04 }}
                       whileHover={{ scale: 1.01 }}
                       className="flex items-start gap-3 p-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-muted/30 transition-all cursor-pointer"
-                      onClick={() => router.push(`/activities/tasks/${task.id}`)}
+                      onClick={() => router.push(`/activities-v2/tasks/${task.id}`)}
                     >
                       <input
                         type="checkbox"
@@ -627,10 +637,10 @@ export default function DashboardPage() {
           <CardContent>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
               {[
-                { name: "Add Contact", icon: UserPlus, href: "/sales/contacts" },
-                { name: "Create Lead", icon: FileText, href: "/sales/leads" },
-                { name: "New Deal", icon: Handshake, href: "/sales/deals" },
-                { name: "Schedule Meeting", icon: Calendar, href: "/activities/meetings" },
+                { name: "Add Contact", icon: UserPlus, href: "/sales-v2/contacts" },
+                { name: "Create Lead", icon: FileText, href: "/sales-v2/leads" },
+                { name: "New Deal", icon: Handshake, href: "/sales-v2/deals" },
+                { name: "Schedule Meeting", icon: Calendar, href: "/activities-v2/meetings" },
                 { name: "View Reports", icon: BarChart3, href: "/reports" },
                 { name: "Analytics", icon: PieChart, href: "/analytics" },
               ].map((action) => (

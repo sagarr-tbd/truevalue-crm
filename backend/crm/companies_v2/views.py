@@ -9,7 +9,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Sum, DecimalField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.http import HttpResponse
 import csv
@@ -18,6 +19,7 @@ from uuid import UUID
 
 from .models import CompanyV2
 from .serializers import CompanyV2Serializer, CompanyV2ListSerializer
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
 class CompanyV2Pagination(PageNumberPagination):
@@ -26,7 +28,8 @@ class CompanyV2Pagination(PageNumberPagination):
     max_page_size = 100
 
 
-class CompanyV2ViewSet(viewsets.ModelViewSet):
+class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    audit_tracked_fields = ['status', 'industry', 'size', 'owner_id', 'assigned_to_id']
     queryset = CompanyV2.objects.filter(deleted_at__isnull=True)
     serializer_class = CompanyV2Serializer
     pagination_class = CompanyV2Pagination
@@ -433,6 +436,80 @@ class CompanyV2ViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def contacts(self, request, pk=None):
+        """List contacts associated with this company."""
+        company = self.get_object()
+        from contacts_v2.models import ContactV2
+
+        contacts_qs = ContactV2.objects.filter(
+            company_id=company.id,
+            deleted_at__isnull=True,
+        ).order_by('-created_at')
+
+        search = request.query_params.get('search')
+        if search:
+            contacts_qs = contacts_qs.filter(
+                Q(entity_data__first_name__icontains=search) |
+                Q(entity_data__last_name__icontains=search) |
+                Q(entity_data__email__icontains=search)
+            )
+
+        page = self.paginate_queryset(contacts_qs)
+        if page is not None:
+            from contacts_v2.serializers import ContactV2ListSerializer
+            serializer = ContactV2ListSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        from contacts_v2.serializers import ContactV2ListSerializer
+        serializer = ContactV2ListSerializer(contacts_qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'], url_path='stats')
+    def detail_stats(self, request, pk=None):
+        """Stats for a single company: contact/deal/activity counts and deal value."""
+        company = self.get_object()
+
+        from contacts_v2.models import ContactV2
+        from deals_v2.models import DealV2
+        from activities_v2.models import ActivityV2
+
+        contact_count = ContactV2.objects.filter(
+            company_id=company.id, deleted_at__isnull=True,
+        ).count()
+
+        deals_qs = DealV2.objects.filter(
+            company_id=company.id, deleted_at__isnull=True,
+        )
+        deal_agg = deals_qs.aggregate(
+            total=Count('id'),
+            open=Count('id', filter=Q(status='open')),
+            won=Count('id', filter=Q(status='won')),
+            lost=Count('id', filter=Q(status='lost')),
+            total_value=Coalesce(Sum('value'), 0, output_field=DecimalField()),
+            won_value=Coalesce(
+                Sum('value', filter=Q(status='won')), 0,
+                output_field=DecimalField(),
+            ),
+        )
+
+        activity_count = ActivityV2.objects.filter(
+            company_id=company.id,
+        ).count()
+
+        return Response({
+            'contacts': contact_count,
+            'deals': {
+                'total': deal_agg['total'],
+                'open': deal_agg['open'],
+                'won': deal_agg['won'],
+                'lost': deal_agg['lost'],
+                'total_value': str(deal_agg['total_value']),
+                'won_value': str(deal_agg['won_value']),
+            },
+            'activities': activity_count,
+        })
 
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):

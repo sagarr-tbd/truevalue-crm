@@ -12,6 +12,8 @@ import {
   FileText,
   AlertCircle,
   Clock,
+  Flag,
+  User,
   Link as LinkIcon,
   Loader2,
 } from "lucide-react";
@@ -24,6 +26,7 @@ import {
   useUpdateActivityV2,
   useDeleteActivityV2,
 } from "@/lib/queries/useActivitiesV2";
+import { useMemberOptions } from "@/lib/queries/useMembers";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
 import type { ActivityV2, CreateActivityV2Input } from "@/lib/api/activitiesV2";
 
@@ -76,6 +79,23 @@ const getStatusColor = (status: string) => {
   return colors[status] || "bg-muted text-muted-foreground";
 };
 
+const PRIORITY_DISPLAY: Record<string, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+const getPriorityColors = (priority: string) => {
+  const colors: Record<string, string> = {
+    urgent: "bg-destructive/10 text-destructive",
+    high: "bg-orange-100 text-orange-700",
+    normal: "bg-primary/10 text-primary",
+    low: "bg-muted text-muted-foreground",
+  };
+  return colors[priority] || "bg-muted text-muted-foreground";
+};
+
 // ============================================================================
 // PAGE COMPONENT
 // ============================================================================
@@ -93,6 +113,17 @@ export default function NoteV2DetailPage() {
   const { data: note, isLoading, isError } = useActivityV2(id);
   const updateActivityV2 = useUpdateActivityV2();
   const deleteActivityV2 = useDeleteActivityV2();
+  const { data: memberOptions = [], isLoading: isMembersLoading } = useMemberOptions();
+
+  const resolveMemberName = (uuid?: string | null): string | null => {
+    if (!uuid) return null;
+    if (isMembersLoading) return "Loading...";
+    const member = memberOptions.find((m) => m.value === uuid);
+    return member?.label || "Unknown Member";
+  };
+
+  const displayAssignedTo =
+    note?.display_assigned_to ?? resolveMemberName(note?.assigned_to_id ?? undefined) ?? null;
 
   const handleDeleteConfirm = async () => {
     if (!note?.id) return;
@@ -177,6 +208,12 @@ export default function NoteV2DetailPage() {
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(note.status)}`}>
                     {STATUS_DISPLAY[note.status] || note.status}
                   </span>
+                  {note.priority && (
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColors(note.priority)}`}>
+                      <Flag className="h-3 w-3 inline mr-1" />
+                      {PRIORITY_DISPLAY[note.priority] || note.priority}
+                    </span>
+                  )}
                   <span className="text-sm text-muted-foreground">Created {formatDate(note.created_at)}</span>
                 </div>
               </div>
@@ -204,12 +241,12 @@ export default function NoteV2DetailPage() {
           </div>
         </motion.div>
 
-        {/* Overview Cards (3 only) */}
+        {/* Overview Cards */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
         >
           <Card>
             <CardHeader className="pb-3">
@@ -228,6 +265,25 @@ export default function NoteV2DetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Flag className="h-4 w-4" />
+                Priority
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {note.priority ? (
+                <span className={`px-3 py-1 rounded-full text-xs font-medium inline-block ${getPriorityColors(note.priority)}`}>
+                  <Flag className="h-3 w-3 inline mr-1" />
+                  {PRIORITY_DISPLAY[note.priority] || note.priority}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 Created
               </CardTitle>
@@ -240,12 +296,12 @@ export default function NoteV2DetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                Last Updated
+                <User className="h-4 w-4" />
+                Assigned To
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm font-medium">{formatDate(note.updated_at)}</p>
+              <p className="text-sm font-medium">{displayAssignedTo || "—"}</p>
             </CardContent>
           </Card>
         </motion.div>
@@ -277,6 +333,21 @@ export default function NoteV2DetailPage() {
                         {STATUS_DISPLAY[note.status] || note.status}
                       </span>
                     </div>
+                    {note.priority && (
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-muted-foreground">Priority</span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getPriorityColors(note.priority)}`}>
+                          <Flag className="h-3 w-3 inline mr-1" />
+                          {PRIORITY_DISPLAY[note.priority] || note.priority}
+                        </span>
+                      </div>
+                    )}
+                    {displayAssignedTo && (
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-muted-foreground">Assigned To</span>
+                        <span className="text-sm font-medium">{displayAssignedTo}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

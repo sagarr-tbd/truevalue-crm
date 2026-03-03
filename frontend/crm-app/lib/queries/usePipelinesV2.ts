@@ -3,6 +3,18 @@ import { pipelinesV2Api, PipelineV2, CreatePipelineV2Input, PipelineStageV2 } fr
 
 const PIPELINES_KEY = ['pipelines-v2'];
 
+export function useDefaultPipelineV2() {
+  return useQuery({
+    queryKey: [...PIPELINES_KEY, 'default'],
+    queryFn: async () => {
+      const result = await pipelinesV2Api.list({ is_active: true });
+      const pipelines = result?.results || [];
+      return pipelines.find((p) => p.is_default) || pipelines[0] || null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function usePipelinesV2(params?: { is_active?: boolean }) {
   return useQuery({
     queryKey: [...PIPELINES_KEY, params],

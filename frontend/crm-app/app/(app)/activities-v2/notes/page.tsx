@@ -16,6 +16,8 @@ import {
   Check,
   Calendar,
   Flag,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,10 +66,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal"),
-  { ssr: false }
-);
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -88,6 +87,23 @@ const getStatusColor = (status: string) => {
     cancelled: "bg-destructive/10 text-destructive",
   };
   return colors[status] || "bg-muted text-muted-foreground";
+};
+
+const PRIORITY_DISPLAY: Record<string, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+const getPriorityColor = (priority: string) => {
+  const colors: Record<string, string> = {
+    urgent: "bg-destructive/10 text-destructive",
+    high: "bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400",
+    normal: "bg-primary/10 text-primary",
+    low: "bg-muted text-muted-foreground",
+  };
+  return colors[priority] || "bg-muted text-muted-foreground";
 };
 
 function formatDate(isoDate?: string | null): string {
@@ -265,7 +281,7 @@ export default function NotesV2Page() {
     const totalNotes = statsData?.total ?? totalItems;
     const completed = statsData?.by_status?.completed ?? 0;
     const pending = statsData?.by_status?.pending ?? 0;
-    const cancelled = statsData?.by_status?.cancelled ?? 0;
+    const inProgress = statsData?.by_status?.in_progress ?? 0;
 
     return [
       {
@@ -276,25 +292,25 @@ export default function NotesV2Page() {
         iconColor: "text-primary",
       },
       {
+        label: "Pending",
+        value: pending,
+        icon: Clock,
+        iconBgColor: "bg-muted",
+        iconColor: "text-muted-foreground",
+      },
+      {
+        label: "In Progress",
+        value: inProgress,
+        icon: AlertCircle,
+        iconBgColor: "bg-accent/10",
+        iconColor: "text-accent",
+      },
+      {
         label: "Completed",
         value: completed,
         icon: Check,
         iconBgColor: "bg-primary/20",
         iconColor: "text-primary",
-      },
-      {
-        label: "Pending",
-        value: pending,
-        icon: FileText,
-        iconBgColor: "bg-muted",
-        iconColor: "text-muted-foreground",
-      },
-      {
-        label: "Cancelled",
-        value: cancelled,
-        icon: Trash2,
-        iconBgColor: "bg-destructive/10",
-        iconColor: "text-destructive",
       },
     ];
   }, [statsData, totalItems]);
@@ -404,7 +420,7 @@ export default function NotesV2Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `selected-notes-v2-${new Date().toISOString().split("T")[0]}.csv`;
+      link.download = `selected-notes-${new Date().toISOString().split("T")[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -546,7 +562,7 @@ export default function NotesV2Page() {
     () => [
       {
         key: "subject",
-        label: "Subject",
+        label: "Note",
         render: (_value: unknown, row: ActivityV2) => (
           <div
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -578,6 +594,27 @@ export default function NotesV2Page() {
         ),
       },
       {
+        key: "priority",
+        label: "Priority",
+        render: (value: string) => (
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(value)}`}
+          >
+            {value ? (PRIORITY_DISPLAY[value] || value) : "—"}
+          </span>
+        ),
+      },
+      {
+        key: "created_at",
+        label: "Created",
+        render: (value: string) => (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            {formatDate(value)}
+          </div>
+        ),
+      },
+      {
         key: "related_to",
         label: "Related To",
         render: (_value: unknown, row: ActivityV2) => (
@@ -590,16 +627,6 @@ export default function NotesV2Page() {
             ) : (
               <span className="text-muted-foreground/50">—</span>
             )}
-          </div>
-        ),
-      },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (value: string) => (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="h-4 w-4" />
-            {formatDate(value)}
           </div>
         ),
       },
@@ -641,7 +668,7 @@ export default function NotesV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Notes (V2)"
+        title="Notes"
         icon={FileText}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
@@ -734,7 +761,7 @@ export default function NotesV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/activities/export/"
                 exportParams={exportParams}
-                filename="notes-v2"
+                filename="notes"
                 totalRecords={totalItems}
               />
             )}
@@ -746,10 +773,10 @@ export default function NotesV2Page() {
                   setFormDrawerOpen(true);
                 }}
                 className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-                title="Add a new note"
+                title="Create a new note"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Note
+                New Note
               </Button>
             )}
           </>
@@ -815,7 +842,7 @@ export default function NotesV2Page() {
           showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)}
           loading={isLoading}
           emptyMessage="No notes found"
-          emptyDescription="Try adjusting your search or filters, or add a new note"
+          emptyDescription="Try adjusting your search or filters, or create a new note"
           renderActions={(row: ActivityV2) => (
             <ActionMenu items={actionMenuItems(row)} />
           )}
@@ -840,11 +867,9 @@ export default function NotesV2Page() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">{note.subject}</h3>
-                      {(note.display_contact || note.display_company) && (
-                        <p className="text-sm text-muted-foreground">
-                          {note.display_contact || note.display_company}
-                        </p>
-                      )}
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(note.created_at)}
+                      </p>
                     </div>
                   </div>
                   <div onClick={(e) => e.stopPropagation()}>
@@ -852,7 +877,7 @@ export default function NotesV2Page() {
                   </div>
                 </div>
                 {note.description && (
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
                     {note.description}
                   </p>
                 )}
@@ -870,6 +895,13 @@ export default function NotesV2Page() {
                   >
                     {STATUS_DISPLAY[note.status] || note.status}
                   </span>
+                  {note.priority && (
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(note.priority)}`}
+                    >
+                      {PRIORITY_DISPLAY[note.priority] || note.priority}
+                    </span>
+                  )}
                 </div>
               </Card>
             </motion.div>

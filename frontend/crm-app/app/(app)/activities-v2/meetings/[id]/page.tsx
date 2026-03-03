@@ -10,6 +10,7 @@ import {
   Trash2,
   Calendar,
   User,
+  Users,
   Clock,
   FileText,
   AlertCircle,
@@ -348,16 +349,12 @@ export default function MeetingV2DetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                Duration
+                <Calendar className="h-4 w-4" />
+                Date
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm font-medium">
-                {meeting.duration_minutes != null
-                  ? `${meeting.duration_minutes} min`
-                  : "—"}
-              </p>
+              <p className="text-sm font-medium">{formatDate(meeting.due_date)}</p>
             </CardContent>
           </Card>
 
@@ -382,11 +379,15 @@ export default function MeetingV2DetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Clock className="h-4 w-4" />
-                Last Updated
+                Duration
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm font-medium">{formatDate(meeting.updated_at)}</p>
+              <p className="text-sm font-medium">
+                {meeting.duration_minutes != null
+                  ? `${meeting.duration_minutes} min`
+                  : "—"}
+              </p>
             </CardContent>
           </Card>
         </motion.div>
@@ -405,7 +406,7 @@ export default function MeetingV2DetailPage() {
                   <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
                     <div className="flex items-center gap-2 mb-4">
                       <div className="p-2 bg-primary/10 rounded-lg">
-                        <FileText className="h-4 w-4 text-primary" />
+                        <Users className="h-4 w-4 text-primary" />
                       </div>
                       <h3 className="text-base font-semibold">Meeting Information</h3>
                     </div>
@@ -448,7 +449,7 @@ export default function MeetingV2DetailPage() {
                       <div className="p-2 bg-purple-500/10 rounded-lg">
                         <Calendar className="h-4 w-4 text-purple-500" />
                       </div>
-                      <h3 className="text-base font-semibold">Schedule & Timing</h3>
+                      <h3 className="text-base font-semibold">Schedule & Duration</h3>
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between items-start">
@@ -515,6 +516,32 @@ export default function MeetingV2DetailPage() {
                     </p>
                   </div>
                 )}
+
+                {/* Timestamps */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-muted/30 rounded-xl p-5 border border-border/50">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="p-2 bg-emerald-500/10 rounded-lg">
+                        <Clock className="h-4 w-4 text-emerald-500" />
+                      </div>
+                      <h3 className="text-base font-semibold">Timestamps</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-muted-foreground">Created</span>
+                        <span className="text-sm font-medium">
+                          {formatDateTime(meeting.created_at)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-sm text-muted-foreground">Last Updated</span>
+                        <span className="text-sm font-medium">
+                          {formatDateTime(meeting.updated_at)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -675,7 +702,7 @@ export default function MeetingV2DetailPage() {
         description="Are you sure you want to delete this meeting? This will permanently remove it from your CRM and cannot be undone."
         itemName={meeting.subject}
         itemType="Meeting"
-        icon={Calendar}
+        icon={Users}
         isDeleting={deleteActivityV2.isPending}
       />
 

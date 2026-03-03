@@ -63,10 +63,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
-  { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 const LeadConversionModal = dynamic(
   () => import("@/components/LeadConversionModal").then(mod => ({ default: mod.LeadConversionModal })),
@@ -448,7 +445,7 @@ export default function LeadsV2Page() {
     }
   };
 
-  const handleBulkUpdateStatus = async (newStatus: 'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted') => {
+  const handleBulkUpdateStatus = async (newStatus: "new" | "contacted" | "qualified" | "unqualified" | "converted") => {
     setIsBulkProcessing(true);
     try {
       await bulkUpdateLeads.mutateAsync({ ids: selectedLeads, data: { status: newStatus } });
@@ -721,11 +718,11 @@ export default function LeadsV2Page() {
     <div className="flex flex-col gap-6">
       {/* Header - Using V1 PageHeader with built-in search */}
       <PageHeader
-        title="Leads (V2 Dynamic Forms)"
+        title="Leads"
         icon={Target}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${totalItems} leads in pipeline - Pure Dynamic System`}
+        subtitle={`${totalItems} leads in pipeline`}
         searchPlaceholder="Search leads by name, company, or email..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
@@ -826,7 +823,7 @@ export default function LeadsV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/leads/export/"
                 exportParams={exportParams}
-                filename="leads-v2"
+                filename="leads"
                 totalRecords={totalItems}
               />
             )}
@@ -1058,7 +1055,7 @@ export default function LeadsV2Page() {
       />
 
       {/* Bulk Update Status Modal */}
-      <BulkUpdateModal<'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted'>
+      <BulkUpdateModal<"new" | "contacted" | "qualified" | "unqualified" | "converted">
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
