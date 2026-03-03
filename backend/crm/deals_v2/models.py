@@ -21,13 +21,8 @@ class DealV2(models.Model):
         LOST = 'lost', 'Lost'
         ABANDONED = 'abandoned', 'Abandoned'
 
-    class Stage(models.TextChoices):
-        PROSPECTING = 'prospecting', 'Prospecting'
-        QUALIFICATION = 'qualification', 'Qualification'
-        PROPOSAL = 'proposal', 'Proposal'
-        NEGOTIATION = 'negotiation', 'Negotiation'
-        CLOSED_WON = 'closed_won', 'Closed Won'
-        CLOSED_LOST = 'closed_lost', 'Closed Lost'
+    # Stage is now a free-text field — values come from PipelineStageV2 dynamically.
+    # Kept as CharField(max_length=50) without choices constraint.
 
     # IDENTITY & ORGANIZATION
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -43,7 +38,7 @@ class DealV2(models.Model):
     # PIPELINE
     pipeline_id = models.UUIDField(
         null=True, blank=True, db_index=True,
-        help_text="Pipeline this deal belongs to (UUID referencing V1 Pipeline)"
+        help_text="Pipeline this deal belongs to (UUID referencing PipelineV2)"
     )
 
     # RELATIONSHIPS
@@ -62,8 +57,8 @@ class DealV2(models.Model):
         default=Status.OPEN, db_index=True
     )
     stage = models.CharField(
-        max_length=50, choices=Stage.choices,
-        default=Stage.PROSPECTING, db_index=True
+        max_length=50,
+        default='qualification', db_index=True
     )
     value = models.DecimalField(
         max_digits=15, decimal_places=2, default=Decimal('0'),
@@ -147,3 +142,33 @@ class DealV2(models.Model):
     def set_field_value(self, field_name: str, value):
         self.entity_data[field_name] = value
         self.save(update_fields=['entity_data', 'updated_at'])
+
+
+class DealStageHistoryV2(models.Model):
+    """
+    Tracks deal stage transitions for analytics and reporting.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    deal = models.ForeignKey(
+        DealV2,
+        on_delete=models.CASCADE,
+        related_name='stage_history'
+    )
+    from_stage = models.CharField(max_length=100, null=True, blank=True)
+    to_stage = models.CharField(max_length=100)
+    changed_by = models.UUIDField(null=True, blank=True)
+    time_in_stage_seconds = models.PositiveIntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'crm_deal_stage_history_v2'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['deal', 'created_at'], name='deal_stage_hist_v2_idx'),
+        ]
+        verbose_name = 'Deal Stage History V2'
+        verbose_name_plural = 'Deal Stage Histories V2'
+
+    def __str__(self):
+        return f"{self.deal}: {self.from_stage} → {self.to_stage}"

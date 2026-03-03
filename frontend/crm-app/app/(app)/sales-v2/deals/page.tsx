@@ -37,7 +37,7 @@ import {
   useBulkDeleteDealsV2,
   useBulkUpdateDealsV2,
 } from "@/lib/queries/useDealsV2";
-import type { CreateDealV2Input, DealV2 } from "@/lib/api/dealsV2";
+import type { CreateDealV2Input, DealV2, DealV2Stats } from "@/lib/api/dealsV2";
 import { dealsV2Api } from "@/lib/api/dealsV2";
 import { toast } from "sonner";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
@@ -68,6 +68,7 @@ const BulkUpdateModal = dynamic(
 const STAGE_LABELS: Record<string, string> = {
   prospecting: "Prospecting",
   qualification: "Qualification",
+  discovery: "Discovery",
   proposal: "Proposal",
   negotiation: "Negotiation",
   closed_won: "Closed Won",
@@ -76,7 +77,8 @@ const STAGE_LABELS: Record<string, string> = {
 
 const STAGE_COLORS: Record<string, string> = {
   prospecting: "bg-blue-500/10 text-blue-600",
-  qualification: "bg-indigo-500/10 text-indigo-600",
+  qualification: "bg-gray-500/10 text-gray-600",
+  discovery: "bg-blue-500/10 text-blue-600",
   proposal: "bg-purple-500/10 text-purple-600",
   negotiation: "bg-amber-500/10 text-amber-600",
   closed_won: "bg-green-500/10 text-green-600",
@@ -145,7 +147,7 @@ export default function DealsV2Page() {
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, stageFilter, filterGroup]);
 
   const { data: dealsResponse, isLoading } = useDealsV2(queryParams);
-  const { data: statsData } = useDealsV2Stats();
+  const { data: statsData } = useDealsV2Stats() as { data: DealV2Stats | undefined };
 
   const { data: availableStages = [] } = useQuery({
     queryKey: ['dealsV2', 'sources'],
@@ -407,10 +409,15 @@ export default function DealsV2Page() {
         }
       }
 
+      const submitData = {
+        ...data,
+        value: data.value !== undefined ? String(data.value) : undefined,
+      };
+
       if (formMode === "edit" && editingDeal?.id) {
-        await updateDeal.mutateAsync({ id: editingDeal.id, data });
+        await updateDeal.mutateAsync({ id: editingDeal.id, data: submitData as Partial<DealV2> });
       } else {
-        await createDeal.mutateAsync(data);
+        await createDeal.mutateAsync(submitData as Partial<DealV2>);
       }
 
       setFormDrawerOpen(false);

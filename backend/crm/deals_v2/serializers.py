@@ -29,9 +29,8 @@ class DealV2Serializer(serializers.ModelSerializer):
         choices=DealV2.Status.choices,
         default=DealV2.Status.OPEN
     )
-    stage = serializers.ChoiceField(
-        choices=DealV2.Stage.choices,
-        default=DealV2.Stage.PROSPECTING
+    stage = serializers.CharField(
+        max_length=50, default='qualification'
     )
 
     value = serializers.DecimalField(
@@ -89,14 +88,14 @@ class DealV2Serializer(serializers.ModelSerializer):
         return f"{obj.currency} {obj.value:,.2f}"
 
     def get_display_stage(self, obj):
-        return obj.get_stage_display()
+        return obj.stage.replace('_', ' ').title() if obj.stage else ''
 
     def get_display_pipeline(self, obj):
         if not obj.pipeline_id:
             return ''
         try:
-            from crm.models import Pipeline
-            pipeline = Pipeline.objects.filter(id=obj.pipeline_id).first()
+            from pipelines_v2.models import PipelineV2
+            pipeline = PipelineV2.objects.filter(id=obj.pipeline_id, deleted_at__isnull=True).first()
             return pipeline.name if pipeline else ''
         except Exception:
             return ''
@@ -178,7 +177,7 @@ class DealV2Serializer(serializers.ModelSerializer):
 
         if 'stage' in entity_data:
             stage_value = entity_data.pop('stage')
-            if stage_value and stage_value in dict(DealV2.Stage.choices):
+            if stage_value:
                 attrs['stage'] = stage_value
 
         if 'value' in entity_data:
@@ -387,7 +386,27 @@ class DealV2Serializer(serializers.ModelSerializer):
 
         if 'stage' in validated_data and validated_data['stage'] != old_stage:
             from django.utils import timezone
-            instance.stage_entered_at = timezone.now()
+            now = timezone.now()
+
+            time_in_stage = None
+            if instance.stage_entered_at:
+                time_in_stage = int((now - instance.stage_entered_at).total_seconds())
+
+            instance.stage_entered_at = now
+
+            try:
+                from deals_v2.models import DealStageHistoryV2
+                request = self.context.get('request')
+                changed_by = request.user.id if request and hasattr(request, 'user') else None
+                DealStageHistoryV2.objects.create(
+                    deal=instance,
+                    from_stage=old_stage,
+                    to_stage=validated_data['stage'],
+                    changed_by=changed_by,
+                    time_in_stage_seconds=time_in_stage,
+                )
+            except Exception:
+                pass
 
         instance.save()
         return instance
@@ -452,7 +471,7 @@ class DealV2ListSerializer(serializers.ModelSerializer):
         return f"{obj.currency} {obj.value:,.2f}"
 
     def get_display_stage(self, obj):
-        return obj.get_stage_display()
+        return obj.stage.replace('_', ' ').title() if obj.stage else ''
 
     def get_display_contact(self, obj):
         if not obj.contact_id:
@@ -484,8 +503,8 @@ class DealV2ListSerializer(serializers.ModelSerializer):
         if not obj.pipeline_id:
             return ''
         try:
-            from crm.models import Pipeline
-            pipeline = Pipeline.objects.filter(id=obj.pipeline_id).first()
+            from pipelines_v2.models import PipelineV2
+            pipeline = PipelineV2.objects.filter(id=obj.pipeline_id, deleted_at__isnull=True).first()
             return pipeline.name if pipeline else ''
         except Exception:
             return ''

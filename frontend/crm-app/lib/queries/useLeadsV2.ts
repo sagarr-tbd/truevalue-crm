@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leadsV2Api, type LeadV2, type LeadV2ListItem, type LeadV2QueryParams } from '@/lib/api/leadsV2';
 import { toast } from 'sonner';
 import { createEntityV2QueryKeys, createEntityV2Hooks } from './useEntityV2';
@@ -56,5 +56,21 @@ export function useDisqualifyLeadV2() {
       const err = error as { response?: { data?: { message?: string } } };
       toast.error(err?.response?.data?.message || 'Failed to disqualify lead');
     },
+  });
+}
+
+export function useLeadV2Options() {
+  return useQuery({
+    queryKey: [...leadsV2QueryKeys.all, 'options'],
+    queryFn: async () => {
+      const res = await leadsV2Api.list({ page_size: 200 } as LeadV2QueryParams);
+      return (res.results || []).map((l) => ({
+        value: l.id,
+        label: l.display_name || l.entity_data?.first_name
+          ? `${l.entity_data?.first_name || ''} ${l.entity_data?.last_name || ''}`.trim()
+          : l.id,
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
   });
 }

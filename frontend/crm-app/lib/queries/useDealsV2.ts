@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { dealsV2Api, type DealV2, type DealV2ListItem, type DealV2QueryParams } from '@/lib/api/dealsV2';
 import { createEntityV2QueryKeys, createEntityV2Hooks } from './useEntityV2';
 
@@ -20,3 +21,17 @@ export const useUpdateDealV2 = hooks.useUpdate;
 export const useDeleteDealV2 = hooks.useDelete;
 export const useBulkDeleteDealsV2 = hooks.useBulkDelete;
 export const useBulkUpdateDealsV2 = hooks.useBulkUpdate;
+
+export function useDealV2Options() {
+  return useQuery({
+    queryKey: [...dealsV2QueryKeys.all, 'options'],
+    queryFn: async () => {
+      const res = await dealsV2Api.list({ page_size: 200 } as DealV2QueryParams);
+      return (res.results || []).map((d) => ({
+        value: d.id,
+        label: d.display_name || d.entity_data?.title || d.id,
+      }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}

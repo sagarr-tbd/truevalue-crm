@@ -457,13 +457,32 @@ class DealV2ViewSet(viewsets.ModelViewSet):
             return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            from crm.models import Pipeline
-            pipelines = Pipeline.objects.filter(
-                org_id=org_id, is_active=True
+            from pipelines_v2.models import PipelineV2
+            pipelines = PipelineV2.objects.filter(
+                org_id=org_id, is_active=True, deleted_at__isnull=True
             ).order_by('order', 'name').values('id', 'name', 'is_default', 'currency')
             return Response({'pipelines': list(pipelines)})
         except Exception:
             return Response({'pipelines': []})
+
+    @action(detail=True, methods=['get'])
+    def stage_history(self, request, pk=None):
+        deal = self.get_object()
+        from deals_v2.models import DealStageHistoryV2
+        history = DealStageHistoryV2.objects.filter(deal=deal).order_by('-created_at')
+
+        data = []
+        for entry in history:
+            data.append({
+                'id': str(entry.id),
+                'from_stage': entry.from_stage,
+                'to_stage': entry.to_stage,
+                'changed_by': str(entry.changed_by) if entry.changed_by else None,
+                'time_in_stage_seconds': entry.time_in_stage_seconds,
+                'created_at': entry.created_at.isoformat(),
+            })
+
+        return Response({'results': data})
 
     @action(detail=False, methods=['get'])
     def mine(self, request):
@@ -531,10 +550,9 @@ class DealV2ViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        valid_stages = [choice[0] for choice in DealV2.Stage.choices]
-        if new_stage not in valid_stages:
+        if not new_stage or len(new_stage) > 50:
             return Response(
-                {'error': f'Invalid stage. Must be one of: {", ".join(valid_stages)}'},
+                {'error': 'Invalid stage value'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
