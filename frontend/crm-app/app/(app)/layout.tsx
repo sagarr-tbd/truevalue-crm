@@ -57,6 +57,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useKeyboardShortcuts } from "@/hooks";
 import { useUIStore } from "@/stores";
+import { useSearchV2, flattenSearchResults } from "@/lib/queries/useSearchV2";
 import {
   usePermission,
   CONTACTS_READ,
@@ -122,10 +123,6 @@ const navigation: NavigationItem[] = [
       { name: "Contacts", href: "/sales/contacts", icon: Users, permission: CONTACTS_READ },
       { name: "Accounts", href: "/sales/accounts", icon: Building, permission: COMPANIES_READ },
       { name: "Deals", href: "/sales/deals", icon: DollarSign, permission: DEALS_READ },
-      // Phase 2: Forecasts, Documents, Campaigns
-      // { name: "Forecasts", href: "/sales/forecasts", icon: LineChart },
-      // { name: "Documents", href: "/sales/documents", icon: FolderOpen },
-      // { name: "Campaigns", href: "/sales/campaigns", icon: Megaphone },
     ],
   },
   {
@@ -235,7 +232,38 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [showSignOutModal, setShowSignOutModal] = useState(false);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const { data: searchResults, isFetching: isSearching } = useSearchV2(debouncedQuery, isSearchOpen);
+  const flatResults = flattenSearchResults(searchResults);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    }
+    if (isSearchOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isSearchOpen]);
+
+  const SEARCH_TYPE_CONFIG: Record<string, { label: string; color: string; href: string }> = {
+    contact: { label: "Contact", color: "bg-blue-100 text-blue-700", href: "/sales-v2/contacts" },
+    company: { label: "Company", color: "bg-purple-100 text-purple-700", href: "/sales-v2/companies" },
+    deal: { label: "Deal", color: "bg-green-100 text-green-700", href: "/sales-v2/deals" },
+    lead: { label: "Lead", color: "bg-amber-100 text-amber-700", href: "/sales-v2/leads" },
+  };
+
   // Permissions
   const { can } = usePermission();
 
@@ -595,15 +623,66 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <header className="fixed top-0 right-0 left-0 lg:left-[var(--sidebar-width)] h-16 bg-white border-b border-gray-200 z-[60] shadow-sm backdrop-blur-sm bg-white/95 transition-all duration-300">
           <div className="flex items-center justify-between h-full px-4 lg:px-6">
             {/* Left - Search Bar - Hidden on small mobile, visible on tablet+ */}
-            <div className="hidden sm:flex flex-1 max-w-2xl">
+            <div className="hidden sm:flex flex-1 max-w-2xl" ref={searchContainerRef}>
               <div className="relative w-full">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
                   ref={searchInputRef}
                   type="search"
-                  placeholder="Search..."
+                  placeholder="Search contacts, companies, deals..."
                   className="pl-10 bg-gray-50 border-gray-200 w-full"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (e.target.value.length >= 2) setIsSearchOpen(true);
+                    else setIsSearchOpen(false);
+                  }}
+                  onFocus={() => {
+                    if (searchQuery.length >= 2) setIsSearchOpen(true);
+                  }}
                 />
+                {isSearchOpen && debouncedQuery.length >= 2 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[200] max-h-[400px] overflow-y-auto">
+                    {isSearching && flatResults.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-gray-500">Searching...</div>
+                    ) : flatResults.length > 0 ? (
+                      <div className="py-1">
+                        {flatResults.map((item) => {
+                          const config = SEARCH_TYPE_CONFIG[item.type];
+                          return (
+                            <Link
+                              key={`${item.type}-${item.id}`}
+                              href={`${config.href}/${item.id}`}
+                              onClick={() => {
+                                setIsSearchOpen(false);
+                                setSearchQuery("");
+                              }}
+                            >
+                              <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
+                                <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${config.color}`}>
+                                  {config.label}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                                  {'email' in item && item.email && (
+                                    <p className="text-xs text-gray-500 truncate">{item.email}</p>
+                                  )}
+                                  {'stage' in item && item.stage && (
+                                    <p className="text-xs text-gray-500">{item.stage} &middot; {item.value}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-4 text-center text-sm text-gray-500">
+                        No results for &ldquo;{debouncedQuery}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

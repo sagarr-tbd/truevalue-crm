@@ -48,11 +48,10 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { useContacts } from "@/lib/queries/useContacts";
-import { useLeads } from "@/lib/queries/useLeads";
-import { useDeals, useDealAnalysis } from "@/lib/queries/useDeals";
-import { useDefaultPipeline, usePipelineStats } from "@/lib/queries/usePipelines";
-import { useActivityStats, useActivityTrend } from "@/lib/queries/useActivities";
+import { useDashboardV2, useLeadConversionReportV2 } from "@/lib/queries/useReportsV2";
+import { useDealV2Analysis } from "@/lib/queries/useDealsV2";
+import { useDefaultPipelineV2, usePipelineV2Stats } from "@/lib/queries/usePipelinesV2";
+import { useActivitiesV2Stats, useActivityV2Trend } from "@/lib/queries/useActivitiesV2";
 
 // ============================================================================
 // HELPERS
@@ -106,25 +105,28 @@ export default function AnalyticsPage() {
   const [showStats, setShowStats] = useState(false);
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
 
-  // ── Data hooks ──
-  const { data: contactsData, isLoading: contactsLoading } = useContacts({ page_size: 1 });
-  const { data: leadsData, isLoading: leadsLoading } = useLeads({ page_size: 1 });
-  const { data: dealsData, isLoading: dealsLoading } = useDeals({ page_size: 1 });
-  const { data: defaultPipeline } = useDefaultPipeline();
-  const { data: pipelineStats, isLoading: pipelineLoading } = usePipelineStats(defaultPipeline?.id || "");
-  const { data: activityStats, isLoading: activityStatsLoading } = useActivityStats();
+  // ── Data hooks (V2) ──
+  const { data: dashboard, isLoading: dashboardLoading } = useDashboardV2();
+  const { data: defaultPipeline } = useDefaultPipelineV2();
+  const { data: pipelineStats, isLoading: pipelineLoading } = usePipelineV2Stats(defaultPipeline?.id);
+  const { data: activityStats, isLoading: activityStatsLoading } = useActivitiesV2Stats();
   const trendDays = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
-  const { data: activityTrend } = useActivityTrend(trendDays);
-  const { data: dealAnalysis } = useDealAnalysis({ days: trendDays, pipeline_id: defaultPipeline?.id });
+  const { data: activityTrend } = useActivityV2Trend(trendDays);
+  const { data: dealAnalysis } = useDealV2Analysis({ days: trendDays, pipeline_id: defaultPipeline?.id });
+  const { data: leadConversion } = useLeadConversionReportV2({ days: trendDays });
 
-  const isLoading = contactsLoading || leadsLoading || dealsLoading || pipelineLoading;
+  const isLoading = dashboardLoading || pipelineLoading;
 
   // ── Top Stats (StatsCards) ──
   const stats = useMemo(() => {
-    const wonRevenue = pipelineStats?.wonValue || dealsData?.meta?.stats?.wonValue || 0;
-    const totalContacts = contactsData?.meta?.total || 0;
-    const winRate = pipelineStats?.winRate || 0;
-    const avgDealSize = pipelineStats?.avgDealSize || dealsData?.meta?.stats?.avgDealSize || 0;
+    const wonRevenue = parseFloat(dashboard?.deals?.won_value || '0');
+    const totalContacts = dashboard?.counts?.contacts || 0;
+    const wonCount = dashboard?.deals?.won || 0;
+    const lostCount = dashboard?.deals?.lost || 0;
+    const closedTotal = wonCount + lostCount;
+    const winRate = closedTotal > 0 ? (wonCount / closedTotal) * 100 : 0;
+    const totalDeals = dashboard?.counts?.deals || 0;
+    const avgDealSize = totalDeals > 0 ? parseFloat(dashboard?.deals?.total_value || '0') / totalDeals : 0;
 
     return [
       {
@@ -133,7 +135,7 @@ export default function AnalyticsPage() {
         icon: DollarSign,
         iconBgColor: "bg-green-100 dark:bg-green-900/20",
         iconColor: "text-green-600",
-        description: `${pipelineStats?.wonDeals || 0} deals won`,
+        description: `${wonCount} deals won`,
       },
       {
         label: "Total Contacts",
@@ -148,7 +150,7 @@ export default function AnalyticsPage() {
         icon: Target,
         iconBgColor: "bg-violet-100 dark:bg-violet-900/20",
         iconColor: "text-violet-600",
-        description: `${pipelineStats?.wonDeals || 0} won / ${(pipelineStats?.wonDeals || 0) + (pipelineStats?.lostDeals || 0)} closed`,
+        description: `${wonCount} won / ${closedTotal} closed`,
       },
       {
         label: "Avg Deal Size",
@@ -156,18 +158,21 @@ export default function AnalyticsPage() {
         icon: BarChart3,
         iconBgColor: "bg-amber-100 dark:bg-amber-900/20",
         iconColor: "text-amber-600",
-        description: `${pipelineStats?.totalDeals || 0} total deals`,
+        description: `${totalDeals} total deals`,
       },
     ];
-  }, [contactsData, dealsData, pipelineStats]);
+  }, [dashboard]);
 
   // ── Performance metrics ──
   const performanceData = useMemo(() => {
-    const winRate = pipelineStats?.winRate || 0;
-    const pipelineValue = pipelineStats ? pipelineStats.totalValue - pipelineStats.wonValue : 0;
-    const avgDealSize = pipelineStats?.avgDealSize || 0;
+    const wonCount = dashboard?.deals?.won || 0;
+    const lostCount = dashboard?.deals?.lost || 0;
+    const closedTotal = wonCount + lostCount;
+    const winRate = closedTotal > 0 ? (wonCount / closedTotal) * 100 : 0;
+    const pipelineValue = parseFloat(dashboard?.deals?.open_value || '0');
+    const totalDeals = dashboard?.counts?.deals || 0;
+    const avgDealSize = totalDeals > 0 ? parseFloat(dashboard?.deals?.total_value || '0') / totalDeals : 0;
     const overdue = activityStats?.overdue || 0;
-    const dueToday = activityStats?.due_today || 0;
 
     return [
       {
@@ -192,20 +197,20 @@ export default function AnalyticsPage() {
         color: "text-primary",
       },
       {
-        metric: "Tasks Due",
-        value: `${dueToday} today`,
+        metric: "Overdue",
+        value: `${overdue}`,
         icon: Clock,
-        description: `${overdue} overdue`,
+        description: `${overdue} overdue activities`,
         color: overdue > 0 ? "text-destructive" : "text-primary",
       },
     ];
-  }, [pipelineStats, activityStats]);
+  }, [dashboard, activityStats]);
 
   // ── Activity overview circles ──
   const activityOverview = useMemo(() => {
-    const totalLeads = leadsData?.meta?.total || 0;
+    const totalLeads = dashboard?.counts?.leads || 0;
     const byType = activityStats?.by_type ?? ({} as Record<string, number>);
-    const wonDeals = pipelineStats?.wonDeals || 0;
+    const wonDeals = dashboard?.deals?.won || 0;
 
     return [
       {
@@ -251,27 +256,35 @@ export default function AnalyticsPage() {
         textColor: "text-emerald-600",
       },
     ];
-  }, [leadsData, activityStats, pipelineStats]);
+  }, [dashboard, activityStats]);
 
   // ── Chart data ──
   const pipelineChartData = useMemo(() => {
-    if (!pipelineStats?.byStage || pipelineStats.byStage.length === 0) return undefined;
-    return pipelineStats.byStage.map((s) => ({ stage: s.stageName, count: s.dealCount, value: s.dealValue }));
+    const byStage = pipelineStats?.by_stage;
+    if (!byStage || Object.keys(byStage).length === 0) return undefined;
+    return Object.entries(byStage).map(([stage, info]) => ({
+      stage,
+      count: (info as { count: number; value: string }).count,
+      value: parseFloat((info as { count: number; value: string }).value || '0'),
+    }));
   }, [pipelineStats]);
 
   const leadSourceChartData = useMemo(() => {
-    const bySource = leadsData?.meta?.stats?.bySource;
-    if (!bySource || Object.keys(bySource).length === 0) return undefined;
-    return Object.entries(bySource).map(([name, value]) => ({ name, value }));
-  }, [leadsData]);
+    if (!leadConversion?.by_source || leadConversion.by_source.length === 0) return undefined;
+    return leadConversion.by_source.map((s) => ({ name: s.source, value: s.total }));
+  }, [leadConversion]);
 
   const activityChartData = useMemo(() => {
-    if (!activityTrend || activityTrend.length === 0) return undefined;
-    return activityTrend.map((d) => ({
+    if (!activityTrend?.daily || activityTrend.daily.length === 0) return undefined;
+    const byType = activityTrend.by_type || {};
+    const callMap = new Map((byType.call || []).map((d) => [d.date, d.count]));
+    const meetingMap = new Map((byType.meeting || []).map((d) => [d.date, d.count]));
+    const emailMap = new Map((byType.email || []).map((d) => [d.date, d.count]));
+    return activityTrend.daily.map((d) => ({
       date: new Date(d.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      calls: d.calls,
-      meetings: d.meetings,
-      emails: d.emails,
+      calls: callMap.get(d.date) || 0,
+      meetings: meetingMap.get(d.date) || 0,
+      emails: emailMap.get(d.date) || 0,
     }));
   }, [activityTrend]);
 
@@ -294,8 +307,8 @@ export default function AnalyticsPage() {
       period: new Date(t.period + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
       won: t.won,
       lost: t.lost,
-      wonValue: t.won_value,
-      lostValue: t.lost_value,
+      wonValue: t.won_value ?? 0,
+      lostValue: t.lost_value ?? 0,
     }));
   }, [dealAnalysis]);
 
@@ -304,7 +317,7 @@ export default function AnalyticsPage() {
     return reasons.map((lr, i) => ({
       name: lr.reason,
       count: lr.count,
-      value: lr.value,
+      value: 0,
       fill: LOSS_COLORS[i % LOSS_COLORS.length],
     }));
   }, [dealAnalysis]);
@@ -462,34 +475,41 @@ export default function AnalyticsPage() {
                 </div>
               ))}
             </div>
-          ) : pipelineStats ? (
+          ) : pipelineStats ? (() => {
+            const byStage = pipelineStats.by_stage || {};
+            const stageEntries = Object.entries(byStage) as [string, { count: number; value: string; probability: number; color: string }][];
+            const totalDeals = pipelineStats.total_deals || 0;
+            const totalValue = parseFloat(pipelineStats.total_value || '0');
+            const wonDeals = dashboard?.deals?.won || 0;
+            const lostDeals = dashboard?.deals?.lost || 0;
+
+            return (
             <div className="space-y-5">
-              {/* Summary numbers */}
               <div className="grid grid-cols-3 gap-3 mb-2">
                 <div className="text-center p-3 bg-muted/30 rounded-lg">
                   <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-xl font-bold">{pipelineStats.totalDeals}</p>
+                  <p className="text-xl font-bold">{totalDeals}</p>
                 </div>
                 <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                   <p className="text-xs text-muted-foreground">Won</p>
-                  <p className="text-xl font-bold text-green-600">{pipelineStats.wonDeals}</p>
+                  <p className="text-xl font-bold text-green-600">{wonDeals}</p>
                 </div>
                 <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
                   <p className="text-xs text-muted-foreground">Lost</p>
-                  <p className="text-xl font-bold text-red-600">{pipelineStats.lostDeals}</p>
+                  <p className="text-xl font-bold text-red-600">{lostDeals}</p>
                 </div>
               </div>
 
-              {/* Stage breakdown bars */}
-              {pipelineStats.byStage.map((stage, index) => {
-                const maxValue = Math.max(...pipelineStats.byStage.map((s) => s.dealValue), 1);
-                const percentage = (stage.dealValue / maxValue) * 100;
+              {stageEntries.map(([stageName, info], index) => {
+                const stageValue = parseFloat(info.value || '0');
+                const maxValue = Math.max(...stageEntries.map(([, s]) => parseFloat(s.value || '0')), 1);
+                const percentage = (stageValue / maxValue) * 100;
                 return (
-                  <div key={stage.stageId} className="space-y-1.5">
+                  <div key={stageName} className="space-y-1.5">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-foreground">{stage.stageName}</span>
+                      <span className="font-medium text-foreground">{stageName}</span>
                       <span className="font-semibold font-tabular text-foreground">
-                        {formatCurrency(stage.dealValue)} ({stage.dealCount})
+                        {formatCurrency(stageValue)} ({info.count})
                       </span>
                     </div>
                     <div className="relative h-2.5 bg-muted rounded-full overflow-hidden">
@@ -504,17 +524,18 @@ export default function AnalyticsPage() {
                 );
               })}
 
-              {/* Total */}
               <div className="pt-4 border-t border-border">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-foreground">Total Pipeline Value</span>
                   <span className="text-lg font-bold text-primary font-tabular">
-                    {formatCurrency(pipelineStats.totalValue)}
+                    {formatCurrency(totalValue)}
                   </span>
                 </div>
               </div>
             </div>
-          ) : (
+            );
+          })()
+           : (
             <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
               <BarChart3 className="h-10 w-10 mb-2 opacity-40" />
               <p className="text-sm">No pipeline data</p>
@@ -545,8 +566,8 @@ export default function AnalyticsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Won Deals</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.total_won}</p>
-                    <p className="text-sm text-green-600 mt-0.5">{formatCurrency(dealAnalysis.summary.won_value)}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.won}</p>
+                    <p className="text-sm text-green-600 mt-0.5">{formatCurrency(parseFloat(dealAnalysis.summary.avg_won_value || '0') * dealAnalysis.summary.won)}</p>
                   </div>
                   <div className="p-3 rounded-full bg-green-50 dark:bg-green-900/20">
                     <CheckCircle className="h-6 w-6 text-green-600" />
@@ -560,8 +581,8 @@ export default function AnalyticsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Lost Deals</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.total_lost}</p>
-                    <p className="text-sm text-red-600 mt-0.5">{formatCurrency(dealAnalysis.summary.lost_value)}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.lost}</p>
+                    <p className="text-sm text-red-600 mt-0.5">{formatCurrency(parseFloat(dealAnalysis.summary.avg_lost_value || '0') * dealAnalysis.summary.lost)}</p>
                   </div>
                   <div className="p-3 rounded-full bg-red-50 dark:bg-red-900/20">
                     <XCircle className="h-6 w-6 text-red-600" />
@@ -577,7 +598,7 @@ export default function AnalyticsPage() {
                     <p className="text-xs font-medium text-muted-foreground">Win Rate</p>
                     <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.win_rate}%</p>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                      {dealAnalysis.summary.total_won} won / {dealAnalysis.summary.total_won + dealAnalysis.summary.total_lost} closed
+                      {dealAnalysis.summary.won} won / {dealAnalysis.summary.won + dealAnalysis.summary.lost} closed
                     </p>
                   </div>
                   <div className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20">
@@ -592,8 +613,8 @@ export default function AnalyticsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Avg Time to Close</p>
-                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.avg_time_to_close_days}d</p>
-                    <p className="text-sm text-amber-600 mt-0.5">Avg won: {formatCurrency(dealAnalysis.summary.avg_won_value)}</p>
+                    <p className="text-2xl font-bold text-foreground mt-1">{dealAnalysis.summary.avg_days_to_close ?? '—'}d</p>
+                    <p className="text-sm text-amber-600 mt-0.5">Avg won: {formatCurrency(parseFloat(dealAnalysis.summary.avg_won_value || '0'))}</p>
                   </div>
                   <div className="p-3 rounded-full bg-amber-50 dark:bg-amber-900/20">
                     <Clock className="h-6 w-6 text-amber-600" />

@@ -310,7 +310,7 @@ export default function FormLayoutEditor({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1 min-w-0">
               <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
-                {entityLabel} Form Layout Editor (V2)
+                {entityLabel} Form Layout Editor
               </h1>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <p className="text-xs text-gray-500">Customize your {entityLabel.toLowerCase()} form layout</p>

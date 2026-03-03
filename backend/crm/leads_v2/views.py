@@ -1,7 +1,7 @@
 """
 Leads V2 Views
 
-Pure dynamic CRUD operations - ALL fields from FieldDefinition.
+Dynamic CRUD operations - fields defined via FormDefinition inline schemas.
 """
 
 from rest_framework import viewsets, status
@@ -19,6 +19,7 @@ from uuid import UUID
 
 from .models import LeadV2
 from .serializers import LeadV2Serializer, LeadV2ListSerializer
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
 class LeadV2Pagination(PageNumberPagination):
@@ -33,13 +34,14 @@ class WebFormThrottle(AnonRateThrottle):
     rate = '10/minute'
 
 
-class LeadV2ViewSet(viewsets.ModelViewSet):
+class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     """
-    Pure Dynamic Lead ViewSet.
+    Dynamic Lead ViewSet.
     
-    ALL fields are defined in forms_v2.FieldDefinition.
+    ALL fields defined via FormDefinition inline schemas.
     ALL values stored in entity_data JSONB.
     """
+    audit_tracked_fields = ['status', 'source', 'owner_id', 'assigned_to_id']
     
     queryset = LeadV2.objects.filter(deleted_at__isnull=True)
     serializer_class = LeadV2Serializer
@@ -451,13 +453,12 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
             'status', 'source', 'rating', 'assigned_to', 'company',
         }
 
-        from crm.models import Company
+        from companies_v2.models import CompanyV2
         company_ids = {l.company_id for l in leads if l.company_id}
         company_names = {}
         if company_ids:
-            company_names = dict(
-                Company.objects.filter(id__in=company_ids).values_list('id', 'name')
-            )
+            companies = CompanyV2.objects.filter(id__in=company_ids).only('id', 'entity_data')
+            company_names = {c.id: c.get_name() for c in companies}
 
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="leads-{timezone.now().strftime("%Y-%m-%d")}.csv"'
@@ -609,10 +610,9 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
                 ).first()
                 
                 if existing:
-                    # Log activity on existing lead
                     try:
-                        from crm.models import Activity
-                        Activity.objects.create(
+                        from activities_v2.models import ActivityV2
+                        ActivityV2.objects.create(
                             org_id=org_id,
                             owner_id=existing.owner_id,
                             activity_type='note',
@@ -718,143 +718,147 @@ class LeadV2ViewSet(viewsets.ModelViewSet):
         }
         
         try:
-            # Create Contact
+            contact = None
+            company = None
+
             if create_contact:
-                from crm.models import Contact
-                
-                # Map lead fields to contact fields
-                contact_data = {
-                    'org_id': org_id,
-                    'owner_id': lead.owner_id or request.user.id,
-                }
-                
-                # Map fields from lead entity_data
-                field_mapping = {
-                    'first_name': 'first_name',
-                    'last_name': 'last_name',
-                    'email': 'email',
-                    'phone': 'phone',
-                    'mobile': 'mobile',
-                    'job_title': 'title',
-                    'department': 'department',
-                    'linkedin_url': 'linkedin_url',
-                    'description': 'description',
-                }
-                
-                for lead_field, contact_field in field_mapping.items():
-                    value = lead.entity_data.get(lead_field)
+                from contacts_v2.models import ContactV2
+
+                entity_data = {}
+                entity_data_fields = [
+                    'first_name', 'last_name', 'email', 'phone', 'mobile',
+                    'job_title', 'department', 'linkedin_url', 'description',
+                ]
+                for field in entity_data_fields:
+                    value = lead.entity_data.get(field)
                     if value:
-                        contact_data[contact_field] = value
-                
-                # Check if contact already exists
+                        entity_data[field] = value
+
                 email = lead.entity_data.get('email')
                 existing_contact = None
                 if email:
-                    existing_contact = Contact.objects.filter(
+                    existing_contact = ContactV2.objects.filter(
                         org_id=org_id,
-                        email__iexact=email
+                        entity_data__email__iexact=email,
+                        deleted_at__isnull=True
                     ).first()
-                
+
                 if existing_contact:
                     contact = existing_contact
                 else:
-                    contact = Contact.objects.create(**contact_data)
-                
+                    contact = ContactV2.objects.create(
+                        org_id=org_id,
+                        owner_id=lead.owner_id or request.user.id,
+                        source=ContactV2.Source.LEAD_CONVERSION,
+                        converted_from_lead_id=lead.id,
+                        converted_at=timezone.now(),
+                        entity_data=entity_data,
+                    )
+
                 result['contact_id'] = str(contact.id)
                 lead.converted_contact_id = contact.id
-            
-            # Create Company
+
             if create_company:
-                from crm.models import Company
-                
+                from companies_v2.models import CompanyV2
+
                 company_name = lead.entity_data.get('company_name')
-                
+
                 if company_name:
-                    # Check if company exists
-                    existing_company = Company.objects.filter(
+                    existing_company = CompanyV2.objects.filter(
                         org_id=org_id,
-                        name__iexact=company_name
+                        entity_data__name__iexact=company_name,
+                        deleted_at__isnull=True
                     ).first()
-                    
+
                     if existing_company:
                         company = existing_company
                     else:
-                        company_data = {
-                            'org_id': org_id,
-                            'owner_id': lead.owner_id or request.user.id,
-                            'name': company_name,
-                        }
-                        
-                        # Map additional fields
-                        field_mapping = {
+                        company_entity_data = {'name': company_name}
+                        entity_field_mapping = {
                             'company_website': 'website',
                             'company_phone': 'phone',
                             'company_email': 'email',
-                            'company_industry': 'industry',
-                            'company_size': 'size',
                             'company_address': 'address',
                             'company_city': 'city',
                             'company_state': 'state',
                             'company_country': 'country',
                             'company_postal_code': 'postal_code',
                         }
-                        
-                        for lead_field, company_field in field_mapping.items():
+                        for lead_field, ed_field in entity_field_mapping.items():
                             value = lead.entity_data.get(lead_field)
                             if value:
-                                company_data[company_field] = value
-                        
-                        company = Company.objects.create(**company_data)
-                    
+                                company_entity_data[ed_field] = value
+
+                        company_kwargs = {
+                            'org_id': org_id,
+                            'owner_id': lead.owner_id or request.user.id,
+                            'entity_data': company_entity_data,
+                        }
+                        industry = lead.entity_data.get('company_industry')
+                        if industry:
+                            company_kwargs['industry'] = industry
+                        size = lead.entity_data.get('company_size')
+                        if size and size in dict(CompanyV2.Size.choices):
+                            company_kwargs['size'] = size
+
+                        company = CompanyV2.objects.create(**company_kwargs)
+
                     result['company_id'] = str(company.id)
                     lead.converted_company_id = company.id
-                    
-                    # Link contact to company if both created
+
                     if create_contact and contact:
-                        contact.primary_company_id = company.id
-                        contact.save(update_fields=['primary_company_id'])
-            
-            # Create Deal
+                        contact.company_id = company.id
+                        contact.save(update_fields=['company_id', 'updated_at'])
+
             if create_deal:
-                from crm.models import Deal, Pipeline
-                
+                from deals_v2.models import DealV2
+                from pipelines_v2.models import PipelineV2
+
                 deal_name = request.data.get('deal_name') or f"Deal with {lead.entity_data.get('first_name', 'Lead')}"
                 deal_value = request.data.get('deal_value', 0)
                 pipeline_id = request.data.get('deal_pipeline_id')
+                stage_name = None
+
                 stage_id = request.data.get('deal_stage_id')
-                
-                # Get default pipeline if not specified
+                if stage_id:
+                    from pipelines_v2.models import PipelineStageV2
+                    stage_obj = PipelineStageV2.objects.filter(id=stage_id).first()
+                    if stage_obj:
+                        stage_name = stage_obj.name
+                        pipeline_id = pipeline_id or stage_obj.pipeline_id
+
                 if not pipeline_id:
-                    default_pipeline = Pipeline.objects.filter(
+                    default_pipeline = PipelineV2.objects.filter(
                         org_id=org_id,
-                        is_active=True
+                        is_active=True,
+                        deleted_at__isnull=True
                     ).order_by('created_at').first()
-                    
+
                     if default_pipeline:
                         pipeline_id = default_pipeline.id
-                        if not stage_id:
-                            # Get first stage
+                        if not stage_name:
                             first_stage = default_pipeline.stages.order_by('order').first()
                             if first_stage:
-                                stage_id = first_stage.id
-                
-                if pipeline_id and stage_id:
+                                stage_name = first_stage.name
+
+                if pipeline_id and stage_name:
                     deal_data = {
                         'org_id': org_id,
                         'owner_id': lead.owner_id or request.user.id,
-                        'name': deal_name,
                         'value': deal_value,
                         'pipeline_id': pipeline_id,
-                        'stage_id': stage_id,
-                        'status': 'open',
+                        'stage': stage_name,
+                        'status': DealV2.Status.OPEN,
+                        'converted_from_lead_id': lead.id,
+                        'entity_data': {'name': deal_name},
                     }
-                    
+
                     if result['contact_id']:
                         deal_data['contact_id'] = result['contact_id']
                     if result['company_id']:
                         deal_data['company_id'] = result['company_id']
-                    
-                    deal = Deal.objects.create(**deal_data)
+
+                    deal = DealV2.objects.create(**deal_data)
                     result['deal_id'] = str(deal.id)
                     lead.converted_deal_id = deal.id
             

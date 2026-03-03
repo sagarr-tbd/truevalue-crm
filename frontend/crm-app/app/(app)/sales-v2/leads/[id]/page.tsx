@@ -18,6 +18,13 @@ import {
   MapPin,
   AlertCircle,
   Loader2,
+  Tag as TagIcon,
+  X as XIcon,
+  Activity,
+  Calendar,
+  User,
+  UserPlus,
+  XCircle,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,10 +33,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { LeadV2FormDrawer } from "@/components/Forms/Sales";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
-import { useLeadV2, useUpdateLeadV2, useDeleteLeadV2 } from "@/lib/queries/useLeadsV2";
+import { useLeadV2, useUpdateLeadV2, useDeleteLeadV2, useConvertLeadV2, useDisqualifyLeadV2 } from "@/lib/queries/useLeadsV2";
 import type { CreateLeadV2Input } from "@/lib/api/leadsV2";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
 import { usePermission, LEADS_WRITE, LEADS_DELETE } from "@/lib/permissions";
+import { useEntityTagsV2, useTagsV2, useAssignTagV2, useUnassignTagV2 } from "@/lib/queries/useTagsV2";
+import { useMembers } from "@/lib/queries/useMembers";
+import { useActivitiesV2 } from "@/lib/queries/useActivitiesV2";
+import dynamic from "next/dynamic";
+
+const LeadConversionModal = dynamic(
+  () => import("@/components/LeadConversionModal").then(mod => ({ default: mod.LeadConversionModal })),
+  { ssr: false }
+);
+import type { ConversionParams } from "@/components/LeadConversionModal";
 
 // Status color mapping
 const getLeadStatusColor = (status: string) => getStatusColor(status, 'lead');
@@ -58,7 +75,43 @@ const daysSince = (dateString: string | undefined) => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
 
-type TabType = "details" | "notes";
+const getActivityIcon = (type: string) => {
+  switch (type) {
+    case 'email': return Mail;
+    case 'call': return Phone;
+    case 'meeting': return Calendar;
+    case 'task': return FileText;
+    case 'note': return MessageSquare;
+    default: return Activity;
+  }
+};
+
+const getActivityColor = (type: string) => {
+  switch (type) {
+    case 'email': return { color: THEME_COLORS.info.text, bg: THEME_COLORS.info.bg };
+    case 'call': return { color: THEME_COLORS.success.text, bg: THEME_COLORS.success.bg };
+    case 'meeting': return { color: 'text-brand-purple', bg: 'bg-brand-purple/10' };
+    case 'task': return { color: THEME_COLORS.warning.text, bg: THEME_COLORS.warning.bg };
+    case 'note': return { color: THEME_COLORS.neutral.text, bg: THEME_COLORS.neutral.bg };
+    default: return { color: 'text-primary', bg: 'bg-primary/10' };
+  }
+};
+
+const formatActivityDate = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatActivityTime = (dateString: string) => {
+  return new Date(dateString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+
+type TabType = "details" | "activity" | "notes";
 
 export default function LeadV2DetailPage() {
   const router = useRouter();
@@ -80,6 +133,35 @@ export default function LeadV2DetailPage() {
   const { data: lead, isLoading, error } = useLeadV2(leadId);
   const updateLead = useUpdateLeadV2();
   const deleteLead = useDeleteLeadV2();
+
+  const { data: entityTags = [] } = useEntityTagsV2("lead", leadId);
+  const { data: allTags = [] } = useTagsV2("lead");
+  const assignTag = useAssignTagV2();
+  const unassignTag = useUnassignTagV2();
+  const [showTagPicker, setShowTagPicker] = useState(false);
+  const assignedTagIds = new Set(entityTags.map((et) => et.tag.id));
+  const availableTags = allTags.filter((t) => !assignedTagIds.has(t.id));
+
+  const { data: activitiesData, isLoading: isLoadingActivities } = useActivitiesV2({ lead_id: leadId, page_size: 50 });
+  const leadActivities = activitiesData?.results || [];
+
+  const { data: members = [], isLoading: isMembersLoading } = useMembers();
+  const ownerInfo = useMemo(() => {
+    if (!lead?.owner_id) return { name: null, isLoading: false };
+    if (isMembersLoading) return { name: null, isLoading: true };
+    const owner = members.find(m => m.user_id === lead.owner_id);
+    if (owner) {
+      const fullName = `${owner.first_name || ''} ${owner.last_name || ''}`.trim();
+      return { name: fullName || owner.display_name || 'Unknown', isLoading: false };
+    }
+    return { name: null, isLoading: false };
+  }, [lead?.owner_id, members, isMembersLoading]);
+
+  const convertLead = useConvertLeadV2();
+  const disqualifyLead = useDisqualifyLeadV2();
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [showDisqualifyInput, setShowDisqualifyInput] = useState(false);
+  const [disqualifyReason, setDisqualifyReason] = useState("");
 
   // Calculate days in pipeline
   const daysInPipeline = useMemo(() => {
@@ -145,6 +227,35 @@ export default function LeadV2DetailPage() {
     }
   };
 
+  const handleConvert = async (params: ConversionParams) => {
+    try {
+      const result = await convertLead.mutateAsync({ id: leadId, params: params as unknown as Record<string, unknown> });
+      setShowConvertModal(false);
+      if (result?.contact_id) {
+        router.push(`/sales-v2/contacts/${result.contact_id}`);
+      } else if (result?.deal_id) {
+        router.push(`/sales-v2/deals/${result.deal_id}`);
+      } else if (result?.company_id) {
+        router.push(`/sales-v2/companies/${result.company_id}`);
+      } else {
+        router.push('/sales-v2/leads');
+      }
+    } catch {
+      // error toast handled by hook
+    }
+  };
+
+  const handleDisqualify = async () => {
+    try {
+      await disqualifyLead.mutateAsync({ id: leadId, reason: disqualifyReason.trim() || undefined });
+      setShowDisqualifyInput(false);
+      setDisqualifyReason("");
+      window.location.reload();
+    } catch {
+      // error toast handled by hook
+    }
+  };
+
   // Format date
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return "N/A";
@@ -189,6 +300,9 @@ export default function LeadV2DetailPage() {
       </div>
     );
   }
+
+  const isConverted = lead?.status === 'converted';
+  const isDisqualified = lead?.status === 'unqualified';
 
   const leadScore = lead.entity_data.lead_score;
   const notes = lead.entity_data.notes || [];
@@ -244,6 +358,18 @@ export default function LeadV2DetailPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {can(LEADS_WRITE) && !isConverted && !isDisqualified && (
+                <>
+                  <Button variant="outline" size="sm" className="flex items-center gap-2 text-green-600 hover:text-green-700" onClick={() => setShowConvertModal(true)} disabled={convertLead.isPending}>
+                    {convertLead.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                    Convert
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex items-center gap-2 text-orange-600 hover:text-orange-700" onClick={() => setShowDisqualifyInput(true)} disabled={disqualifyLead.isPending}>
+                    <XCircle className="h-4 w-4" />
+                    Disqualify
+                  </Button>
+                </>
+              )}
               {can(LEADS_WRITE) && (
                 <Button
                   variant="outline"
@@ -269,6 +395,34 @@ export default function LeadV2DetailPage() {
             </div>
           </div>
         </motion.div>
+
+        {isConverted && lead.converted_at && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 p-4 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 rounded-lg flex items-center gap-3">
+            <UserPlus className="h-5 w-5 text-purple-600 shrink-0" />
+            <div>
+              <span className="text-sm font-medium text-purple-700 dark:text-purple-400">
+                This lead was converted on {formatDate(lead.converted_at)}
+              </span>
+            </div>
+            {lead.converted_contact_id && (
+              <Button variant="outline" size="sm" className="ml-auto" onClick={() => router.push(`/sales-v2/contacts/${lead.converted_contact_id}`)}>
+                View Contact
+              </Button>
+            )}
+          </motion.div>
+        )}
+
+        {isDisqualified && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4 p-4 bg-gray-50 dark:bg-gray-500/10 border border-gray-200 dark:border-gray-500/30 rounded-lg flex items-center gap-3">
+            <XCircle className="h-5 w-5 text-gray-600 shrink-0" />
+            <div>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-400">
+                This lead was disqualified{lead.updated_at ? ` on ${formatDate(lead.updated_at)}` : ''}
+              </span>
+              {lead.entity_data?.disqualify_reason && <p className="text-xs text-muted-foreground mt-1">{lead.entity_data.disqualify_reason}</p>}
+            </div>
+          </motion.div>
+        )}
 
         {/* Overview Cards */}
         <motion.div
@@ -372,15 +526,17 @@ export default function LeadV2DetailPage() {
                 <p className="text-sm font-medium">{daysInPipeline}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Notes Count</p>
-                <p className="text-sm font-medium">{notes.length}</p>
+                <p className="text-xs text-muted-foreground">Activity Count</p>
+                <p className="text-sm font-medium">{leadActivities.length}</p>
               </div>
-              {lead.entity_data.rating && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Rating</p>
-                  <p className="text-sm font-medium capitalize">{lead.entity_data.rating}</p>
-                </div>
-              )}
+              <div>
+                <p className="text-xs text-muted-foreground">Last Activity</p>
+                <p className="text-sm font-medium">
+                  {leadActivities.length > 0 && leadActivities[0]?.created_at
+                    ? formatDate(leadActivities[0].created_at)
+                    : "N/A"}
+                </p>
+              </div>
             </CardContent>
           </Card>
         </motion.div>
@@ -395,6 +551,7 @@ export default function LeadV2DetailPage() {
                 <div className="flex border-b border-border overflow-x-auto scrollbar-hide">
                   {[
                     { id: "details", label: "Details", icon: FileText },
+                    { id: "activity", label: "Activity", icon: Activity },
                     { id: "notes", label: "Notes", icon: MessageSquare },
                   ].map((tab) => {
                     const Icon = tab.icon;
@@ -601,6 +758,76 @@ export default function LeadV2DetailPage() {
                       </motion.div>
                     )}
 
+                    {activeTab === "activity" && (
+                      <motion.div
+                        key="activity"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-4"
+                      >
+                        {isLoadingActivities ? (
+                          <div className="flex items-center justify-center py-8">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                          </div>
+                        ) : leadActivities.length > 0 ? (
+                          leadActivities.map((activity, index) => {
+                            const Icon = getActivityIcon(activity.activity_type || '');
+                            const colors = getActivityColor(activity.activity_type || '');
+                            const actDate = activity.created_at || '';
+                            return (
+                              <div key={activity.id || index} className="flex gap-4">
+                                <div className="flex flex-col items-center">
+                                  <div className={`w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center`}>
+                                    <Icon className={`h-5 w-5 ${colors.color}`} />
+                                  </div>
+                                  {index < leadActivities.length - 1 && (
+                                    <div className="w-0.5 h-full bg-border mt-2" />
+                                  )}
+                                </div>
+                                <div className="flex-1 pb-4">
+                                  <div className="flex items-start justify-between mb-1">
+                                    <div>
+                                      <p className="font-medium">{activity.subject || 'Activity'}</p>
+                                      <span className="text-xs text-muted-foreground capitalize px-2 py-0.5 rounded-full bg-muted">
+                                        {activity.activity_type || 'general'}
+                                      </span>
+                                    </div>
+                                    {actDate && (
+                                      <span className="text-sm text-muted-foreground">
+                                        {formatActivityDate(actDate)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {activity.description && (
+                                    <p className="text-sm text-muted-foreground mb-2">{activity.description}</p>
+                                  )}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    {actDate && <span>{formatActivityTime(actDate)}</span>}
+                                    {activity.status && (
+                                      <span className={`px-2 py-0.5 rounded-full capitalize ${getStatusColor(activity.status, 'generic')}`}>
+                                        {activity.status}
+                                      </span>
+                                    )}
+                                    {activity.duration_minutes && (
+                                      <span>{activity.duration_minutes} min</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Activity className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                            <p className="font-medium">No activities yet</p>
+                            <p className="text-sm">Activities will appear here when you log calls, emails, or meetings</p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
                     {activeTab === "notes" && (
                       <motion.div
                         key="notes"
@@ -680,8 +907,7 @@ export default function LeadV2DetailPage() {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             {/* Lead Score */}
-            {leadScore !== undefined && (
-              <Card>
+            <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Target className="h-4 w-4" />
@@ -716,26 +942,25 @@ export default function LeadV2DetailPage() {
                             strokeWidth="8"
                             fill="none"
                             strokeDasharray={`${2 * Math.PI * 56}`}
-                            strokeDashoffset={`${2 * Math.PI * 56 * (1 - leadScore / 100)}`}
+                            strokeDashoffset={`${2 * Math.PI * 56 * (1 - (leadScore ?? 0) / 100)}`}
                             className="transition-all duration-500"
                           />
                         </svg>
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <span className={`text-2xl font-bold ${getScoreColor(leadScore)}`}>
-                            {leadScore}
+                          <span className={`text-2xl font-bold ${getScoreColor(leadScore ?? 0)}`}>
+                            {leadScore ?? 'N/A'}
                           </span>
                         </div>
                       </div>
                     </div>
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">
-                        {leadScore >= 80 ? "Hot Lead" : leadScore >= 50 ? "Warm Lead" : "Cold Lead"}
+                        {(leadScore ?? 0) >= 80 ? "Hot Lead" : (leadScore ?? 0) >= 50 ? "Warm Lead" : "Cold Lead"}
                       </p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            )}
 
             {/* Quick Actions */}
             <Card>
@@ -778,6 +1003,89 @@ export default function LeadV2DetailPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Assigned To */}
+            {lead.owner_id && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Assigned To
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-medium">
+                      {ownerInfo.name ? ownerInfo.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?'}
+                    </div>
+                    <span className="text-sm font-medium">
+                      {ownerInfo.isLoading ? 'Loading...' : (ownerInfo.name || 'Unknown User')}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <TagIcon className="h-4 w-4" />
+                    Tags
+                  </span>
+                  {can(LEADS_WRITE) && (
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowTagPicker(!showTagPicker)}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {entityTags.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {entityTags.map((et) => (
+                      <span
+                        key={et.id}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white"
+                        style={{ backgroundColor: et.tag.color || "#6B7280" }}
+                      >
+                        {et.tag.name}
+                        {can(LEADS_WRITE) && (
+                          <button
+                            onClick={() => unassignTag.mutate({ tagId: et.tag.id, entityType: "lead", entityId: leadId })}
+                            className="hover:bg-white/20 rounded-full p-0.5"
+                          >
+                            <XIcon className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No tags assigned</p>
+                )}
+
+                {showTagPicker && availableTags.length > 0 && (
+                  <div className="border border-border rounded-lg p-2 mt-2 space-y-1 max-h-40 overflow-y-auto">
+                    {availableTags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        onClick={() => {
+                          assignTag.mutate({ tagId: tag.id, entityType: "lead", entityId: leadId });
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted text-left text-sm"
+                      >
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: tag.color || "#6B7280" }} />
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showTagPicker && availableTags.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">All tags assigned</p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
@@ -803,6 +1111,46 @@ export default function LeadV2DetailPage() {
         initialData={lead}
         mode="edit"
       />
+
+      {showDisqualifyInput && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDisqualifyInput(false)} />
+          <Card className="relative z-[101] w-full max-w-sm p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <XCircle className="h-5 w-5 text-orange-600" />
+              <h3 className="text-lg font-semibold">Disqualify Lead</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">Are you sure you want to disqualify this lead? You can optionally provide a reason.</p>
+            <Textarea value={disqualifyReason} onChange={(e) => setDisqualifyReason(e.target.value)} placeholder="Reason for disqualification (optional)" className="min-h-[60px] resize-none mb-4" />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => { setShowDisqualifyInput(false); setDisqualifyReason(""); }}>Cancel</Button>
+              <Button className="bg-orange-500 hover:bg-orange-600" onClick={handleDisqualify} disabled={disqualifyLead.isPending}>
+                {disqualifyLead.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                Disqualify
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {showConvertModal && lead && (
+        <LeadConversionModal
+          isOpen={showConvertModal}
+          onClose={() => setShowConvertModal(false)}
+          onConvert={handleConvert}
+          lead={{
+            id: leadId,
+            firstName: lead.entity_data.first_name || '',
+            lastName: lead.entity_data.last_name || '',
+            email: lead.entity_data.email || '',
+            phone: lead.entity_data.phone,
+            companyName: lead.entity_data.company_name || lead.entity_data.company || '',
+            title: lead.entity_data.title,
+            website: lead.entity_data.website,
+          }}
+          isConverting={convertLead.isPending}
+        />
+      )}
     </div>
   );
 }

@@ -157,3 +157,45 @@ class ContactV2(models.Model):
     def set_field_value(self, field_name: str, value):
         self.entity_data[field_name] = value
         self.save(update_fields=['entity_data', 'updated_at'])
+
+
+class ContactCompanyV2(models.Model):
+    """
+    M2M relationship between ContactV2 and CompanyV2.
+    Uses UUID references — no FKs to CompanyV2 to keep apps decoupled.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    contact = models.ForeignKey(
+        ContactV2,
+        on_delete=models.CASCADE,
+        related_name='company_associations'
+    )
+    company_id = models.UUIDField(db_index=True)
+
+    title = models.CharField(max_length=100, null=True, blank=True)
+    department = models.CharField(max_length=100, null=True, blank=True)
+    is_primary = models.BooleanField(default=False)
+
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    is_current = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'crm_contact_companies_v2'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['contact', 'company_id'],
+                name='unique_contact_company_v2'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['contact', 'is_primary'], name='cc_v2_primary_idx'),
+            models.Index(fields=['company_id'], name='cc_v2_company_idx'),
+        ]
+
+    def __str__(self):
+        return f"Contact {self.contact_id} at Company {self.company_id}"

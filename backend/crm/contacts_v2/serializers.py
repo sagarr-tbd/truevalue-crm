@@ -8,9 +8,9 @@ Hybrid Architecture Serializer:
 """
 
 from rest_framework import serializers
-from .models import ContactV2
+from .models import ContactV2, ContactCompanyV2
 from forms_v2.models import FormDefinition
-from crm.models import Company
+from companies_v2.models import CompanyV2
 from django.db import transaction
 
 
@@ -79,8 +79,8 @@ class ContactV2Serializer(serializers.ModelSerializer):
 
     def get_display_company(self, obj):
         if obj.company_id:
-            name = Company.objects.filter(id=obj.company_id).values_list('name', flat=True).first()
-            return name or None
+            company = CompanyV2.objects.filter(id=obj.company_id).only('entity_data').first()
+            return company.get_name() if company else None
         return None
 
     def get_email(self, obj):
@@ -311,15 +311,13 @@ class ContactV2ListSerializer(serializers.ModelSerializer):
     def _get_company_cache(self):
         """Batch-load company names once per serializer invocation to avoid N+1."""
         if self._company_cache is None:
-            instances = self.instance if isinstance(self.instance, list) else []
             if hasattr(self.instance, '__iter__') and not isinstance(self.instance, dict):
                 company_ids = {obj.company_id for obj in self.instance if obj.company_id}
             else:
                 company_ids = {self.instance.company_id} if self.instance and self.instance.company_id else set()
             if company_ids:
-                self._company_cache = dict(
-                    Company.objects.filter(id__in=company_ids).values_list('id', 'name')
-                )
+                companies = CompanyV2.objects.filter(id__in=company_ids).only('id', 'entity_data')
+                self._company_cache = {c.id: c.get_name() for c in companies}
             else:
                 self._company_cache = {}
         return self._company_cache
@@ -357,3 +355,29 @@ class ContactV2ListSerializer(serializers.ModelSerializer):
 
     def get_display_phone(self, obj):
         return obj.entity_data.get('phone', '') or obj.entity_data.get('mobile', 'N/A')
+
+
+class ContactCompanyV2Serializer(serializers.ModelSerializer):
+    company_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ContactCompanyV2
+        fields = [
+            'id', 'contact_id', 'company_id', 'company_name',
+            'title', 'department', 'is_primary', 'is_current',
+            'start_date', 'end_date', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_company_name(self, obj):
+        company = CompanyV2.objects.filter(id=obj.company_id).only('entity_data').first()
+        return company.get_name() if company else None
+
+
+class ContactCompanyV2WriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactCompanyV2
+        fields = [
+            'company_id', 'title', 'department',
+            'is_primary', 'is_current', 'start_date', 'end_date',
+        ]

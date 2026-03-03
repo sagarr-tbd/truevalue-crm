@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'deals_v2',  # V2 Deals with Dynamic Forms
     'pipelines_v2',  # V2 Pipelines with Stages
     'activities_v2',  # V2 Activities (Tasks, Calls, Emails, Meetings, Notes)
+    'tags_v2',  # V2 Tags (Polymorphic tagging)
 ]
 
 MIDDLEWARE = [

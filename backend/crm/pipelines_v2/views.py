@@ -8,7 +8,9 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Count, Sum, Q
+from collections import defaultdict
+from django.db.models import Count, Sum, Q, Max
+from django.utils import timezone
 
 from .models import PipelineV2, PipelineStageV2
 from .serializers import (
@@ -116,7 +118,7 @@ class PipelineV2ViewSet(viewsets.ModelViewSet):
         data = request.data
 
         max_order = pipeline.stages.aggregate(
-            max_order=models.Max('order')
+            max_order=Max('order')
         )['max_order'] or -1
 
         stage = PipelineStageV2.objects.create(
@@ -231,3 +233,92 @@ class PipelineV2ViewSet(viewsets.ModelViewSet):
                 'total_value': '0',
                 'by_stage': {},
             })
+
+    @action(detail=True, methods=['get'])
+    def kanban(self, request, pk=None):
+        """Get deals organized by stage for Kanban board."""
+        pipeline = self.get_object()
+
+        try:
+            from deals_v2.models import DealV2
+            from contacts_v2.models import ContactV2
+            from companies_v2.models import CompanyV2
+
+            stages = list(pipeline.stages.order_by('order'))
+
+            all_deals = list(
+                DealV2.objects.filter(
+                    pipeline_id=pipeline.id,
+                    deleted_at__isnull=True,
+                ).order_by('stage_entered_at')
+            )
+
+            contact_ids = {d.contact_id for d in all_deals if d.contact_id}
+            company_ids = {d.company_id for d in all_deals if d.company_id}
+
+            contact_names = {}
+            if contact_ids:
+                for c in ContactV2.objects.filter(id__in=contact_ids).only('id', 'entity_data'):
+                    contact_names[c.id] = c.get_full_name()
+
+            company_names = {}
+            if company_ids:
+                for c in CompanyV2.objects.filter(id__in=company_ids).only('id', 'entity_data'):
+                    company_names[c.id] = c.get_name()
+
+            deals_by_stage = defaultdict(list)
+            for deal in all_deals:
+                deals_by_stage[deal.stage].append(deal)
+
+            now = timezone.now()
+            kanban_stages = []
+
+            for stage in stages:
+                stage_deals = deals_by_stage.get(stage.name, [])
+                stage_value = sum(d.value for d in stage_deals)
+
+                kanban_stages.append({
+                    'id': str(stage.id),
+                    'name': stage.name,
+                    'order': stage.order,
+                    'probability': stage.probability,
+                    'is_won': stage.is_won,
+                    'is_lost': stage.is_lost,
+                    'color': stage.color,
+                    'deal_count': len(stage_deals),
+                    'total_value': str(stage_value),
+                    'deals': [
+                        {
+                            'id': str(d.id),
+                            'name': d.get_name(),
+                            'value': str(d.value),
+                            'status': d.status,
+                            'contact_name': contact_names.get(d.contact_id),
+                            'company_name': company_names.get(d.company_id),
+                            'expected_close_date': d.expected_close_date.isoformat() if d.expected_close_date else None,
+                            'owner_id': str(d.owner_id),
+                            'days_in_stage': (now - d.stage_entered_at).days if d.stage_entered_at else 0,
+                        }
+                        for d in stage_deals
+                    ]
+                })
+
+            return Response({
+                'pipeline': {
+                    'id': str(pipeline.id),
+                    'name': pipeline.name,
+                    'currency': pipeline.currency,
+                },
+                'stages': kanban_stages,
+            })
+
+        except Exception as e:
+            return Response({
+                'pipeline': {
+                    'id': str(pipeline.id),
+                    'name': pipeline.name,
+                    'currency': pipeline.currency,
+                },
+                'stages': [],
+                'error': str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

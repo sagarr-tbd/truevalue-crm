@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Check,
   AlertCircle,
+  Users,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,10 +64,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal"),
-  { ssr: false }
-);
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 const PRIORITY_DISPLAY: Record<string, string> = {
   urgent: "Urgent", high: "High", normal: "Normal", low: "Low",
@@ -204,7 +202,7 @@ export default function MeetingsV2Page() {
   }, [statsData, totalItems]);
 
   const stats = useMemo(() => [
-    { label: "Total Meetings", value: statsData?.total ?? totalItems, icon: CalendarIcon, iconBgColor: "bg-primary/10", iconColor: "text-primary" },
+    { label: "Total Meetings", value: statsData?.total ?? totalItems, icon: Users, iconBgColor: "bg-primary/10", iconColor: "text-primary" },
     { label: "In Progress", value: statsData?.by_status?.in_progress ?? 0, icon: Clock, iconBgColor: "bg-accent/10", iconColor: "text-accent" },
     { label: "Completed", value: statsData?.by_status?.completed ?? 0, icon: Check, iconBgColor: "bg-primary/20", iconColor: "text-primary" },
     { label: "Overdue", value: statsData?.overdue ?? 0, icon: AlertCircle, iconBgColor: "bg-destructive/10", iconColor: "text-destructive" },
@@ -267,7 +265,7 @@ export default function MeetingsV2Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `selected-meetings-v2-${new Date().toISOString().split("T")[0]}.csv`;
+      link.download = `selected-meetings-${new Date().toISOString().split("T")[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -325,7 +323,7 @@ export default function MeetingsV2Page() {
 
   const columns = useMemo(() => [
     {
-      key: "subject", label: "Subject",
+      key: "subject", label: "Meeting",
       render: (_v: unknown, row: ActivityV2) => (
         <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => router.push(`/activities-v2/meetings/${row.id}`)}>
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">{getInitialsFromSubject(row.subject)}</div>
@@ -333,10 +331,10 @@ export default function MeetingsV2Page() {
         </div>
       ),
     },
-    { key: "status", label: "Status", render: (v: string) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(v)}`}>{STATUS_DISPLAY[v] || v}</span> },
     { key: "priority", label: "Priority", render: (v: string) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(v)}`}>{PRIORITY_DISPLAY[v] || v}</span> },
-    { key: "due_date", label: "Due Date", render: (v: string) => <div className="flex items-center gap-2 text-sm text-foreground"><CalendarIcon className="h-4 w-4 text-muted-foreground" />{formatDate(v)}</div> },
-    { key: "duration_minutes", label: "Duration", render: (v: number | null) => <span className="text-sm text-foreground">{v ? `${v} min` : "—"}</span> },
+    { key: "status", label: "Status", render: (v: string) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(v)}`}>{STATUS_DISPLAY[v] || v}</span> },
+    { key: "due_date", label: "Date", render: (v: string) => <div className="flex items-center gap-2 text-sm text-foreground"><CalendarIcon className="h-4 w-4 text-muted-foreground" />{formatDate(v)}</div> },
+    { key: "duration_minutes", label: "Duration", render: (v: number | null) => <div className="flex items-center gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4" />{v ? `${v} min` : "—"}</div> },
     {
       key: "related_to", label: "Related To",
       render: (_v: unknown, row: ActivityV2) => (
@@ -363,8 +361,8 @@ export default function MeetingsV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Meetings (V2)"
-        icon={CalendarIcon}
+        title="Meetings"
+        icon={Users}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
         subtitle={`${totalItems} meetings`}
@@ -399,10 +397,10 @@ export default function MeetingsV2Page() {
               {filterGroup && filterGroup.conditions.length > 0 && <span className="ml-2 px-2 py-0.5 bg-primary text-primary-foreground rounded-full text-xs">{filterGroup.conditions.length}</span>}
             </Button>
             {can(ACTIVITIES_WRITE) && (
-              <ExportButton exportUrl="/crm/api/v2/activities/export/" exportParams={exportParams} filename="meetings-v2" totalRecords={totalItems} />
+              <ExportButton exportUrl="/crm/api/v2/activities/export/" exportParams={exportParams} filename="meetings" totalRecords={totalItems} />
             )}
             {can(ACTIVITIES_WRITE) && (
-              <Button onClick={() => { setFormMode("add"); setEditingItem(null); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90">
+              <Button onClick={() => { setFormMode("add"); setEditingItem(null); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90" title="Schedule a new meeting">
                 <Plus className="h-4 w-4 mr-2" />Add Meeting
               </Button>
             )}
@@ -421,7 +419,7 @@ export default function MeetingsV2Page() {
       <AnimatePresence>{showStats && <StatsCards stats={stats} columns={4} />}</AnimatePresence>
 
       {viewMode === "list" ? (
-        <DataTable data={meetings} columns={columns} selectedIds={selectedItems} onSelectAll={handleSelectAll} onSelectRow={handleSelectRow} showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)} loading={isLoading} emptyMessage="No meetings found" emptyDescription="Try adjusting your search or filters, or add a new meeting"
+        <DataTable data={meetings} columns={columns} selectedIds={selectedItems} onSelectAll={handleSelectAll} onSelectRow={handleSelectRow} showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)} loading={isLoading} emptyMessage="No meetings found" emptyDescription="Try adjusting your search or filters, or schedule a new meeting"
           renderActions={(row: ActivityV2) => <ActionMenu items={actionMenuItems(row)} />} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -437,7 +435,7 @@ export default function MeetingsV2Page() {
                 </div>
                 {item.description && <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{item.description}</p>}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><CalendarIcon className="h-4 w-4" /><span>Due: {formatDate(item.due_date)}</span></div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><CalendarIcon className="h-4 w-4" /><span>Date: {formatDate(item.due_date)}</span></div>
                   {item.duration_minutes && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4" /><span>{item.duration_minutes} min</span></div>}
                 </div>
                 <div className="mt-4 flex items-center gap-2">
@@ -452,7 +450,7 @@ export default function MeetingsV2Page() {
 
       <DataPagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={(p) => { setCurrentPage(p); setSelectedItems([]); }} onItemsPerPageChange={(i) => { setItemsPerPage(i); setCurrentPage(1); setSelectedItems([]); }} filterInfo={statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined} />
 
-      <DeleteConfirmationModal isOpen={isDeleteModalOpen} onClose={() => { setIsDeleteModalOpen(false); setItemToDelete(null); }} onConfirm={handleDeleteConfirm} title="Delete Meeting" description="Are you sure you want to delete this meeting? This action cannot be undone." itemName={itemToDelete?.subject} itemType="Meeting" icon={CalendarIcon} isDeleting={isDeleting} />
+      <DeleteConfirmationModal isOpen={isDeleteModalOpen} onClose={() => { setIsDeleteModalOpen(false); setItemToDelete(null); }} onConfirm={handleDeleteConfirm} title="Delete Meeting" description="Are you sure you want to delete this meeting? This will permanently remove it from your CRM and cannot be undone." itemName={itemToDelete?.subject} itemType="Meeting" icon={Users} isDeleting={isDeleting} />
 
       <ActivityV2FormDrawer isOpen={formDrawerOpen} onClose={() => { setFormDrawerOpen(false); setEditingItem(null); }} onSubmit={handleFormSubmit} initialData={editingItem} mode={formMode} activityType="meeting" />
 

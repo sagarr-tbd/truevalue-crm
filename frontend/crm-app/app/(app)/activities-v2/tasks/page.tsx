@@ -69,10 +69,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal"),
-  { ssr: false }
-);
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -431,7 +428,7 @@ export default function TasksV2Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `selected-tasks-v2-${new Date().toISOString().split("T")[0]}.csv`;
+      link.download = `selected-tasks-${new Date().toISOString().split("T")[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -584,7 +581,7 @@ export default function TasksV2Page() {
     () => [
       {
         key: "subject",
-        label: "Subject",
+        label: "Task",
         render: (_value: unknown, row: ActivityV2) => (
           <div
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -708,7 +705,7 @@ export default function TasksV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Tasks (V2)"
+        title="Tasks"
         icon={CheckSquare}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
@@ -801,7 +798,7 @@ export default function TasksV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/activities/export/"
                 exportParams={exportParams}
-                filename="tasks-v2"
+                filename="tasks"
                 totalRecords={totalItems}
               />
             )}

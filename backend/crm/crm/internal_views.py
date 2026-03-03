@@ -118,20 +118,20 @@ def get_org_stats(request, org_id):
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT
-                (SELECT COUNT(*) FROM crm_contact WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_company WHERE org_id = %s),
-                (SELECT COUNT(*) FROM crm_activity WHERE org_id = %s),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL AND status = 'new'),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL AND status = 'converted')
+                (SELECT COUNT(*) FROM crm_contacts WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_companies WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_activities WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL AND status = 'new'),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL AND status = 'converted')
         """, [str(org_uuid)] * 14)
         r = cursor.fetchone()
 
@@ -178,11 +178,11 @@ def record_usage(request, org_id):
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT
-                (SELECT COUNT(*) FROM crm_contact WHERE org_id = %s AND deleted_at IS NULL) AS contacts,
-                (SELECT COUNT(*) FROM crm_company WHERE org_id = %s) AS companies,
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL) AS deals,
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL) AS leads,
-                (SELECT COUNT(*) FROM crm_activity WHERE org_id = %s) AS activities
+                (SELECT COUNT(*) FROM crm_contacts WHERE org_id = %s AND deleted_at IS NULL) AS contacts,
+                (SELECT COUNT(*) FROM crm_companies WHERE org_id = %s) AS companies,
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL) AS deals,
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL) AS leads,
+                (SELECT COUNT(*) FROM crm_activities WHERE org_id = %s) AS activities
         """, [str(org_uuid)] * 5)
         row = cursor.fetchone()
 

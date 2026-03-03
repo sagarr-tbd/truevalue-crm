@@ -68,13 +68,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () =>
-    import("@/components/BulkUpdateModal").then((mod) => ({
-      default: mod.BulkUpdateModal,
-    })),
-  { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").default;
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -444,7 +438,7 @@ export default function CallsV2Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `selected-calls-v2-${new Date().toISOString().split("T")[0]}.csv`;
+      link.download = `selected-calls-${new Date().toISOString().split("T")[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -607,7 +601,7 @@ export default function CallsV2Page() {
     () => [
       {
         key: "subject",
-        label: "Subject",
+        label: "Call",
         render: (_value: unknown, row: ActivityV2) => (
           <div
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -642,6 +636,17 @@ export default function CallsV2Page() {
           ),
       },
       {
+        key: "status",
+        label: "Status",
+        render: (value: string) => (
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}
+          >
+            {STATUS_DISPLAY[value] || value}
+          </span>
+        ),
+      },
+      {
         key: "call_outcome",
         label: "Outcome",
         render: (value: string) =>
@@ -656,23 +661,22 @@ export default function CallsV2Page() {
           ),
       },
       {
-        key: "status",
-        label: "Status",
-        render: (value: string) => (
-          <span
-            className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}
-          >
-            {STATUS_DISPLAY[value] || value}
-          </span>
-        ),
-      },
-      {
         key: "due_date",
-        label: "Due Date",
+        label: "Date",
         render: (value: string) => (
           <div className="flex items-center gap-2 text-sm text-foreground">
             <Calendar className="h-4 w-4 text-muted-foreground" />
             {formatDate(value)}
+          </div>
+        ),
+      },
+      {
+        key: "duration_minutes",
+        label: "Duration",
+        render: (value: number) => (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            {value ? `${value} min` : "—"}
           </div>
         ),
       },
@@ -689,16 +693,6 @@ export default function CallsV2Page() {
             ) : (
               <span className="text-muted-foreground/50">—</span>
             )}
-          </div>
-        ),
-      },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (value: string) => (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="h-4 w-4" />
-            {formatDate(value)}
           </div>
         ),
       },
@@ -748,7 +742,7 @@ export default function CallsV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Calls (V2)"
+        title="Calls"
         icon={Phone}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
@@ -841,7 +835,7 @@ export default function CallsV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/activities/export/"
                 exportParams={exportParams}
-                filename="calls-v2"
+                filename="calls"
                 totalRecords={totalItems}
               />
             )}
@@ -853,10 +847,10 @@ export default function CallsV2Page() {
                   setFormDrawerOpen(true);
                 }}
                 className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90"
-                title="Add a new call"
+                title="Log a new call"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Add Call
+                Log Call
               </Button>
             )}
           </>
@@ -922,7 +916,7 @@ export default function CallsV2Page() {
           showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)}
           loading={isLoading}
           emptyMessage="No calls found"
-          emptyDescription="Try adjusting your search or filters, or add a new call"
+          emptyDescription="Try adjusting your search or filters, or log a new call"
           renderActions={(row: ActivityV2) => (
             <ActionMenu items={actionMenuItems(row)} />
           )}
@@ -966,7 +960,7 @@ export default function CallsV2Page() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>Due: {formatDate(call.due_date)}</span>
+                    <span>Date: {formatDate(call.due_date)}</span>
                   </div>
                   {(call.display_contact || call.display_company) && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">

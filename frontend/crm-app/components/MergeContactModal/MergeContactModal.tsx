@@ -5,19 +5,9 @@ import { motion } from "framer-motion";
 import { Merge, X, User, Mail, Phone, Building2, Check, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { contactsApi, MergeStrategy } from "@/lib/api/contacts";
+import { contactsApi } from "@/lib/api/contacts";
 
-export interface MergeContactModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onMergeComplete: (mergedContactId: string) => void;
-  primaryContactId: string;
-  secondaryContactId: string;
-  isLoading?: boolean;
-  onMerge: (primaryId: string, secondaryId: string, strategy: MergeStrategy) => void;
-}
-
-interface ContactSummary {
+export interface ContactSummary {
   id: string;
   name: string;
   email?: string;
@@ -27,6 +17,32 @@ interface ContactSummary {
   isLoading: boolean;
 }
 
+export type MergeModalStrategy = 'keep_primary' | 'fill_empty';
+
+export interface MergeContactModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onMergeComplete?: (mergedContactId: string) => void;
+  primaryContactId: string;
+  secondaryContactId: string;
+  isLoading?: boolean;
+  onMerge: (primaryId: string, secondaryId: string, strategy: MergeModalStrategy) => void;
+  fetchContact?: (id: string) => Promise<ContactSummary>;
+}
+
+const defaultFetchContact = async (id: string): Promise<ContactSummary> => {
+  const contact = await contactsApi.getById(id);
+  return {
+    id: contact.id,
+    name: contact.name,
+    email: contact.email,
+    phone: contact.phone,
+    company: contact.company,
+    title: contact.jobTitle,
+    isLoading: false,
+  };
+};
+
 export default function MergeContactModal({
   isOpen,
   onClose,
@@ -34,49 +50,35 @@ export default function MergeContactModal({
   secondaryContactId,
   isLoading,
   onMerge,
+  fetchContact,
 }: MergeContactModalProps) {
-  const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('fill_empty');
+  const [mergeStrategy, setMergeStrategy] = useState<MergeModalStrategy>('fill_empty');
   const [primaryContact, setPrimaryContact] = useState<ContactSummary | null>(null);
   const [secondaryContact, setSecondaryContact] = useState<ContactSummary | null>(null);
 
-  // Load contact details
+  const fetcher = fetchContact || defaultFetchContact;
+
   useEffect(() => {
     if (isOpen && primaryContactId) {
       setPrimaryContact({ id: primaryContactId, name: 'Loading...', isLoading: true });
-      contactsApi.getById(primaryContactId).then((contact) => {
-        setPrimaryContact({
-          id: contact.id,
-          name: contact.name,
-          email: contact.email,
-          phone: contact.phone,
-          company: contact.company,
-          title: contact.jobTitle,
-          isLoading: false,
-        });
+      fetcher(primaryContactId).then((summary) => {
+        setPrimaryContact(summary);
       }).catch(() => {
         setPrimaryContact({ id: primaryContactId, name: 'Error loading', isLoading: false });
       });
     }
-  }, [isOpen, primaryContactId]);
+  }, [isOpen, primaryContactId, fetcher]);
 
   useEffect(() => {
     if (isOpen && secondaryContactId) {
       setSecondaryContact({ id: secondaryContactId, name: 'Loading...', isLoading: true });
-      contactsApi.getById(secondaryContactId).then((contact) => {
-        setSecondaryContact({
-          id: contact.id,
-          name: contact.name,
-          email: contact.email,
-          phone: contact.phone,
-          company: contact.company,
-          title: contact.jobTitle,
-          isLoading: false,
-        });
+      fetcher(secondaryContactId).then((summary) => {
+        setSecondaryContact(summary);
       }).catch(() => {
         setSecondaryContact({ id: secondaryContactId, name: 'Error loading', isLoading: false });
       });
     }
-  }, [isOpen, secondaryContactId]);
+  }, [isOpen, secondaryContactId, fetcher]);
 
   if (!isOpen) return null;
 

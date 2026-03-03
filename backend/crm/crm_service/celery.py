@@ -23,8 +23,13 @@ app.autodiscover_tasks()
 app.conf.beat_schedule = {
     'send-activity-reminders': {
         'task': 'crm.tasks.send_activity_reminders',
-        'schedule': crontab(minute='*/5'),  # Every 5 minutes
-        'options': {'expires': 240}  # Task expires after 4 minutes if not executed
+        'schedule': crontab(minute='*/5'),
+        'options': {'expires': 240},
+    },
+    'send-activity-reminders-v2': {
+        'task': 'activities_v2.tasks.send_activity_reminders_v2',
+        'schedule': crontab(minute='*/5'),
+        'options': {'expires': 240},
     },
 }
 

@@ -174,4 +174,22 @@ export const activitiesV2Api = {
     );
     return response.data;
   },
+
+  trend: async (days?: number, activityType?: string) => {
+    const qp = new URLSearchParams();
+    if (days) qp.set('days', String(days));
+    if (activityType) qp.set('activity_type', activityType);
+    const url = qp.toString()
+      ? `${BASE_URL}/trend/?${qp}`
+      : `${BASE_URL}/trend/`;
+    const response = await apiClient.get<ActivityV2TrendResponse>(url);
+    return response.data;
+  },
 };
+
+export interface ActivityV2TrendResponse {
+  days: number;
+  daily: Array<{ date: string; count: number }>;
+  by_type: Record<string, Array<{ date: string; count: number }>>;
+  total: number;
+}

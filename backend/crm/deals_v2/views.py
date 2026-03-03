@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from .models import DealV2
 from .serializers import DealV2Serializer, DealV2ListSerializer
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
 class DealV2Pagination(PageNumberPagination):
@@ -27,7 +28,8 @@ class DealV2Pagination(PageNumberPagination):
     max_page_size = 100
 
 
-class DealV2ViewSet(viewsets.ModelViewSet):
+class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    audit_tracked_fields = ['status', 'stage', 'value', 'pipeline_id', 'owner_id', 'assigned_to_id']
     queryset = DealV2.objects.filter(deleted_at__isnull=True)
     serializer_class = DealV2Serializer
     pagination_class = DealV2Pagination
@@ -561,3 +563,177 @@ class DealV2ViewSet(viewsets.ModelViewSet):
         deal.save(update_fields=['stage', 'stage_entered_at', 'updated_at'])
 
         return Response(DealV2Serializer(deal).data)
+
+    @action(detail=False, methods=['get'])
+    def forecast(self, request):
+        """
+        Deal forecast for upcoming period.
+        Query params: ?days=30&pipeline_id=<uuid>
+        """
+        org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            days = int(request.query_params.get('days', 30))
+            days = max(1, min(days, 365))
+        except (ValueError, TypeError):
+            days = 30
+
+        from datetime import date, timedelta
+
+        end_date = date.today() + timedelta(days=days)
+        deals_qs = DealV2.objects.filter(
+            org_id=org_id,
+            status='open',
+            deleted_at__isnull=True,
+            expected_close_date__gte=date.today(),
+            expected_close_date__lte=end_date,
+        ).order_by('expected_close_date')
+
+        pipeline_id = request.query_params.get('pipeline_id')
+        if pipeline_id:
+            deals_qs = deals_qs.filter(pipeline_id=pipeline_id)
+
+        from django.db.models import F
+        from django.db.models.functions import Coalesce
+
+        stats = deals_qs.aggregate(
+            total_value=Coalesce(Sum('value'), Decimal('0')),
+            weighted_value=Coalesce(
+                Sum(F('value') * Coalesce(F('probability'), 0) / 100),
+                Decimal('0')
+            ),
+        )
+
+        deals_list = deals_qs.annotate(
+            calc_probability=Coalesce(F('probability'), 0),
+        )
+
+        return Response({
+            'period_days': days,
+            'deal_count': deals_qs.count(),
+            'total_value': str(stats['total_value']),
+            'weighted_value': str(stats['weighted_value']),
+            'deals': [
+                {
+                    'id': str(d.id),
+                    'name': d.get_name(),
+                    'value': str(d.value),
+                    'probability': d.calc_probability,
+                    'weighted_value': str(d.value * d.calc_probability / 100),
+                    'expected_close_date': d.expected_close_date.isoformat(),
+                    'stage': d.stage,
+                    'pipeline_id': str(d.pipeline_id) if d.pipeline_id else None,
+                }
+                for d in deals_list
+            ],
+        })
+
+    @action(detail=False, methods=['get'])
+    def analysis(self, request):
+        """
+        Won/lost analysis: summary, monthly trend, loss reasons.
+        Query params: ?days=90&pipeline_id=<uuid>
+        """
+        org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            days = int(request.query_params.get('days', 90))
+            days = max(1, min(days, 365))
+        except (ValueError, TypeError):
+            days = 90
+
+        from datetime import date, timedelta
+        from django.db.models.functions import Coalesce, TruncMonth
+
+        cutoff = date.today() - timedelta(days=days)
+        base = DealV2.objects.filter(
+            org_id=org_id,
+            deleted_at__isnull=True,
+            status__in=['won', 'lost'],
+            actual_close_date__gte=cutoff,
+        )
+
+        pipeline_id = request.query_params.get('pipeline_id')
+        if pipeline_id:
+            base = base.filter(pipeline_id=pipeline_id)
+
+        agg = base.aggregate(
+            total_won=Count('id', filter=Q(status='won')),
+            total_lost=Count('id', filter=Q(status='lost')),
+            won_value=Coalesce(Sum('value', filter=Q(status='won')), Decimal('0')),
+            lost_value=Coalesce(Sum('value', filter=Q(status='lost')), Decimal('0')),
+            avg_won_value=Coalesce(Avg('value', filter=Q(status='won')), Decimal('0')),
+            avg_lost_value=Coalesce(Avg('value', filter=Q(status='lost')), Decimal('0')),
+        )
+
+        closed = agg['total_won'] + agg['total_lost']
+        win_rate = (agg['total_won'] / closed * 100) if closed > 0 else 0
+
+        close_day_counts = []
+        for d in base.filter(
+            status='won', actual_close_date__isnull=False
+        ).values_list('actual_close_date', 'created_at'):
+            delta = (d[0] - d[1].date()).days
+            if delta >= 0:
+                close_day_counts.append(delta)
+
+        avg_time_to_close_days = (
+            round(sum(close_day_counts) / len(close_day_counts), 1)
+            if close_day_counts else 0
+        )
+
+        summary = {
+            'total_won': agg['total_won'],
+            'total_lost': agg['total_lost'],
+            'won_value': str(agg['won_value']),
+            'lost_value': str(agg['lost_value']),
+            'win_rate': round(win_rate, 1),
+            'avg_won_value': str(agg['avg_won_value']),
+            'avg_lost_value': str(agg['avg_lost_value']),
+            'avg_time_to_close_days': avg_time_to_close_days,
+        }
+
+        trend_qs = (
+            base.annotate(period=TruncMonth('actual_close_date'))
+            .values('period')
+            .annotate(
+                won=Count('id', filter=Q(status='won')),
+                lost=Count('id', filter=Q(status='lost')),
+                won_value=Coalesce(Sum('value', filter=Q(status='won')), Decimal('0')),
+                lost_value=Coalesce(Sum('value', filter=Q(status='lost')), Decimal('0')),
+            )
+            .order_by('period')
+        )
+        trend = [
+            {
+                'period': t['period'].strftime('%Y-%m'),
+                'won': t['won'],
+                'lost': t['lost'],
+                'won_value': str(t['won_value']),
+                'lost_value': str(t['lost_value']),
+            }
+            for t in trend_qs
+        ]
+
+        loss_qs = (
+            base.filter(status='lost')
+            .exclude(loss_reason__isnull=True)
+            .exclude(loss_reason='')
+            .values('loss_reason')
+            .annotate(count=Count('id'), value=Coalesce(Sum('value'), Decimal('0')))
+            .order_by('-count')
+        )
+        loss_reasons = [
+            {'reason': lr['loss_reason'], 'count': lr['count'], 'value': str(lr['value'])}
+            for lr in loss_qs
+        ]
+
+        return Response({
+            'summary': summary,
+            'trend': trend,
+            'loss_reasons': loss_reasons,
+        })

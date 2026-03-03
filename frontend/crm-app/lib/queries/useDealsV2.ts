@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { dealsV2Api, type DealV2, type DealV2ListItem, type DealV2QueryParams } from '@/lib/api/dealsV2';
+import { dealsV2Api, dealsV2ExtApi, type DealV2, type DealV2ListItem, type DealV2QueryParams } from '@/lib/api/dealsV2';
 import { createEntityV2QueryKeys, createEntityV2Hooks } from './useEntityV2';
 
-export type { DealV2Stats } from '@/lib/api/dealsV2';
+export type { DealV2Stats, DealV2ForecastResponse, DealV2AnalysisResponse } from '@/lib/api/dealsV2';
 
 export const dealsV2QueryKeys = createEntityV2QueryKeys('dealsV2');
 
@@ -33,5 +33,21 @@ export function useDealV2Options() {
       }));
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDealV2Forecast(params?: { days?: number; pipeline_id?: string }) {
+  return useQuery({
+    queryKey: [...dealsV2QueryKeys.all, 'forecast', params],
+    queryFn: () => dealsV2ExtApi.forecast(params),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useDealV2Analysis(params?: { days?: number; pipeline_id?: string }) {
+  return useQuery({
+    queryKey: [...dealsV2QueryKeys.all, 'analysis', params],
+    queryFn: () => dealsV2ExtApi.analysis(params),
+    staleTime: 2 * 60 * 1000,
   });
 }

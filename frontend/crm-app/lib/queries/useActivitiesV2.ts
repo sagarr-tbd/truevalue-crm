@@ -124,6 +124,14 @@ export function useBulkDeleteActivitiesV2() {
   });
 }
 
+export function useActivityV2Trend(days?: number, activityType?: string) {
+  return useQuery({
+    queryKey: [...ACTIVITIES_KEY, 'trend', days, activityType],
+    queryFn: () => activitiesV2Api.trend(days, activityType),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useBulkUpdateActivitiesV2() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
   Plus,
@@ -38,7 +38,7 @@ import {
   useBulkUpdateContactsV2,
 } from "@/lib/queries/useContactsV2";
 import type { CreateContactV2Input, ContactV2 } from "@/lib/api/contactsV2";
-import { contactsV2Api } from "@/lib/api/contactsV2";
+import { contactsV2Api, contactsV2ExtApi } from "@/lib/api/contactsV2";
 import { toast } from "sonner";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
@@ -60,13 +60,16 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
+
+const ImportModal = dynamic(
+  () => import("@/components/ImportModal").then(mod => ({ default: mod.ImportModal })),
   { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+);
 
 export default function ContactsV2Page() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const {
     viewMode, showStats, setViewMode, toggleStats,
@@ -96,6 +99,8 @@ export default function ContactsV2Page() {
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [showBulkUpdateStatus, setShowBulkUpdateStatus] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const queryParams = useMemo(() => {
     const params: any = {
@@ -340,7 +345,7 @@ export default function ContactsV2Page() {
     }
   };
 
-  const handleBulkUpdateStatus = async (newStatus: 'active' | 'inactive' | 'bounced' | 'unsubscribed' | 'archived') => {
+  const handleBulkUpdateStatus = async (newStatus: "active" | "inactive" | "bounced" | "unsubscribed" | "archived") => {
     setIsBulkProcessing(true);
     try {
       await bulkUpdateContacts.mutateAsync({ ids: selectedContacts, data: { status: newStatus } });
@@ -349,6 +354,40 @@ export default function ContactsV2Page() {
     } finally {
       setIsBulkProcessing(false);
     }
+  };
+
+  const importFieldOptions = useMemo(() => [
+    { value: 'first_name', label: 'First Name' },
+    { value: 'last_name', label: 'Last Name' },
+    { value: 'email', label: 'Email' },
+    { value: 'secondary_email', label: 'Secondary Email' },
+    { value: 'phone', label: 'Phone' },
+    { value: 'mobile', label: 'Mobile' },
+    { value: 'title', label: 'Job Title' },
+    { value: 'department', label: 'Department' },
+    { value: 'status', label: 'Status' },
+    { value: 'source', label: 'Source' },
+    { value: 'source_detail', label: 'Source Detail' },
+    { value: 'address_line1', label: 'Address Line 1' },
+    { value: 'city', label: 'City' },
+    { value: 'state', label: 'State' },
+    { value: 'postal_code', label: 'Postal Code' },
+    { value: 'country', label: 'Country' },
+    { value: 'description', label: 'Description' },
+    { value: 'linkedin_url', label: 'LinkedIn URL' },
+    { value: 'twitter_url', label: 'Twitter URL' },
+  ], []);
+
+  const handleImportContacts = async (
+    data: Record<string, unknown>[],
+    options: { skipDuplicates: boolean; updateExisting: boolean; duplicateCheckField: 'email' | 'phone' }
+  ) => {
+    const duplicateHandling = options.skipDuplicates ? 'skip' : options.updateExisting ? 'update' : 'create';
+    const result = await contactsV2ExtApi.importContacts(data, duplicateHandling);
+    toast.success(`Import complete: ${result.created} created, ${result.skipped} skipped`);
+    await queryClient.invalidateQueries({ queryKey: ['contactsV2'] });
+    setCurrentPage(1);
+    return { total: result.created + result.skipped + result.errors, created: result.created, updated: 0, skipped: result.skipped, errors: [] };
   };
 
   const handleEditContact = useCallback((contact: { id: string }) => {
@@ -529,7 +568,7 @@ export default function ContactsV2Page() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Contacts (V2 Dynamic Forms)"
+        title="Contacts"
         icon={Users}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
@@ -588,7 +627,7 @@ export default function ContactsV2Page() {
             </Button>
 
             {can(CONTACTS_WRITE) && (
-              <Button variant="outline" size="sm" title="Import contacts from CSV or Excel">
+              <Button variant="outline" size="sm" title="Import contacts from CSV or Excel" onClick={() => setShowImportModal(true)}>
                 <Upload className="h-4 w-4 mr-2" />
                 Import
               </Button>
@@ -597,7 +636,7 @@ export default function ContactsV2Page() {
               <ExportButton
                 exportUrl="/crm/api/v2/contacts/export/"
                 exportParams={exportParams}
-                filename="contacts-v2"
+                filename="contacts"
                 totalRecords={totalItems}
               />
             )}
@@ -770,7 +809,7 @@ export default function ContactsV2Page() {
         itemName="contact"
       />
 
-      <BulkUpdateModal<'active' | 'inactive' | 'bounced' | 'unsubscribed' | 'archived'>
+      <BulkUpdateModal<"active" | "inactive" | "bounced" | "unsubscribed" | "archived">
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}
@@ -784,6 +823,34 @@ export default function ContactsV2Page() {
           { label: 'Unsubscribed', value: 'unsubscribed' },
           { label: 'Archived', value: 'archived' },
         ]}
+      />
+
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImportContacts}
+        entityName="Contacts"
+        requiredFields={['first_name', 'last_name', 'email']}
+        fieldOptions={importFieldOptions}
+        sampleData={{
+          first_name: 'John',
+          last_name: 'Doe',
+          email: 'john.doe@example.com',
+          phone: '+1 555-0100',
+          mobile: '+1 555-0101',
+          title: 'Sales Manager',
+          department: 'Sales',
+          status: 'active',
+          source: 'Website',
+          source_detail: 'Q1 Campaign',
+          address_line1: '123 Main Street',
+          city: 'New York',
+          state: 'NY',
+          postal_code: '10001',
+          country: 'USA',
+          description: 'Key decision maker',
+          linkedin_url: 'https://linkedin.com/in/johndoe',
+        }}
       />
     </div>
   );

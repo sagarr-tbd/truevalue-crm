@@ -121,7 +121,7 @@ export default function CalendarV2Page() {
         <div>
           <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
             <Calendar className="h-8 w-8 text-primary" />
-            Activities Calendar (V2)
+            Activities Calendar
           </h1>
           <p className="text-muted-foreground mt-1">
             View and manage all your tasks, calls, and meetings

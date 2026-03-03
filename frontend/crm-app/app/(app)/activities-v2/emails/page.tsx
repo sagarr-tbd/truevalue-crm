@@ -60,10 +60,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal"),
-  { ssr: false }
-);
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 const STATUS_DISPLAY: Record<string, string> = {
   pending: "Pending", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled",
@@ -180,8 +177,6 @@ export default function EmailsV2Page() {
     shortcuts: [{ key: "n", meta: true, ctrl: true, description: "New email", action: () => { if (!can(ACTIVITIES_WRITE)) return; setEditingItem(null); setFormMode("add"); setFormDrawerOpen(true); } }],
   });
 
-  const sentCount = useMemo(() => emails.filter(e => e.email_direction === "sent").length, [emails]);
-  const receivedCount = useMemo(() => emails.filter(e => e.email_direction === "received").length, [emails]);
 
   const filterOptions = useMemo(() => {
     const byStatus = statsData?.by_status || {};
@@ -197,10 +192,10 @@ export default function EmailsV2Page() {
 
   const stats = useMemo(() => [
     { label: "Total Emails", value: statsData?.total ?? totalItems, icon: Mail, iconBgColor: "bg-primary/10", iconColor: "text-primary" },
-    { label: "Sent", value: sentCount, icon: Mail, iconBgColor: "bg-blue-500/10", iconColor: "text-blue-500" },
-    { label: "Received", value: receivedCount, icon: Mail, iconBgColor: "bg-green-500/10", iconColor: "text-green-500" },
-    { label: "Pending", value: statsData?.by_status?.pending ?? 0, icon: Clock, iconBgColor: "bg-muted", iconColor: "text-muted-foreground" },
-  ], [statsData, totalItems, sentCount, receivedCount]);
+    { label: "In Progress", value: statsData?.by_status?.in_progress ?? 0, icon: Clock, iconBgColor: "bg-accent/10", iconColor: "text-accent" },
+    { label: "Completed", value: statsData?.by_status?.completed ?? 0, icon: Check, iconBgColor: "bg-primary/20", iconColor: "text-primary" },
+    { label: "Overdue", value: statsData?.overdue ?? 0, icon: AlertCircle, iconBgColor: "bg-destructive/10", iconColor: "text-destructive" },
+  ], [statsData, totalItems]);
 
   const handleSelectAll = () => { setSelectedItems(selectedItems.length === emails.length ? [] : emails.map(e => e.id)); };
   const handleSelectRow = (id: string | number) => { const s = String(id); setSelectedItems(selectedItems.includes(s) ? selectedItems.filter(i => i !== s) : [...selectedItems, s]); };
@@ -253,7 +248,7 @@ export default function EmailsV2Page() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `selected-emails-v2-${new Date().toISOString().split("T")[0]}.csv`;
+      link.download = `selected-emails-${new Date().toISOString().split("T")[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -309,7 +304,7 @@ export default function EmailsV2Page() {
 
   const columns = useMemo(() => [
     {
-      key: "subject", label: "Subject",
+      key: "subject", label: "Email",
       render: (_v: unknown, row: ActivityV2) => (
         <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => handleEditItem(row)}>
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal to-brand-purple text-white flex items-center justify-center text-sm font-semibold">{getInitialsFromSubject(row.subject)}</div>
@@ -322,6 +317,7 @@ export default function EmailsV2Page() {
       render: (v: string) => v ? <span className={`px-3 py-1 rounded-full text-xs font-medium ${getDirectionColor(v)}`}>{EMAIL_DIRECTION_DISPLAY[v] || v}</span> : <span className="text-muted-foreground/50">—</span>,
     },
     { key: "status", label: "Status", render: (v: string) => <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(v)}`}>{STATUS_DISPLAY[v] || v}</span> },
+    { key: "due_date", label: "Date", render: (v: string) => <div className="flex items-center gap-2 text-sm text-foreground"><Calendar className="h-4 w-4 text-muted-foreground" />{formatDate(v)}</div> },
     {
       key: "related_to", label: "Related To",
       render: (_v: unknown, row: ActivityV2) => (
@@ -332,22 +328,25 @@ export default function EmailsV2Page() {
   ], [handleEditItem]);
 
   const actionMenuItems = useCallback((item: ActivityV2) => [
-    ...(can(ACTIVITIES_WRITE) ? [{ label: "Edit Email", icon: Edit, onClick: () => handleEditItem(item) }] : []),
+    ...(can(ACTIVITIES_WRITE) ? [
+      { label: "Edit Email", icon: Edit, onClick: () => handleEditItem(item) },
+      { label: "Mark Complete", icon: Check, onClick: () => updateActivity.mutateAsync({ id: item.id, data: { status: "completed" } }) },
+    ] : []),
     ...(can(ACTIVITIES_DELETE) ? [
       { divider: true, label: "", onClick: () => {} },
       { label: "Delete", icon: Trash2, variant: "danger" as const, onClick: () => handleDeleteClick(item) },
     ] : []),
-  ], [can, handleEditItem]);
+  ], [can, handleEditItem, updateActivity]);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Emails (V2)"
+        title="Emails"
         icon={Mail}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
         subtitle={`${totalItems} emails`}
-        searchPlaceholder="Search emails by subject..."
+        searchPlaceholder="Search emails by subject or description..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         actions={
@@ -378,11 +377,11 @@ export default function EmailsV2Page() {
               {filterGroup && filterGroup.conditions.length > 0 && <span className="ml-2 px-2 py-0.5 bg-primary text-primary-foreground rounded-full text-xs">{filterGroup.conditions.length}</span>}
             </Button>
             {can(ACTIVITIES_WRITE) && (
-              <ExportButton exportUrl="/crm/api/v2/activities/export/" exportParams={exportParams} filename="emails-v2" totalRecords={totalItems} />
+              <ExportButton exportUrl="/crm/api/v2/activities/export/" exportParams={exportParams} filename="emails" totalRecords={totalItems} />
             )}
             {can(ACTIVITIES_WRITE) && (
               <Button onClick={() => { setFormMode("add"); setEditingItem(null); setFormDrawerOpen(true); }} className="bg-gradient-to-r from-brand-teal to-brand-purple hover:opacity-90">
-                <Plus className="h-4 w-4 mr-2" />Add Email
+                <Plus className="h-4 w-4 mr-2" />Log Email
               </Button>
             )}
           </>
@@ -400,7 +399,7 @@ export default function EmailsV2Page() {
       <AnimatePresence>{showStats && <StatsCards stats={stats} columns={4} />}</AnimatePresence>
 
       {viewMode === "list" ? (
-        <DataTable data={emails} columns={columns} selectedIds={selectedItems} onSelectAll={handleSelectAll} onSelectRow={handleSelectRow} showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)} loading={isLoading} emptyMessage="No emails found" emptyDescription="Try adjusting your search or filters, or add a new email"
+        <DataTable data={emails} columns={columns} selectedIds={selectedItems} onSelectAll={handleSelectAll} onSelectRow={handleSelectRow} showSelection={can(ACTIVITIES_WRITE) || can(ACTIVITIES_DELETE)} loading={isLoading} emptyMessage="No emails found" emptyDescription="Try adjusting your search or filters, or log a new email"
           renderActions={(row: ActivityV2) => <ActionMenu items={actionMenuItems(row)} />} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -427,7 +426,7 @@ export default function EmailsV2Page() {
 
       <DataPagination currentPage={currentPage} totalPages={totalPages} totalItems={totalItems} itemsPerPage={itemsPerPage} onPageChange={(p) => { setCurrentPage(p); setSelectedItems([]); }} onItemsPerPageChange={(i) => { setItemsPerPage(i); setCurrentPage(1); setSelectedItems([]); }} filterInfo={statusFilter ? `filtered by ${STATUS_DISPLAY[statusFilter] || statusFilter}` : undefined} />
 
-      <DeleteConfirmationModal isOpen={isDeleteModalOpen} onClose={() => { setIsDeleteModalOpen(false); setItemToDelete(null); }} onConfirm={handleDeleteConfirm} title="Delete Email" description="Are you sure you want to delete this email? This action cannot be undone." itemName={itemToDelete?.subject} itemType="Email" icon={Mail} isDeleting={isDeleting} />
+      <DeleteConfirmationModal isOpen={isDeleteModalOpen} onClose={() => { setIsDeleteModalOpen(false); setItemToDelete(null); }} onConfirm={handleDeleteConfirm} title="Delete Email" description="Are you sure you want to delete this email log? This will permanently remove it from your CRM and cannot be undone." itemName={itemToDelete?.subject} itemType="Email" icon={Mail} isDeleting={isDeleting} />
 
       <ActivityV2FormDrawer isOpen={formDrawerOpen} onClose={() => { setFormDrawerOpen(false); setEditingItem(null); }} onSubmit={handleFormSubmit} initialData={editingItem} mode={formMode} activityType="email" />
 
