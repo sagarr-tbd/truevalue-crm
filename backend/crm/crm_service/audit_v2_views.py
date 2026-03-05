@@ -10,6 +10,7 @@ from crm.models import CRMAuditLog
 
 V2_ENTITY_TYPES = {
     'contact_v2', 'company_v2', 'deal_v2', 'lead_v2', 'activity_v2',
+    'pipeline_v2', 'tag_v2',
 }
 
 

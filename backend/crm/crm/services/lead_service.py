@@ -1,6 +1,3 @@
-"""
-Lead Service - Business logic for Lead management.
-"""
 import logging
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -18,8 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 class LeadService(AdvancedFilterMixin, BaseService[Lead]):
-    """Service for Lead operations."""
-    
     model = Lead
     entity_type = 'lead'
     billing_feature_code = 'leads'
@@ -43,7 +38,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     }
     
     def get_by_id(self, entity_id):
-        """Get lead by ID with optimized queryset for detail serialization."""
         try:
             return self.get_queryset().prefetch_related('tags').annotate(
                 activity_count=Count('activities', distinct=True),
@@ -72,11 +66,7 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         advanced_filters: List[Dict] = None,
         filter_logic: str = 'and',
     ):
-        """List leads with advanced filtering."""
-        # Use optimized queryset to prevent N+1 queries
         qs = self.get_optimized_queryset()
-        
-        # Apply basic filters
         if filters:
             qs = qs.filter(**filters)
         
@@ -97,7 +87,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             ).values_list('entity_id', flat=True)
             qs = qs.filter(id__in=lead_ids)
         
-        # Apply search
         if search:
             qs = qs.filter(
                 Q(first_name__icontains=search) |
@@ -107,13 +96,8 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
                 Q(phone__icontains=search)
             )
         
-        # Apply advanced filters using mixin
         qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
-        
-        # Apply ordering
         qs = qs.order_by(order_by)
-        
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
@@ -121,18 +105,12 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Lead:
-        """Create a new lead."""
-        # Check plan limits via billing service
         self.check_plan_limit('leads')
-        
-        # Check for duplicates
         email = data.get('email')
         if email and self.get_queryset().filter(email=email).exists():
             raise DuplicateEntityError('Lead', 'email', email)
         
         lead = super().create(data, **kwargs)
-        
-        # Sync usage to billing
         self.sync_usage_to_billing('leads')
         
         return lead
@@ -153,10 +131,8 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         deal_stage_id: UUID = None,
         deal_owner_id: UUID = None,
     ) -> Dict:
-        """Convert a lead to contact, company, and/or deal."""
         lead = self.get_by_id(lead_id)
         
-        # Validate lead status
         if lead.status == Lead.Status.CONVERTED:
             raise InvalidOperationError('Lead is already converted')
         
@@ -174,7 +150,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         contact = None
         deal = None
         
-        # Create company
         if create_company and lead.company_name:
             company_data = {
                 'org_id': self.org_id,
@@ -184,7 +159,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
                 'phone': lead.phone,
             }
             
-            # Check for existing company
             existing_company = Company.objects.filter(
                 org_id=self.org_id,
                 name__iexact=company_data['name']
@@ -201,7 +175,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
                 'created': not bool(existing_company),
             }
         
-        # Create contact
         if create_contact:
             contact_data = {
                 'org_id': self.org_id,
@@ -227,7 +200,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             if company:
                 contact_data['primary_company'] = company
             
-            # Check for existing contact
             existing_contact = Contact.objects.filter(
                 org_id=self.org_id,
                 email=lead.email
@@ -238,7 +210,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             else:
                 contact = Contact.objects.create(**contact_data)
                 
-                # Create company association
                 if company:
                     from ..models import ContactCompany
                     ContactCompany.objects.create(
@@ -255,9 +226,7 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
                 'created': not bool(existing_contact),
             }
         
-        # Create deal
         if create_deal and deal_name:
-            # Get default pipeline if not specified
             pipeline = None
             stage = None
             
@@ -282,7 +251,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             if not pipeline:
                 raise InvalidOperationError('No active pipeline found. Create a pipeline first.')
             
-            # Get stage
             if deal_stage_id:
                 try:
                     stage = PipelineStage.objects.get(id=deal_stage_id, pipeline=pipeline)
@@ -312,7 +280,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
                 'value': str(deal.value),
             }
         
-        # Update lead status
         lead.status = Lead.Status.CONVERTED
         lead.converted_at = timezone.now()
         lead.converted_by = self.user_id
@@ -321,7 +288,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         lead.converted_deal_id = deal.id if deal else None
         lead.save()
         
-        # Log conversion
         self._log_action(
             action=CRMAuditLog.Action.CONVERT,
             entity=lead,
@@ -332,7 +298,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
     
     @transaction.atomic
     def disqualify(self, lead_id: UUID, reason: str) -> Lead:
-        """Mark a lead as unqualified."""
         lead = self.get_by_id(lead_id)
         
         if lead.status == Lead.Status.CONVERTED:
@@ -352,7 +317,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         return lead
     
     def update_status(self, lead_id: UUID, status: str) -> Lead:
-        """Update lead status."""
         lead = self.get_by_id(lead_id)
         
         if lead.status == Lead.Status.CONVERTED:
@@ -380,12 +344,9 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         )
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get lead statistics by status and source."""
         from django.db.models import Count
         
         qs = self.get_queryset()
-        
-        # Get counts by status
         status_counts = qs.values('status').annotate(count=Count('id'))
         
         by_status = {}
@@ -396,7 +357,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             by_status[status] = count
             total += count
         
-        # Get counts by source
         source_counts = qs.exclude(source__isnull=True).exclude(source='').values('source').annotate(count=Count('id')).order_by('-count')
         by_source = {}
         for item in source_counts:
@@ -413,7 +373,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
         email: str = None,
         phone: str = None,
     ) -> List[Lead]:
-        """Check for potential duplicates."""
         qs = self.get_queryset()
         
         conditions = Q()
@@ -474,7 +433,6 @@ class LeadService(AdvancedFilterMixin, BaseService[Lead]):
             'errors': [],
         }
         
-        # Validate the update data fields
         allowed_fields = {'status', 'owner_id', 'source', 'score'}
         update_data = {k: v for k, v in data.items() if k in allowed_fields}
         

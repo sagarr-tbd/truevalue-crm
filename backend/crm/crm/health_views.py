@@ -1,12 +1,8 @@
-"""
-Health check views for CRM Service.
-"""
 from django.http import JsonResponse
 from django.db import connection
 
 
 def health_check(request):
-    """Basic health check."""
     return JsonResponse({
         'status': 'healthy',
         'service': 'crm-service',

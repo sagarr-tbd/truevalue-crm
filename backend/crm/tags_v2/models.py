@@ -1,10 +1,3 @@
-"""
-Tags V2 Models
-
-Polymorphic tagging system for V2 entities.
-Uses UUID references (no FKs to entity models) to stay decoupled.
-"""
-
 import uuid
 from django.db import models
 from django.utils import timezone

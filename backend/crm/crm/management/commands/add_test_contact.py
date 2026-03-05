@@ -1,12 +1,3 @@
-"""
-Add Test Contact Command
-
-Creates a specific test contact for testing advanced filters.
-
-Usage:
-    python manage.py add_test_contact --org-id <uuid> --owner-id <uuid>
-"""
-
 import os
 import uuid
 from django.core.management.base import BaseCommand, CommandError
@@ -29,7 +20,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Get org_id and owner_id
         org_id = options['org_id'] or os.environ.get('ORG_ID')
         owner_id = options['owner_id'] or os.environ.get('OWNER_ID')
         
@@ -48,8 +38,6 @@ class Command(BaseCommand):
             owner_id = uuid.UUID(owner_id)
         except ValueError as e:
             raise CommandError(f'Invalid UUID format: {e}')
-        
-        # Test contacts to add
         test_contacts = [
             {
                 'first_name': 'Michael',
@@ -90,13 +78,9 @@ class Command(BaseCommand):
         created_count = 0
         for contact_data in test_contacts:
             email = contact_data['email']
-            
-            # Check if already exists
             if Contact.objects.filter(org_id=org_id, email=email).exists():
                 self.stdout.write(f'Contact already exists: {email}')
                 continue
-            
-            # Create contact
             contact = Contact.objects.create(
                 org_id=org_id,
                 owner_id=owner_id,

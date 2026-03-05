@@ -41,7 +41,7 @@ interface PaginatedTagsResponse {
 export const tagsV2Api = {
   getAll: async (params?: { entity_type?: string; search?: string }): Promise<TagV2[]> => {
     const response = await apiClient.get<PaginatedTagsResponse>(
-      '/crm/api/v2/tags/', { params }
+      '/crm/api/v2/tags/', { params: { ...params, page_size: 200 } }
     );
     if (!response.data) return [];
     return response.data.results || [];

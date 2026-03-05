@@ -2,18 +2,20 @@
 Global Search V2
 
 Cross-entity search across all V2 entities using JSONB lookups.
-Endpoint: GET /api/v2/search/?q=<query>&limit=5
+Endpoint: GET /api/v2/search/?q=<query>&limit=5&types=contact,company,...
 """
 
-from uuid import UUID
+from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.db.models import Q, Value, CharField
+from django.db.models import Q
 
 from contacts_v2.models import ContactV2
 from companies_v2.models import CompanyV2
 from deals_v2.models import DealV2
 from leads_v2.models import LeadV2
+from activities_v2.models import ActivityV2
+from pipelines_v2.models import PipelineV2
 
 
 class GlobalSearchV2View(APIView):
@@ -26,7 +28,7 @@ class GlobalSearchV2View(APIView):
 
         org_id = request.headers.get('X-Org-Id')
         if not org_id:
-            return Response({'error': 'X-Org-Id header required'}, status=400)
+            return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
 
         if not query or len(query) < 2:
             return Response({
@@ -34,6 +36,8 @@ class GlobalSearchV2View(APIView):
                 'companies': [],
                 'deals': [],
                 'leads': [],
+                'activities': [],
+                'pipelines': [],
             })
 
         search_all = not entity_types
@@ -50,6 +54,12 @@ class GlobalSearchV2View(APIView):
 
         if search_all or 'lead' in entity_types:
             results['leads'] = self._search_leads(org_id, query, limit)
+
+        if search_all or 'activity' in entity_types:
+            results['activities'] = self._search_activities(org_id, query, limit)
+
+        if search_all or 'pipeline' in entity_types:
+            results['pipelines'] = self._search_pipelines(org_id, query, limit)
 
         return Response(results)
 
@@ -139,4 +149,45 @@ class GlobalSearchV2View(APIView):
                 'source': l.source,
             }
             for l in leads
+        ]
+
+    def _search_activities(self, org_id, query, limit):
+        activities = ActivityV2.objects.filter(
+            org_id=org_id,
+            deleted_at__isnull=True,
+        ).filter(
+            Q(subject__icontains=query) |
+            Q(description__icontains=query)
+        )[:limit]
+
+        return [
+            {
+                'id': str(a.id),
+                'type': 'activity',
+                'name': a.subject,
+                'activity_type': a.activity_type,
+                'status': a.status,
+                'due_date': a.due_date.isoformat() if a.due_date else None,
+            }
+            for a in activities
+        ]
+
+    def _search_pipelines(self, org_id, query, limit):
+        pipelines = PipelineV2.objects.filter(
+            org_id=org_id,
+            deleted_at__isnull=True,
+        ).filter(
+            Q(name__icontains=query) |
+            Q(description__icontains=query)
+        )[:limit]
+
+        return [
+            {
+                'id': str(p.id),
+                'type': 'pipeline',
+                'name': p.name,
+                'is_default': p.is_default,
+                'is_active': p.is_active,
+            }
+            for p in pipelines
         ]

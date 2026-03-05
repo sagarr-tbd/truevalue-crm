@@ -1,6 +1,3 @@
-"""
-Base service class with common functionality.
-"""
 import json
 import logging
 from typing import Optional, Type, TypeVar, Generic, List, Dict, Any
@@ -130,30 +127,25 @@ class AdvancedFilterMixin:
             operator = condition.get('operator', 'contains')
             value = condition.get('value', '')
             
-            # Get backend field name - SECURITY: Only allow mapped fields
+            # SECURITY: only allow mapped fields
             backend_field = self.FILTER_FIELD_MAP.get(field)
             if backend_field is None:
-                # Unknown field, skip to prevent SQL injection
                 continue
             
-            # Handle compound name fields (searches multiple fields with OR)
             if isinstance(backend_field, list):
                 self._add_compound_field_filter(
                     backend_field, operator, value, q_objects, exclude_objects
                 )
                 continue
             
-            # Handle UUID fields specially
             if field in self.UUID_FIELDS or backend_field in self.UUID_FIELDS:
                 self._add_uuid_field_filter(
                     backend_field, operator, value, q_objects, exclude_objects
                 )
                 continue
             
-            # Build the lookup for standard fields
             django_op = self.FILTER_OPERATOR_MAP.get(operator, '__icontains')
             
-            # Handle special operators (isEmpty/isNotEmpty)
             if operator in ('isEmpty', 'is_empty'):
                 q = Q(**{f'{backend_field}__isnull': True}) | Q(**{f'{backend_field}': ''})
                 q_objects.append(q)
@@ -165,7 +157,6 @@ class AdvancedFilterMixin:
             else:
                 q_objects.append(Q(**{f'{backend_field}{django_op}': value}))
         
-        # Combine Q objects based on logic
         combined = Q()
         if logic == 'or':
             for q in q_objects:
@@ -194,7 +185,6 @@ class AdvancedFilterMixin:
                 compound_q |= Q(**{f'{f}{django_op}': value})
             exclude_objects.append(compound_q)
         else:
-            # Build OR of filters
             compound_q = Q()
             for f in fields:
                 compound_q |= Q(**{f'{f}{django_op}': value})
@@ -223,7 +213,6 @@ class AdvancedFilterMixin:
             elif operator in ('isNotEmpty', 'is_not_empty'):
                 q_objects.append(Q(**{f'{backend_field}__isnull': False}))
         except (ValueError, TypeError):
-            # Invalid UUID, skip this condition
             pass
     
     def apply_advanced_filters(
@@ -280,7 +269,6 @@ class BaseService(Generic[T]):
         self.user_id = user_id
     
     def get_queryset(self) -> models.QuerySet:
-        """Get base queryset scoped to organization."""
         return self.model.objects.filter(org_id=self.org_id)
     
     def get_scoped_queryset(self, scope: str = 'org', team_member_ids: list = None) -> models.QuerySet:
@@ -302,14 +290,12 @@ class BaseService(Generic[T]):
         return qs
     
     def get_by_id(self, entity_id: UUID) -> T:
-        """Get entity by ID."""
         try:
             return self.get_queryset().get(id=entity_id)
         except self.model.DoesNotExist:
             raise EntityNotFoundError(self.entity_type, str(entity_id))
     
     def get_by_ids(self, entity_ids: List[UUID]) -> models.QuerySet:
-        """Get multiple entities by IDs."""
         return self.get_queryset().filter(id__in=entity_ids)
     
     def list(
@@ -321,32 +307,26 @@ class BaseService(Generic[T]):
         limit: int = None,
         offset: int = 0,
     ) -> models.QuerySet:
-        """List entities with filtering and search."""
         qs = self.get_queryset()
         
-        # Apply filters
         if filters:
             qs = qs.filter(**filters)
         
-        # Apply search
         if search and search_fields:
             search_q = Q()
             for field in search_fields:
                 search_q |= Q(**{f"{field}__icontains": search})
             qs = qs.filter(search_q)
         
-        # Apply ordering
         if order_by:
             qs = qs.order_by(order_by)
         
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
         return qs
     
     def count(self, filters: Dict[str, Any] = None) -> int:
-        """Count entities."""
         qs = self.get_queryset()
         if filters:
             qs = qs.filter(**filters)
@@ -354,25 +334,18 @@ class BaseService(Generic[T]):
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> T:
-        """Create a new entity."""
-        # Set org_id
         data['org_id'] = self.org_id
         
-        # Set owner if model has owner_id
         if hasattr(self.model, 'owner_id') and 'owner_id' not in data:
             data['owner_id'] = self.user_id
         
-        # Extract tags before creating
         tag_ids = data.pop('tag_ids', None)
         
-        # Create entity
         entity = self.model.objects.create(**data)
         
-        # Handle tags
         if tag_ids:
             self._set_tags(entity, tag_ids)
         
-        # Log creation
         self._log_action(
             action=CRMAuditLog.Action.CREATE,
             entity=entity,
@@ -383,30 +356,24 @@ class BaseService(Generic[T]):
     
     @transaction.atomic
     def update(self, entity_id: UUID, data: Dict[str, Any], **kwargs) -> T:
-        """Update an entity."""
         entity = self.get_by_id(entity_id)
         
-        # Track changes
         old_values = {}
         for field, value in data.items():
             if hasattr(entity, field):
                 old_values[field] = getattr(entity, field)
         
-        # Extract tags before updating
         tag_ids = data.pop('tag_ids', None)
         
-        # Update fields
         for field, value in data.items():
             if hasattr(entity, field):
                 setattr(entity, field, value)
         
         entity.save()
         
-        # Handle tags
         if tag_ids is not None:
             self._set_tags(entity, tag_ids)
         
-        # Log update
         changes = {}
         for field, old_value in old_values.items():
             new_value = getattr(entity, field)
@@ -437,7 +404,6 @@ class BaseService(Generic[T]):
         entity = self.get_by_id(entity_id)
         entity_name = str(entity)
         
-        # Log before deletion
         self._log_action(
             action=CRMAuditLog.Action.DELETE,
             entity=entity,
@@ -445,19 +411,16 @@ class BaseService(Generic[T]):
         )
         
         if hard:
-            # Permanent deletion
             if hasattr(entity, 'hard_delete'):
                 entity.hard_delete()
             else:
                 entity.delete()
         else:
-            # Soft delete
             if hasattr(entity, 'soft_delete'):
                 entity.soft_delete(deleted_by=self.user_id)
             else:
                 entity.delete()
         
-        # Sync usage to billing after deletion
         if self.billing_feature_code:
             self.sync_usage_to_billing(self.billing_feature_code)
         
@@ -474,7 +437,6 @@ class BaseService(Generic[T]):
         Returns:
             The restored entity
         """
-        # Use all_objects to find deleted records
         try:
             entity = self.model.all_objects.get(id=entity_id, org_id=self.org_id)
         except self.model.DoesNotExist:
@@ -485,7 +447,6 @@ class BaseService(Generic[T]):
         
         entity.restore()
         
-        # Log restoration
         self._log_action(
             action=CRMAuditLog.Action.UPDATE,
             entity=entity,
@@ -495,14 +456,11 @@ class BaseService(Generic[T]):
         return entity
     
     def _set_tags(self, entity: T, tag_ids: List[UUID]):
-        """Set tags for an entity."""
-        # Clear existing tags
         EntityTag.objects.filter(
             entity_type=self.entity_type,
             entity_id=entity.id
         ).delete()
         
-        # Add new tags
         tags = Tag.objects.filter(id__in=tag_ids, org_id=self.org_id)
         for tag in tags:
             EntityTag.objects.create(
@@ -520,10 +478,8 @@ class BaseService(Generic[T]):
         ip_address: str = None,
         user_agent: str = None,
     ):
-        """Log an action to the audit log."""
         try:
-            # Serialize changes to ensure JSON compatibility
-            serialized_changes = serialize_for_json(changes or {})
+            serialized_changes = serialize_for_json(changes or {})  # Ensure JSON compatibility for audit storage
             
             CRMAuditLog.objects.create(
                 org_id=self.org_id,
@@ -663,8 +619,6 @@ class BaseService(Generic[T]):
         Args:
             feature_code: Feature code matching billing (e.g., 'contacts', 'deals')
         """
-        # Capture values now (inside the transaction) — the callback
-        # runs after commit, when self may have changed.
         org_id = self.org_id
         
         def _do_sync():

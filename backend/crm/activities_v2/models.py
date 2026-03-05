@@ -1,13 +1,3 @@
-"""
-Activity V2 Model
-
-Fixed-column model — activities (task, note, call, email, meeting) have
-well-defined structured fields. No JSONB hybrid needed.
-
-Uses UUID references instead of FKs so it can reference V2 entities directly.
-Completely independent of V1 crm.Activity.
-"""
-
 import uuid
 from django.db import models
 from django.core.validators import MaxValueValidator

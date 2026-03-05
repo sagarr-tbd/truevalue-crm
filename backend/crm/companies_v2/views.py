@@ -1,10 +1,3 @@
-"""
-Companies V2 Views
-
-Dynamic CRUD operations - ALL fields from FormDefinition.
-Mirrors the Contacts V2 / Leads V2 pattern adapted for companies.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,6 +13,7 @@ from uuid import UUID
 from .models import CompanyV2
 from .serializers import CompanyV2Serializer, CompanyV2ListSerializer
 from crm_service.audit_v2 import AuditLogV2Mixin
+from crm.permissions import CRMResourcePermission
 
 
 class CompanyV2Pagination(PageNumberPagination):
@@ -29,6 +23,8 @@ class CompanyV2Pagination(PageNumberPagination):
 
 
 class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'companies'
+    permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'industry', 'size', 'owner_id', 'assigned_to_id']
     queryset = CompanyV2.objects.filter(deleted_at__isnull=True)
     serializer_class = CompanyV2Serializer
@@ -194,8 +190,9 @@ class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
+            org_id = request.headers.get('X-Org-Id')
             company = CompanyV2.objects.filter(
-                id=pk, deleted_at__isnull=False
+                id=pk, org_id=org_id, deleted_at__isnull=False
             ).first()
             if not company:
                 return Response(
@@ -329,7 +326,8 @@ class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        companies = list(queryset[:10000])
+        EXPORT_MAX_ROWS = 50000
+        companies = list(queryset[:EXPORT_MAX_ROWS])
 
         from forms_v2.models import FormDefinition
         form = FormDefinition.objects.filter(
@@ -416,7 +414,7 @@ class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             industry__isnull=False
         ).values_list('industry', flat=True).distinct().order_by('industry')
 
-        return Response({'sources': list(industries)})
+        return Response({'sources': list(industries), 'industries': list(industries)})
 
     @action(detail=False, methods=['get'])
     def mine(self, request):
@@ -439,7 +437,6 @@ class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def contacts(self, request, pk=None):
-        """List contacts associated with this company."""
         company = self.get_object()
         from contacts_v2.models import ContactV2
 
@@ -468,7 +465,6 @@ class CompanyV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='stats')
     def detail_stats(self, request, pk=None):
-        """Stats for a single company: contact/deal/activity counts and deal value."""
         company = self.get_object()
 
         from contacts_v2.models import ContactV2

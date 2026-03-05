@@ -1,11 +1,3 @@
-"""
-Deals V2 Models
-
-Hybrid Architecture (mirrors Leads/Contacts/Companies V2 pattern):
-- System/Relationship fields → Database columns (indexed)
-- Custom/Dynamic fields → JSONB storage (entity_data)
-"""
-
 import uuid
 from decimal import Decimal
 from django.db import models
@@ -21,27 +13,20 @@ class DealV2(models.Model):
         LOST = 'lost', 'Lost'
         ABANDONED = 'abandoned', 'Abandoned'
 
-    # Stage is now a free-text field — values come from PipelineStageV2 dynamically.
-    # Kept as CharField(max_length=50) without choices constraint.
-
-    # IDENTITY & ORGANIZATION
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     org_id = models.UUIDField(db_index=True)
 
-    # OWNERSHIP & ASSIGNMENT
     owner_id = models.UUIDField(db_index=True, help_text="User who created this deal")
     assigned_to_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Currently assigned sales rep (UUID)"
     )
 
-    # PIPELINE
     pipeline_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Pipeline this deal belongs to (UUID referencing PipelineV2)"
     )
 
-    # RELATIONSHIPS
     contact_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Primary contact (UUID)"
@@ -51,7 +36,6 @@ class DealV2(models.Model):
         help_text="Associated company (UUID)"
     )
 
-    # DEAL CORE
     status = models.CharField(
         max_length=20, choices=Status.choices,
         default=Status.OPEN, db_index=True
@@ -71,20 +55,15 @@ class DealV2(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(100)]
     )
 
-    # DATES
     expected_close_date = models.DateField(null=True, blank=True, db_index=True)
     actual_close_date = models.DateField(null=True, blank=True)
 
-    # LOSS TRACKING
     loss_reason = models.CharField(max_length=100, null=True, blank=True)
 
-    # LEAD CONVERSION
     converted_from_lead_id = models.UUIDField(null=True, blank=True)
 
-    # CUSTOM FIELDS (JSONB)
     entity_data = models.JSONField(default=dict, blank=True)
 
-    # AUDIT TRAIL & METADATA
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)

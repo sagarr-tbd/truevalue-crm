@@ -1,11 +1,3 @@
-"""
-Contacts V2 Models
-
-Hybrid Architecture (mirrors Leads V2 pattern):
-- System/Relationship fields → Database columns (indexed)
-- Custom/Dynamic fields → JSONB storage (entity_data)
-"""
-
 import uuid
 from django.db import models
 from django.utils import timezone
@@ -34,24 +26,15 @@ class ContactV2(models.Model):
         IMPORT = 'import', 'Data Import'
         OTHER = 'other', 'Other'
 
-    # ═══════════════════════════════════════════════════════════
-    # IDENTITY & ORGANIZATION
-    # ═══════════════════════════════════════════════════════════
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     org_id = models.UUIDField(db_index=True)
 
-    # ═══════════════════════════════════════════════════════════
-    # OWNERSHIP & ASSIGNMENT
-    # ═══════════════════════════════════════════════════════════
     owner_id = models.UUIDField(db_index=True, help_text="User who created this contact")
     assigned_to_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Currently assigned sales rep (UUID)"
     )
 
-    # ═══════════════════════════════════════════════════════════
-    # RELATIONSHIPS
-    # ═══════════════════════════════════════════════════════════
     company_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Primary company (UUID)"
@@ -70,26 +53,14 @@ class ContactV2(models.Model):
         help_text="How the contact was acquired"
     )
 
-    # ═══════════════════════════════════════════════════════════
-    # CUSTOM FIELDS (JSONB)
-    # ═══════════════════════════════════════════════════════════
     entity_data = models.JSONField(default=dict, blank=True)
 
-    # ═══════════════════════════════════════════════════════════
-    # LEAD CONVERSION TRACKING
-    # ═══════════════════════════════════════════════════════════
     converted_from_lead_id = models.UUIDField(null=True, blank=True)
     converted_at = models.DateTimeField(null=True, blank=True)
 
-    # ═══════════════════════════════════════════════════════════
-    # COMMUNICATION PREFERENCES
-    # ═══════════════════════════════════════════════════════════
     do_not_call = models.BooleanField(default=False)
     do_not_email = models.BooleanField(default=False)
 
-    # ═══════════════════════════════════════════════════════════
-    # AUDIT TRAIL & METADATA
-    # ═══════════════════════════════════════════════════════════
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -160,10 +131,6 @@ class ContactV2(models.Model):
 
 
 class ContactCompanyV2(models.Model):
-    """
-    M2M relationship between ContactV2 and CompanyV2.
-    Uses UUID references — no FKs to CompanyV2 to keep apps decoupled.
-    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     contact = models.ForeignKey(

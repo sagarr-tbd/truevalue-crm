@@ -1,17 +1,3 @@
-"""
-Sync actual CRM entity counts to the Billing Service.
-
-This command reads the real counts from the CRM database and sets them
-as absolute usage values in the Billing Service. Run this:
-- After initial billing integration setup
-- After data imports/migrations
-- Periodically as a reconciliation check
-
-Usage:
-    python manage.py sync_billing_usage
-    python manage.py sync_billing_usage --org-id <uuid>
-    python manage.py sync_billing_usage --dry-run
-"""
 import os
 from uuid import UUID
 
@@ -21,7 +7,6 @@ from django.core.management.base import BaseCommand
 from crm.models import Contact, Company, Deal, Lead, Pipeline
 
 
-# Feature code -> Model mapping
 FEATURE_MODEL_MAP = {
     'contacts': Contact,
     'companies': Company,
@@ -50,8 +35,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         specific_org = options['org_id']
-
-        # Get billing client
         client = self._get_billing_client()
         if not client and not dry_run:
             self.stderr.write(self.style.ERROR(
@@ -59,8 +42,6 @@ class Command(BaseCommand):
                 'Check BILLING_SERVICE_URL in settings.'
             ))
             return
-
-        # Find all orgs that have CRM data
         if specific_org:
             org_ids = [UUID(specific_org)]
         else:
@@ -108,7 +89,6 @@ class Command(BaseCommand):
             ))
 
     def _get_billing_client(self):
-        """Create a BillingClient instance."""
         try:
             from truevalue_common.clients import BillingClient
 
@@ -127,7 +107,6 @@ class Command(BaseCommand):
             return None
 
     def _get_all_org_ids(self):
-        """Get all unique org IDs that have CRM data."""
         org_ids = set()
         for model in FEATURE_MODEL_MAP.values():
             ids = model.objects.values_list('org_id', flat=True).distinct()

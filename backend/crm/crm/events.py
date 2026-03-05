@@ -1,12 +1,3 @@
-"""
-Kafka event publishing for CRM Service.
-
-Publishes events to Kafka for:
-- Audit logging
-- Analytics
-- Real-time notifications
-- Workflow triggers (Phase 2)
-"""
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -17,7 +8,6 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# Kafka producer (lazy-loaded)
 _producer = None
 
 
@@ -90,7 +80,7 @@ def publish_event(
             value=json.dumps(event).encode('utf-8'),
             callback=_delivery_callback,
         )
-        producer.poll(0)  # Trigger delivery callbacks
+        producer.poll(0)
     except Exception as e:
         logger.error(f"Failed to publish event {event_type}: {e}")
 
@@ -103,10 +93,6 @@ def _delivery_callback(err, msg):
         logger.debug(f"Message delivered to {msg.topic()} [{msg.partition()}]")
 
 
-# =============================================================================
-# CRM EVENT PUBLISHERS
-# =============================================================================
-
 def publish_contact_event(
     action: str,
     contact_id: UUID,
@@ -114,7 +100,6 @@ def publish_contact_event(
     user_id: UUID,
     data: Dict[str, Any] = None,
 ):
-    """Publish contact-related event."""
     publish_event(
         topic='crm.contacts',
         event_type=f'contact.{action}',
@@ -133,7 +118,6 @@ def publish_company_event(
     user_id: UUID,
     data: Dict[str, Any] = None,
 ):
-    """Publish company-related event."""
     publish_event(
         topic='crm.companies',
         event_type=f'company.{action}',
@@ -152,7 +136,6 @@ def publish_lead_event(
     user_id: UUID,
     data: Dict[str, Any] = None,
 ):
-    """Publish lead-related event."""
     publish_event(
         topic='crm.leads',
         event_type=f'lead.{action}',
@@ -171,7 +154,6 @@ def publish_deal_event(
     user_id: UUID,
     data: Dict[str, Any] = None,
 ):
-    """Publish deal-related event."""
     publish_event(
         topic='crm.deals',
         event_type=f'deal.{action}',
@@ -190,7 +172,6 @@ def publish_activity_event(
     user_id: UUID,
     data: Dict[str, Any] = None,
 ):
-    """Publish activity-related event."""
     publish_event(
         topic='crm.activities',
         event_type=f'activity.{action}',
@@ -210,7 +191,6 @@ def publish_audit_event(
     user_id: UUID,
     changes: Dict[str, Any] = None,
 ):
-    """Publish audit event to central audit log service."""
     publish_event(
         topic='audit.events',
         event_type=f'{entity_type}.{action}',

@@ -31,7 +31,6 @@ def bump_permission_version(user_id: str) -> int:
 
 
 def get_permission_version(user_id: str) -> int:
-    """Get the current permission version (timestamp) for a user."""
     return cache.get(f'{PERM_VERSION_PREFIX}{user_id}', 0)
 
 

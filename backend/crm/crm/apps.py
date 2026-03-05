@@ -7,5 +7,4 @@ class CrmConfig(AppConfig):
     verbose_name = 'CRM'
     
     def ready(self):
-        # Import signals when app is ready
         pass

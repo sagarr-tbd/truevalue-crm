@@ -1,7 +1,3 @@
-"""
-Activity V2 Serializers
-"""
-
 from rest_framework import serializers
 from .models import ActivityV2
 

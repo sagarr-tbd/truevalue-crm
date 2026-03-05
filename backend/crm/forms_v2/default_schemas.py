@@ -1,17 +1,3 @@
-"""
-Default form schemas for auto-creation.
-
-Industry standard pattern (Zoho/HubSpot/Salesforce):
-- Forms are available immediately on first access
-- No manual seeding required
-- Per-organization customization via UI
-
-This module provides template schemas that are used to auto-create
-default FormDefinition records when a user first accesses an entity
-without an existing form.
-"""
-
-
 def get_default_lead_schema():
     """
     Get default lead form schema with industry-standard fields.

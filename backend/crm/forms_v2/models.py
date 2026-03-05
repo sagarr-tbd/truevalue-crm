@@ -1,27 +1,6 @@
-"""
-Forms V2 - Schema-Driven Dynamic Form System (Form Builder Architecture).
-
-This app provides the V2 form system with:
-- FormDefinition: Self-contained forms with inline field definitions
-
-ARCHITECTURE:
-- Form Builder Style: Each form stores ALL field information inline
-- No separate FieldDefinition table (deprecated)
-- Forms are completely independent and self-contained
-
-This is separate from the main CRM app to allow:
-- Clean separation of concerns
-- Easy testing
-- Non-breaking changes to existing system
-- Potential reuse in other projects
-"""
 import uuid
 from django.db import models
 
-
-# =============================================================================
-# BASE MODELS (imported from crm app)
-# =============================================================================
 
 class BaseModel(models.Model):
     """Abstract base model with common fields."""
@@ -33,35 +12,7 @@ class BaseModel(models.Model):
         abstract = True
 
 
-# =============================================================================
-# V2 DYNAMIC FORMS (Schema-Driven Form System)
-# =============================================================================
-
 class FormDefinition(BaseModel):
-    """
-    V2: Self-contained form definition with inline field definitions.
-    
-    Form Builder Architecture:
-    - ALL field information stored inline in schema.sections[].fields[]
-    - No references to external FieldDefinition table
-    - Each form is completely independent
-    
-    Supports:
-    - Multi-section layouts
-    - Inline field definitions with full validation rules
-    - Conditional field visibility
-    - Multiple forms per entity (create, edit, quick_add, web_form)
-    
-    Usage:
-        form = FormDefinition.objects.get(
-            org_id=org_id,
-            entity_type='lead',
-            form_type='create',
-            is_default=True
-        )
-        schema = form.schema  # Contains sections with inline field definitions
-    """
-    
     class EntityType(models.TextChoices):
         CONTACT = 'contact', 'Contact'
         COMPANY = 'company', 'Company'
@@ -91,16 +42,10 @@ class FormDefinition(BaseModel):
         default=FormType.CREATE
     )
     
-    # JSON Schema containing:
-    # - version: Schema version (e.g., "1.0.0")
-    # - sections: Array of section definitions
-    # - validation: Cross-field validation rules
-    # - metadata: Additional form metadata
     schema = models.JSONField(default=dict)
     
     is_active = models.BooleanField(default=True, db_index=True)
     
-    # Metadata
     created_by = models.UUIDField(null=True, blank=True)
     updated_by = models.UUIDField(null=True, blank=True)
     
@@ -119,7 +64,6 @@ class FormDefinition(BaseModel):
     
     @property
     def version(self) -> str:
-        """Get schema version."""
         return self.schema.get('version', '1.0.0')
     
     def validate_schema(self) -> tuple[bool, list[str]]:
@@ -135,11 +79,9 @@ class FormDefinition(BaseModel):
             errors.append("Schema must be a JSON object")
             return False, errors
         
-        # Check required top-level keys
         if 'sections' not in self.schema:
             errors.append("Schema must contain 'sections' key")
         
-        # Validate sections
         sections = self.schema.get('sections', [])
         if not isinstance(sections, list):
             errors.append("'sections' must be an array")
@@ -155,7 +97,6 @@ class FormDefinition(BaseModel):
                     errors.append(f"Section {idx} missing 'fields'")
                     continue
                 
-                # Validate inline field definitions
                 fields = section.get('fields', [])
                 if not isinstance(fields, list):
                     errors.append(f"Section {idx} 'fields' must be an array")
@@ -166,7 +107,6 @@ class FormDefinition(BaseModel):
                         errors.append(f"Section {idx}, field {field_idx} must be an object")
                         continue
                     
-                    # Required field properties for inline definitions
                     required_props = ['name', 'label', 'field_type']
                     for prop in required_props:
                         if prop not in field:
@@ -186,13 +126,11 @@ class FormDefinition(BaseModel):
         """
         errors = []
         
-        # Required properties
         required = ['name', 'label', 'field_type']
         for prop in required:
             if prop not in field_data:
                 errors.append(f"Field missing required property: {prop}")
         
-        # Validate field_type if present
         if 'field_type' in field_data:
             valid_types = [
                 'text', 'textarea', 'email', 'phone', 'url',
@@ -204,7 +142,6 @@ class FormDefinition(BaseModel):
             if field_data['field_type'] not in valid_types:
                 errors.append(f"Invalid field_type: {field_data['field_type']}")
         
-        # Validate select/multi_select have options
         if field_data.get('field_type') in ['select', 'multi_select', 'radio']:
             options = field_data.get('options', {})
             if not options or 'options' not in options or not options['options']:

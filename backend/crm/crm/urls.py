@@ -1,16 +1,8 @@
-"""
-CRM Service API URL Configuration.
-
-All endpoints are prefixed with /api/v1/ in the main urls.py
-"""
 from django.urls import path
 
 from . import views
 
 urlpatterns = [
-    # ==========================================================================
-    # CONTACTS
-    # ==========================================================================
     path('contacts', views.ContactListView.as_view(), name='contact-list'),
     path('contacts/export', views.ContactExportView.as_view(), name='contact-export'),
     path('contacts/bulk-delete', views.ContactBulkDeleteView.as_view(), name='contact-bulk-delete'),
@@ -21,20 +13,14 @@ urlpatterns = [
     path('contacts/<uuid:contact_id>/timeline', views.ContactTimelineView.as_view(), name='contact-timeline'),
     path('contacts/<uuid:contact_id>/companies', views.ContactCompaniesView.as_view(), name='contact-companies'),
     path('contacts/<uuid:contact_id>/companies/<uuid:company_id>', views.ContactCompanyDetailView.as_view(), name='contact-company-detail'),
-    
-    # ==========================================================================
-    # COMPANIES
-    # ==========================================================================
+
     path('companies', views.CompanyListView.as_view(), name='company-list'),
     path('companies/export', views.CompanyExportView.as_view(), name='company-export'),
     path('companies/<uuid:company_id>', views.CompanyDetailView.as_view(), name='company-detail'),
     path('companies/<uuid:company_id>/contacts', views.CompanyContactsView.as_view(), name='company-contacts'),
     path('companies/<uuid:company_id>/contacts/<uuid:contact_id>', views.CompanyContactDetailView.as_view(), name='company-contact-detail'),
     path('companies/<uuid:company_id>/stats', views.CompanyStatsView.as_view(), name='company-stats'),
-    
-    # ==========================================================================
-    # LEADS
-    # ==========================================================================
+
     path('leads', views.LeadListView.as_view(), name='lead-list'),
     path('leads/export', views.LeadExportView.as_view(), name='lead-export'),
     path('leads/bulk-delete', views.LeadBulkDeleteView.as_view(), name='lead-bulk-delete'),
@@ -45,10 +31,7 @@ urlpatterns = [
     path('leads/<uuid:lead_id>/convert', views.LeadConvertView.as_view(), name='lead-convert'),
     path('leads/<uuid:lead_id>/disqualify', views.LeadDisqualifyView.as_view(), name='lead-disqualify'),
     path('leads/<uuid:lead_id>/status', views.LeadStatusUpdateView.as_view(), name='lead-status-update'),
-    
-    # ==========================================================================
-    # DEALS
-    # ==========================================================================
+
     path('deals', views.DealListView.as_view(), name='deal-list'),
     path('deals/export', views.DealExportView.as_view(), name='deal-export'),
     path('deals/bulk-delete', views.DealBulkDeleteView.as_view(), name='deal-bulk-delete'),
@@ -59,10 +42,7 @@ urlpatterns = [
     path('deals/<uuid:deal_id>/win', views.DealWinView.as_view(), name='deal-win'),
     path('deals/<uuid:deal_id>/lose', views.DealLoseView.as_view(), name='deal-lose'),
     path('deals/<uuid:deal_id>/reopen', views.DealReopenView.as_view(), name='deal-reopen'),
-    
-    # ==========================================================================
-    # PIPELINES
-    # ==========================================================================
+
     path('pipelines', views.PipelineListView.as_view(), name='pipeline-list'),
     path('pipelines/<uuid:pipeline_id>', views.PipelineDetailView.as_view(), name='pipeline-detail'),
     path('pipelines/<uuid:pipeline_id>/stats', views.PipelineStatsView.as_view(), name='pipeline-stats'),
@@ -70,10 +50,7 @@ urlpatterns = [
     path('pipelines/<uuid:pipeline_id>/stages', views.PipelineStageListView.as_view(), name='stage-list'),
     path('pipelines/<uuid:pipeline_id>/stages/reorder', views.PipelineStageReorderView.as_view(), name='stage-reorder'),
     path('pipelines/<uuid:pipeline_id>/stages/<uuid:stage_id>', views.PipelineStageDetailView.as_view(), name='stage-detail'),
-    
-    # ==========================================================================
-    # ACTIVITIES
-    # ==========================================================================
+
     path('activities', views.ActivityListView.as_view(), name='activity-list'),
     path('activities/export', views.ActivityExportView.as_view(), name='activity-export'),
     path('activities/upcoming', views.ActivityUpcomingView.as_view(), name='activity-upcoming'),
@@ -82,22 +59,13 @@ urlpatterns = [
     path('activities/trend', views.ActivityTrendView.as_view(), name='activity-trend'),
     path('activities/<uuid:activity_id>', views.ActivityDetailView.as_view(), name='activity-detail'),
     path('activities/<uuid:activity_id>/complete', views.ActivityCompleteView.as_view(), name='activity-complete'),
-    
-    # ==========================================================================
-    # TAGS
-    # ==========================================================================
+
     path('tags', views.TagListView.as_view(), name='tag-list'),
     path('tags/<uuid:tag_id>', views.TagDetailView.as_view(), name='tag-detail'),
-    
-    # ==========================================================================
-    # CUSTOM FIELDS
-    # ==========================================================================
+
     path('custom-fields', views.CustomFieldListView.as_view(), name='custom-field-list'),
     path('custom-fields/<uuid:field_id>', views.CustomFieldDetailView.as_view(), name='custom-field-detail'),
-    
-    # ==========================================================================
-    # SEARCH & UTILITIES
-    # ==========================================================================
+
     path('search', views.GlobalSearchView.as_view(), name='global-search'),
     path('duplicates/check', views.DuplicateCheckView.as_view(), name='duplicate-check'),
 ]

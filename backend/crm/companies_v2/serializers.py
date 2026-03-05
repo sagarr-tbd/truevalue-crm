@@ -1,12 +1,3 @@
-"""
-Companies V2 Serializers
-
-Hybrid Architecture Serializer:
-- System fields (assigned_to, industry, size, status) → Database columns
-- Custom fields → JSONB entity_data
-- Validates dynamically against FormDefinition schema
-"""
-
 from rest_framework import serializers
 from .models import CompanyV2
 from forms_v2.models import FormDefinition
@@ -147,7 +138,7 @@ class CompanyV2Serializer(serializers.ModelSerializer):
                 is_default=True,
                 is_active=True,
                 schema=get_default_company_schema(),
-                created_by=request.user.id
+                created_by=getattr(request.user, 'id', None)
             )
 
         field_definitions = {}

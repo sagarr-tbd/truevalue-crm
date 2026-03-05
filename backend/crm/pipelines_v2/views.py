@@ -1,9 +1,3 @@
-"""
-Pipeline V2 Views
-
-CRUD for pipelines and stages, with stage reordering and stats.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -19,6 +13,8 @@ from .serializers import (
     PipelineV2CreateSerializer,
     PipelineStageV2Serializer,
 )
+from crm.permissions import CRMResourcePermission
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
 class PipelineV2Pagination(PageNumberPagination):
@@ -27,7 +23,10 @@ class PipelineV2Pagination(PageNumberPagination):
     max_page_size = 100
 
 
-class PipelineV2ViewSet(viewsets.ModelViewSet):
+class PipelineV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'pipelines'
+    permission_classes = [CRMResourcePermission]
+    audit_tracked_fields = ['name', 'is_default', 'is_active', 'owner_id']
     queryset = PipelineV2.objects.filter(deleted_at__isnull=True)
     serializer_class = PipelineV2Serializer
     pagination_class = PipelineV2Pagination
@@ -72,8 +71,9 @@ class PipelineV2ViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
+            org_id = request.headers.get('X-Org-Id')
             pipeline = PipelineV2.objects.filter(
-                id=pk, deleted_at__isnull=False
+                id=pk, org_id=org_id, deleted_at__isnull=False
             ).first()
             if not pipeline:
                 return Response(
@@ -109,8 +109,6 @@ class PipelineV2ViewSet(viewsets.ModelViewSet):
 
         serializer = PipelineV2Serializer(pipeline)
         return Response(serializer.data)
-
-    # ── Stage management ──
 
     @action(detail=True, methods=['post'], url_path='stages')
     def add_stage(self, request, pk=None):
@@ -236,7 +234,6 @@ class PipelineV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def kanban(self, request, pk=None):
-        """Get deals organized by stage for Kanban board."""
         pipeline = self.get_object()
 
         try:

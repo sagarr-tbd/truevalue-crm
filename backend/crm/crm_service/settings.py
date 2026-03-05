@@ -1,17 +1,3 @@
-"""
-Django settings for CRM Service.
-
-Phase 1 MVP Features:
-- Contact Management (Contacts, Companies, linking, tags, custom fields)
-- Deal/Opportunity Management (Deals, Pipelines, Stages, Kanban)
-- Activity Tracking (Tasks, Notes, Meetings, Calls, Emails)
-- Lead Management (Leads, Sources, Status, Conversion)
-- Basic Reporting (via API endpoints)
-
-Designed for extensibility:
-- Phase 2: Email sync, Workflows, Products/Quotes, Cases
-- Phase 3: AI features, Mobile, Advanced customization
-"""
 import os
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,7 +5,6 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load .env file only if not running in Docker
 if not os.getenv('DATABASE_URL'):
     load_dotenv(BASE_DIR / '.env')
 
@@ -40,23 +25,21 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Third party
     'rest_framework',
     'corsheaders',
     'django_filters',
     'drf_yasg',
     'import_export',
-    'django_celery_beat',  # Celery Beat for scheduled tasks
-    # Local
+    'django_celery_beat',
     'crm',
-    'forms_v2',  # V2 Dynamic Forms System
-    'leads_v2',  # V2 Leads with Dynamic Forms
-    'contacts_v2',  # V2 Contacts with Dynamic Forms
-    'companies_v2',  # V2 Companies with Dynamic Forms
-    'deals_v2',  # V2 Deals with Dynamic Forms
-    'pipelines_v2',  # V2 Pipelines with Stages
-    'activities_v2',  # V2 Activities (Tasks, Calls, Emails, Meetings, Notes)
-    'tags_v2',  # V2 Tags (Polymorphic tagging)
+    'forms_v2',
+    'leads_v2',
+    'contacts_v2',
+    'companies_v2',
+    'deals_v2',
+    'pipelines_v2',
+    'activities_v2',
+    'tags_v2',
 ]
 
 MIDDLEWARE = [
@@ -69,7 +52,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # TrueValue Platform Security Middleware
     'truevalue_common.gateway_auth.GatewayAuthMiddleware',
     'truevalue_common.gateway_auth.ServiceAuthMiddleware',
     'truevalue_common.middleware.RequestLoggingMiddleware',
@@ -223,7 +205,7 @@ CACHES = {
 KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 
 # =============================================================================
-# ELASTICSEARCH (for search - Phase 2+)
+# ELASTICSEARCH
 # =============================================================================
 ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')
 
@@ -231,28 +213,24 @@ ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://localhost:9200')
 # CRM SETTINGS
 # =============================================================================
 CRM_SETTINGS = {
-    # Contact limits by plan (0 = unlimited)
-    'CONTACT_LIMITS': {
+    'CONTACT_LIMITS': {  # 0 = unlimited
         'free': 1000,
         'starter': 10000,
         'pro': 100000,
         'enterprise': 0,
     },
-    # Pipeline limits by plan
     'PIPELINE_LIMITS': {
         'free': 5,
         'starter': 3,
         'pro': 10,
         'enterprise': 0,
     },
-    # Custom field limits by plan
     'CUSTOM_FIELD_LIMITS': {
         'free': 5,
         'starter': 20,
         'pro': 50,
         'enterprise': 0,
     },
-    # Default pipeline stages
     'DEFAULT_PIPELINE_STAGES': [
         {'name': 'Lead', 'probability': 10, 'order': 1},
         {'name': 'Qualified', 'probability': 25, 'order': 2},
@@ -261,9 +239,7 @@ CRM_SETTINGS = {
         {'name': 'Closed Won', 'probability': 100, 'order': 5, 'is_won': True},
         {'name': 'Closed Lost', 'probability': 0, 'order': 6, 'is_lost': True},
     ],
-    # Activity types
     'ACTIVITY_TYPES': ['task', 'note', 'call', 'email', 'meeting'],
-    # Lead sources
     'LEAD_SOURCES': [
         'website', 'referral', 'cold_call', 'trade_show',
         'social_media', 'advertisement', 'partner', 'other'
@@ -334,8 +310,19 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+CELERY_BEAT_SCHEDULE = {
+    'send-activity-reminders-v1': {
+        'task': 'crm.tasks.send_activity_reminders',
+        'schedule': 300.0,
+    },
+    'send-activity-reminders-v2': {
+        'task': 'crm.tasks.send_activity_v2_reminders',
+        'schedule': 300.0,
+    },
+}
 
 # =============================================================================
 # EMAIL CONFIGURATION
@@ -348,10 +335,7 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@truevalue-crm.com')
 
-# Frontend URL for email links
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3001')
-
-# Fallback email for development/testing (when Org Service is unavailable)
 REMINDER_FALLBACK_EMAIL = os.getenv('REMINDER_FALLBACK_EMAIL', 'test@example.com')
 
 # =============================================================================

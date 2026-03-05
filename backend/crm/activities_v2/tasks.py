@@ -1,6 +1,3 @@
-"""
-Celery tasks for Activities V2.
-"""
 import logging
 from datetime import timedelta
 from typing import Dict
@@ -15,10 +12,6 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, name='activities_v2.tasks.send_activity_reminders_v2')
 def send_activity_reminders_v2(self, lookahead_minutes: int = 15) -> Dict:
-    """
-    Send email reminders for V2 activities with reminders due.
-    Runs every 5 minutes via Celery Beat.
-    """
     from .models import ActivityV2
     from crm.utils import get_user_email_from_org_service
 

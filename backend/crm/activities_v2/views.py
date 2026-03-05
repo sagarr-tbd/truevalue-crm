@@ -1,9 +1,3 @@
-"""
-Activity V2 Views
-
-CRUD + complete, calendar, stats, upcoming, overdue, mine, bulk ops.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -16,6 +10,7 @@ from datetime import timedelta, datetime
 from .models import ActivityV2
 from .serializers import ActivityV2Serializer, ActivityV2ListSerializer
 from crm_service.audit_v2 import AuditLogV2Mixin
+from crm.permissions import CRMResourcePermission
 
 
 class ActivityV2Pagination(PageNumberPagination):
@@ -25,8 +20,10 @@ class ActivityV2Pagination(PageNumberPagination):
 
 
 class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'activities'
+    permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'priority', 'activity_type', 'owner_id', 'assigned_to_id']
-    queryset = ActivityV2.objects.all()
+    queryset = ActivityV2.objects.filter(deleted_at__isnull=True)
     serializer_class = ActivityV2Serializer
     pagination_class = ActivityV2Pagination
 
@@ -35,7 +32,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         if not org_id:
             return ActivityV2.objects.none()
 
-        queryset = ActivityV2.objects.filter(org_id=org_id)
+        queryset = ActivityV2.objects.filter(org_id=org_id, deleted_at__isnull=True)
 
         activity_type = self.request.query_params.get('activity_type')
         if activity_type:
@@ -115,7 +112,8 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
-            activity = ActivityV2.all_objects.get(id=pk, deleted_at__isnull=False)
+            org_id = request.headers.get('X-Org-Id')
+            activity = ActivityV2.all_objects.get(id=pk, org_id=org_id, deleted_at__isnull=False)
             activity.restore()
             serializer = self.get_serializer(activity)
             return Response(serializer.data)
@@ -138,7 +136,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         if not org_id:
             return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = ActivityV2.objects.filter(org_id=org_id)
+        qs = ActivityV2.objects.filter(org_id=org_id, deleted_at__isnull=True)
 
         activity_type = request.query_params.get('activity_type')
         if activity_type:
@@ -178,7 +176,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         now = timezone.now()
         start = now - timedelta(days=days)
 
-        qs = ActivityV2.objects.filter(org_id=org_id, created_at__gte=start)
+        qs = ActivityV2.objects.filter(org_id=org_id, deleted_at__isnull=True, created_at__gte=start)
 
         activity_type = request.query_params.get('activity_type')
         if activity_type:
@@ -225,7 +223,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         start = request.query_params.get('start')
         end = request.query_params.get('end')
 
-        qs = ActivityV2.objects.filter(org_id=org_id)
+        qs = ActivityV2.objects.filter(org_id=org_id, deleted_at__isnull=True)
 
         if start:
             qs = qs.filter(

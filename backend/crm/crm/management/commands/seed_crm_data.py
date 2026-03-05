@@ -1,27 +1,3 @@
-"""
-Seed CRM Data Command
-
-Creates sample data for testing the CRM:
-- Pipeline with stages
-- Companies
-- Contacts
-- Leads
-- Deals
-- Activities
-- Tags
-
-Usage:
-    python manage.py seed_crm_data --org-id <uuid> --owner-id <uuid>
-    
-    # Or use environment variables:
-    export ORG_ID=<uuid>
-    export OWNER_ID=<uuid>
-    python manage.py seed_crm_data
-    
-    # Clear existing data first:
-    python manage.py seed_crm_data --org-id <uuid> --owner-id <uuid> --clear
-"""
-
 import os
 import uuid
 import random
@@ -62,7 +38,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Get org_id and owner_id
         org_id = options['org_id'] or os.environ.get('ORG_ID')
         owner_id = options['owner_id'] or os.environ.get('OWNER_ID')
         
@@ -85,16 +60,11 @@ class Command(BaseCommand):
             raise CommandError(f'Invalid UUID format: {e}')
         
         count = options['count']
-        
         self.stdout.write(f'Seeding CRM data for org: {org_id}')
         self.stdout.write(f'Owner: {owner_id}')
         self.stdout.write(f'Count per entity: {count}')
-        
-        # Clear existing data if requested
         if options['clear']:
             self.clear_data(org_id)
-        
-        # Seed data
         tags = self.create_tags(org_id)
         pipeline, stages = self.create_pipeline(org_id)
         companies = self.create_companies(org_id, owner_id, tags, count)
@@ -113,7 +83,6 @@ class Command(BaseCommand):
         self.stdout.write(f'  - Activities: {len(activities)}')
 
     def clear_data(self, org_id):
-        """Clear existing data for the organization."""
         self.stdout.write('Clearing existing data...')
         
         Activity.objects.filter(org_id=org_id).delete()
@@ -128,7 +97,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('Existing data cleared'))
 
     def create_tags(self, org_id):
-        """Create sample tags."""
         self.stdout.write('Creating tags...')
         
         tag_data = [
@@ -155,7 +123,6 @@ class Command(BaseCommand):
         return tags
 
     def create_pipeline(self, org_id):
-        """Create default sales pipeline with stages."""
         self.stdout.write('Creating pipeline...')
         
         pipeline, created = Pipeline.objects.get_or_create(
@@ -197,7 +164,6 @@ class Command(BaseCommand):
         return pipeline, stages
 
     def create_companies(self, org_id, owner_id, tags, count):
-        """Create sample companies."""
         self.stdout.write('Creating companies...')
         
         company_data = [
@@ -243,7 +209,6 @@ class Command(BaseCommand):
         return companies
 
     def create_contacts(self, org_id, owner_id, companies, tags, count):
-        """Create sample contacts."""
         self.stdout.write('Creating contacts...')
         
         first_names = ['John', 'Jane', 'Michael', 'Sarah', 'David', 'Emily', 'Robert', 'Lisa', 'James', 'Jennifer', 'William', 'Amanda']
@@ -281,7 +246,6 @@ class Command(BaseCommand):
         return contacts
 
     def create_leads(self, org_id, owner_id, tags, count):
-        """Create sample leads."""
         self.stdout.write('Creating leads...')
         
         first_names = ['Alex', 'Chris', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Blake']
@@ -329,7 +293,6 @@ class Command(BaseCommand):
             'Training Program', 'Security Audit', 'Migration Project'
         ]
         
-        # Filter to open stages only for new deals
         open_stages = [s for s in stages if not s.is_won and not s.is_lost]
         
         deals = []
@@ -360,12 +323,9 @@ class Command(BaseCommand):
         return deals
 
     def create_activities(self, org_id, owner_id, contacts, deals, leads, count):
-        """Create sample activities with realistic timeline data."""
         self.stdout.write('Creating activities...')
         
         activity_types = ['task', 'call', 'email', 'meeting', 'note']
-        
-        # Rich subjects and descriptions for realistic timeline
         activity_data = {
             'task': [
                 {'subject': 'Follow up on proposal', 'description': 'Review the proposal feedback and address any concerns raised during the last meeting.'},
@@ -424,21 +384,15 @@ class Command(BaseCommand):
             activity_type = random.choice(activity_types)
             activity_info = random.choice(activity_data[activity_type])
             
-            # Link to contact, deal, or lead
             contact = contacts[i % len(contacts)] if contacts and random.random() > 0.3 else None
             deal = deals[i % len(deals)] if deals and random.random() > 0.5 else None
             lead = leads[i % len(leads)] if leads and not contact and random.random() > 0.5 else None
-            
-            # Ensure at least one relation
             if not contact and not deal and not lead:
                 contact = contacts[0] if contacts else None
             
-            # Varied timing - some past, some future
             days_offset = random.randint(-30, 14)
             due_date = timezone.now() + timedelta(days=days_offset)
             status = 'completed' if days_offset < -2 else random.choice(statuses)
-            
-            # Build activity with rich data
             activity_kwargs = {
                 'org_id': org_id,
                 'owner_id': owner_id,
@@ -453,14 +407,10 @@ class Command(BaseCommand):
                 'deal': deal,
                 'lead': lead,
             }
-            
-            # Add call-specific fields
             if activity_type == 'call':
                 activity_kwargs['call_direction'] = random.choice(call_directions)
                 activity_kwargs['call_outcome'] = random.choice(call_outcomes) if status == 'completed' else None
                 activity_kwargs['duration_minutes'] = random.choice([5, 10, 15, 20, 30, 45, 60]) if status == 'completed' else None
-            
-            # Add meeting-specific fields
             if activity_type == 'meeting':
                 meeting_start = due_date.replace(hour=random.choice([9, 10, 11, 14, 15, 16]), minute=0)
                 duration = random.choice([30, 45, 60, 90])
