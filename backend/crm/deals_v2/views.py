@@ -1,10 +1,3 @@
-"""
-Deals V2 Views
-
-Dynamic CRUD operations - ALL fields from FormDefinition.
-Mirrors the Companies V2 / Contacts V2 / Leads V2 pattern adapted for deals.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,6 +13,7 @@ from decimal import Decimal
 from .models import DealV2
 from .serializers import DealV2Serializer, DealV2ListSerializer
 from crm_service.audit_v2 import AuditLogV2Mixin
+from crm.permissions import CRMResourcePermission
 
 
 class DealV2Pagination(PageNumberPagination):
@@ -29,6 +23,8 @@ class DealV2Pagination(PageNumberPagination):
 
 
 class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'deals'
+    permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'stage', 'value', 'pipeline_id', 'owner_id', 'assigned_to_id']
     queryset = DealV2.objects.filter(deleted_at__isnull=True)
     serializer_class = DealV2Serializer
@@ -202,8 +198,9 @@ class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
+            org_id = request.headers.get('X-Org-Id')
             deal = DealV2.objects.filter(
-                id=pk, deleted_at__isnull=False
+                id=pk, org_id=org_id, deleted_at__isnull=False
             ).first()
             if not deal:
                 return Response(
@@ -355,7 +352,8 @@ class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        deals = list(queryset[:10000])
+        EXPORT_MAX_ROWS = 50000
+        deals = list(queryset[:EXPORT_MAX_ROWS])
 
         from forms_v2.models import FormDefinition
         form = FormDefinition.objects.filter(
@@ -450,7 +448,7 @@ class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             org_id=org_id, deleted_at__isnull=True,
         ).values_list('stage', flat=True).distinct().order_by('stage')
 
-        return Response({'sources': list(stages)})
+        return Response({'sources': list(stages), 'stages': list(stages)})
 
     @action(detail=False, methods=['get'])
     def pipelines(self, request):
@@ -552,7 +550,7 @@ class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        if not new_stage or len(new_stage) > 50:
+        if len(new_stage) > 50:
             return Response(
                 {'error': 'Invalid stage value'},
                 status=status.HTTP_400_BAD_REQUEST

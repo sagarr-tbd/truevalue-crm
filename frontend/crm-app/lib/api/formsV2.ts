@@ -143,7 +143,7 @@ export const formsV2Api = {
       results: FormDefinitionApiResponse[];
     }>(
       `/crm/api/v2/forms/definitions/`,
-      { params }
+      { params: { ...params, page_size: 200 } }
     );
     return (response.data?.results || []).map(transformFormDefinition);
   },

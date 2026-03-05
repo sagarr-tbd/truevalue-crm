@@ -1,6 +1,3 @@
-"""
-Company Service - Business logic for Company management.
-"""
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
@@ -16,13 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class CompanyService(AdvancedFilterMixin, BaseService[Company]):
-    """Service for Company operations."""
-    
     model = Company
     entity_type = 'company'
     billing_feature_code = 'companies'
     
-    # Field mapping for advanced filters (frontend field -> backend field)
     FILTER_FIELD_MAP = {
         'accountName': 'name',
         'name': 'name',
@@ -42,7 +36,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
     }
     
     def get_by_id(self, entity_id):
-        """Get company by ID with annotated counts for detail serialization."""
         try:
             return self.get_queryset().prefetch_related('tags').annotate(
                 contact_count=Count('contact_associations', distinct=True),
@@ -72,11 +65,7 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         advanced_filters: List[Dict] = None,
         filter_logic: str = 'and',
     ):
-        """List companies with advanced filtering."""
-        # Use optimized queryset to prevent N+1 queries
         qs = self.get_optimized_queryset()
-        
-        # Apply basic filters
         if filters:
             qs = qs.filter(**filters)
         
@@ -97,7 +86,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
             ).values_list('entity_id', flat=True)
             qs = qs.filter(id__in=company_ids)
         
-        # Apply search
         if search:
             qs = qs.filter(
                 Q(name__icontains=search) |
@@ -107,13 +95,8 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
                 Q(phone__icontains=search)
             )
         
-        # Apply advanced filters using mixin
         qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
-        
-        # Apply ordering
         qs = qs.order_by(order_by)
-        
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
@@ -121,28 +104,19 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Company:
-        """Create a new company."""
-        # Check plan limits via billing service
         self.check_plan_limit('companies')
-        
-        # Check for duplicates by name
         name = data.get('name')
         if name and self.get_queryset().filter(name__iexact=name).exists():
             raise DuplicateEntityError('Company', 'name', name)
         
         company = super().create(data, **kwargs)
-        
-        # Sync usage to billing
         self.sync_usage_to_billing('companies')
         
         return company
     
     @transaction.atomic
     def update(self, entity_id: UUID, data: Dict[str, Any], **kwargs) -> Company:
-        """Update a company."""
         company = self.get_by_id(entity_id)
-        
-        # Check for duplicate name
         name = data.get('name')
         if name and name.lower() != company.name.lower():
             if self.get_queryset().filter(name__iexact=name).exclude(id=entity_id).exists():
@@ -151,7 +125,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         return super().update(entity_id, data, **kwargs)
     
     def get_contacts(self, company_id: UUID, limit: int = 50) -> List[Contact]:
-        """Get contacts associated with a company (optimized for ContactListSerializer)."""
         company = self.get_by_id(company_id)
 
         from ..models import ContactCompany
@@ -177,7 +150,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         )
     
     def get_deals(self, company_id: UUID, status: str = None) -> List[Deal]:
-        """Get deals for a company."""
         company = self.get_by_id(company_id)
         
         qs = company.deals.all()
@@ -187,7 +159,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         return list(qs.order_by('-created_at'))
     
     def get_stats(self, company_id: UUID) -> Dict:
-        """Get company statistics using aggregation (single query for deal stats)."""
         company = self.get_by_id(company_id)
 
         contact_count = company.contact_associations.count()
@@ -212,24 +183,19 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         }
     
     def get_aggregate_stats(self) -> Dict[str, Any]:
-        """Get aggregate statistics for all companies in the org."""
         qs = self.get_queryset()
-        
-        # Get counts by industry
         industry_counts = qs.values('industry').annotate(count=Count('id'))
         by_industry = {}
         for item in industry_counts:
             industry = item['industry'] or 'Unknown'
             by_industry[industry] = item['count']
         
-        # Get counts by size
         size_counts = qs.values('size').annotate(count=Count('id'))
         by_size = {}
         for item in size_counts:
             size = item['size'] or 'Unknown'
             by_size[size] = item['count']
         
-        # Get totals
         total = qs.count()
         totals = qs.aggregate(
             total_revenue=Sum('annual_revenue'),
@@ -250,7 +216,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         website: str = None,
         email: str = None,
     ) -> List[Company]:
-        """Check for potential duplicates."""
         qs = self.get_queryset()
         
         conditions = Q()
@@ -259,19 +224,16 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
             conditions |= Q(name__iexact=name)
         
         if website:
-            # Normalize website comparison
             domain = website.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
             conditions |= Q(website__icontains=domain)
         
         if email:
-            # Check email domain
             domain = email.split('@')[-1]
             conditions |= Q(email__icontains=domain)
         
         return list(qs.filter(conditions)[:10])
     
     def get_industries(self) -> List[str]:
-        """Get list of unique industries in this org."""
         return list(
             self.get_queryset()
             .exclude(industry__isnull=True)
@@ -282,24 +244,16 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
         )
     
     def merge(self, primary_id: UUID, secondary_id: UUID) -> Company:
-        """Merge two companies."""
         primary = self.get_by_id(primary_id)
         secondary = self.get_by_id(secondary_id)
         
         with transaction.atomic():
-            # Move contacts
             from ..models import ContactCompany
             ContactCompany.objects.filter(company=secondary).update(company=primary)
             Contact.objects.filter(primary_company=secondary).update(primary_company=primary)
-            
-            # Move deals
             Deal.objects.filter(company=secondary).update(company=primary)
-            
-            # Move activities
             from ..models import Activity
             Activity.objects.filter(company=secondary).update(company=primary)
-            
-            # Log merge
             self._log_action(
                 action=CRMAuditLog.Action.MERGE,
                 entity=primary,
@@ -308,8 +262,6 @@ class CompanyService(AdvancedFilterMixin, BaseService[Company]):
                     'merged_name': secondary.name,
                 }
             )
-            
-            # Delete secondary
             secondary.delete()
         
         return primary

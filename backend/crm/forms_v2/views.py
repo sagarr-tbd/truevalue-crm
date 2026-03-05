@@ -1,14 +1,19 @@
-"""
-Forms V2 Views.
-
-REST API endpoints for FormDefinition (Form Builder Architecture).
-"""
+import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from crm.permissions import CRMResourcePermission
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+
+logger = logging.getLogger(__name__)
+
+
+class FormDefinitionPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
 
 from .models import FormDefinition
 from .serializers import (
@@ -48,9 +53,11 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
     Ordering:
     - name, entity_type, form_type, created_at
     """
+    resource = 'forms'
     queryset = FormDefinition.objects.all()
     serializer_class = FormDefinitionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CRMResourcePermission]
+    pagination_class = FormDefinitionPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['entity_type', 'form_type', 'is_default', 'is_active']
     search_fields = ['name', 'description']
@@ -58,44 +65,37 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
     ordering = ['entity_type', 'form_type', 'name']
     
     def get_serializer_class(self):
-        """Use appropriate serializer based on action."""
         if self.action == 'list':
             return FormDefinitionListSerializer
         elif self.action == 'get_schema':
             return FormSchemaSerializer
         return FormDefinitionSerializer
     
+    def _get_org_id(self):
+        """Resolve org_id: prefer X-Org-Id header, fall back to user attribute."""
+        return (
+            self.request.headers.get('X-Org-Id')
+            or getattr(self.request.user, 'org_id', None)
+        )
+
     def get_queryset(self):
-        """Filter queryset by organization."""
-        queryset = super().get_queryset()
-        
-        # Get org_id from authenticated user
-        org_id = getattr(self.request.user, 'org_id', None)
-        if org_id:
-            queryset = queryset.filter(org_id=org_id)
-        
-        return queryset
+        org_id = self._get_org_id()
+        if not org_id:
+            return FormDefinition.objects.none()
+        return FormDefinition.objects.filter(org_id=org_id)
     
     def perform_create(self, serializer):
-        """Set org_id and created_by from request user."""
         serializer.save(
-            org_id=self.request.user.org_id,
+            org_id=self._get_org_id(),
             created_by=self.request.user.id
         )
     
     def perform_update(self, serializer):
-        """Set updated_by from request user."""
         serializer.save(updated_by=self.request.user.id)
     
     def destroy(self, request, *args, **kwargs):
-        """
-        Delete form (soft delete by setting is_active=False).
-        
-        Default forms cannot be deleted if they're the only form.
-        """
         instance = self.get_object()
         
-        # Check if this is the only form for this entity/type combo
         if instance.is_default:
             other_forms = FormDefinition.objects.filter(
                 org_id=instance.org_id,
@@ -110,7 +110,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Soft delete
         instance.is_active = False
         instance.updated_by = request.user.id
         instance.save(update_fields=['is_active', 'updated_by', 'updated_at'])
@@ -143,9 +142,8 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
         entity_type = request.query_params.get('entity_type')
         form_type = request.query_params.get('form_type', 'create')
         
-        org_id = request.user.org_id
+        org_id = self._get_org_id()
         
-        # Get form by ID or entity_type/form_type
         if form_id:
             try:
                 form = FormDefinition.objects.get(
@@ -159,7 +157,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
         elif entity_type:
-            # Try to get existing form
             form = FormDefinition.objects.filter(
                 org_id=org_id,
                 entity_type=entity_type,
@@ -168,7 +165,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                 is_active=True
             ).first()
             
-            # 🎯 AUTO-CREATE if not found (Industry standard: Zoho/HubSpot pattern)
             if not form:
                 form = self._auto_create_default_form(
                     org_id=org_id,
@@ -202,7 +198,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
         Returns:
             FormDefinition: Newly created form
         """
-        # Get default schema based on entity type
         schema_getters = {
             'lead': get_default_lead_schema,
             'contact': get_default_contact_schema,
@@ -216,7 +211,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
         
         schema = schema_getter()
         
-        # Create FormDefinition record
         form = FormDefinition.objects.create(
             org_id=org_id,
             entity_type=entity_type,
@@ -243,7 +237,7 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
         Returns list of entities for dropdown selectors.
         """
         entity = request.query_params.get('entity')
-        org_id = request.user.org_id if hasattr(request.user, 'org_id') else None
+        org_id = self._get_org_id()
         
         if not org_id:
             return Response(
@@ -254,23 +248,16 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
         data = []
 
         if entity == 'user':
-            # Fetch organization members using the existing utility function
-            # This handles service-to-service auth properly
             from crm.utils import fetch_member_names
-            import logging
-            
-            logger = logging.getLogger(__name__)
             
             try:
                 logger.info(f"Fetching org members using fetch_member_names: org_id={org_id}")
                 
-                # Get members map {user_id: display_name}
                 members_map = fetch_member_names(str(org_id))
                 
                 logger.info(f"Found {len(members_map)} members from utility function")
                 
                 if members_map:
-                    # Convert to lookup format
                     data = [
                         {
                             'id': user_id,
@@ -283,7 +270,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                         for user_id, display_name in members_map.items()
                     ]
                 else:
-                    # Fallback: Return current user
                     data = [{
                         'id': request.user.user_id if hasattr(request.user, 'user_id') else org_id,
                         'label': request.user.email if hasattr(request.user, 'email') else 'Current User',
@@ -294,10 +280,7 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
                     }]
                     
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.exception(f"Error fetching org members: {e}")
-                # Fallback: Return current user from JWT
                 data = [{
                     'id': request.user.user_id if hasattr(request.user, 'user_id') else org_id,
                     'label': request.user.email if hasattr(request.user, 'email') else 'Current User',
@@ -362,11 +345,6 @@ class FormDefinitionViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def form_types(self, request):
-        """
-        Get available form types.
-        
-        GET /api/v2/forms/definitions/form_types
-        """
         form_types = [
             {'value': choice[0], 'label': choice[1]}
             for choice in FormDefinition.FormType.choices

@@ -1,6 +1,3 @@
-"""
-Contact Service - Business logic for Contact management.
-"""
 import logging
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -18,16 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class ContactService(AdvancedFilterMixin, BaseService[Contact]):
-    """Service for Contact operations."""
-    
     model = Contact
     entity_type = 'contact'
     billing_feature_code = 'contacts'
     
-    # Field mapping for advanced filters (frontend field -> backend field)
-    # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
     FILTER_FIELD_MAP = {
-        'name': ['first_name', 'last_name'],  # Compound field - searches both
+        'name': ['first_name', 'last_name'],
         'email': 'email',
         'company': 'primary_company__name',
         'stage': 'status',
@@ -41,7 +34,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
     }
     
     def get_by_id(self, entity_id):
-        """Get contact by ID with optimized queryset for detail serialization."""
         try:
             return self.get_optimized_queryset(annotate_counts=True).get(id=entity_id)
         except self.model.DoesNotExist:
@@ -83,11 +75,7 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         advanced_filters: List[Dict] = None,
         filter_logic: str = 'and',
     ):
-        """List contacts with advanced filtering."""
-        # Use optimized queryset with annotated counts to prevent N+1 queries
-        qs = self.get_optimized_queryset(annotate_counts=True)
-        
-        # Apply basic filters
+        qs = self.get_optimized_queryset(annotate_counts=True)  # Annotated counts prevent N+1
         if filters:
             qs = qs.filter(**filters)
         
@@ -111,7 +99,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             ).values_list('entity_id', flat=True)
             qs = qs.filter(id__in=contact_ids)
         
-        # Apply search
         if search:
             qs = qs.filter(
                 Q(first_name__icontains=search) |
@@ -122,13 +109,8 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                 Q(primary_company__name__icontains=search)
             )
         
-        # Apply advanced filters using mixin
         qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
-        
-        # Apply ordering
         qs = qs.order_by(order_by)
-        
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
@@ -146,24 +128,18 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         """
         skip_duplicate_check = kwargs.pop('skip_duplicate_check', False)
         
-        # Check for duplicates (unless explicitly skipped)
         if not skip_duplicate_check:
             email = data.get('email')
             if email and self.get_queryset().filter(email=email).exists():
                 raise DuplicateEntityError('Contact', 'email', email)
         
-        # Check plan limits via billing service
         self.check_plan_limit('contacts')
-        
-        # Handle primary company
         primary_company_id = data.pop('primary_company_id', None)
         if primary_company_id:
             data['primary_company_id'] = primary_company_id
         
-        # Create contact
         contact = super().create(data, **kwargs)
         
-        # Create primary company association
         if primary_company_id:
             try:
                 company = Company.objects.get(id=primary_company_id, org_id=self.org_id)
@@ -178,23 +154,19 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             except Company.DoesNotExist:
                 pass
         
-        # Sync usage to billing
         self.sync_usage_to_billing('contacts')
         
         return contact
     
     @transaction.atomic
     def update(self, entity_id: UUID, data: Dict[str, Any], **kwargs) -> Contact:
-        """Update a contact."""
         contact = self.get_by_id(entity_id)
         
-        # Check for duplicate email
         email = data.get('email')
         if email and email != contact.email:
             if self.get_queryset().filter(email=email).exclude(id=entity_id).exists():
                 raise DuplicateEntityError('Contact', 'email', email)
         
-        # Handle primary company change
         primary_company_id = data.pop('primary_company_id', None)
         if primary_company_id is not None:
             self._update_primary_company(contact, primary_company_id)
@@ -202,8 +174,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         return super().update(entity_id, data, **kwargs)
     
     def _update_primary_company(self, contact: Contact, company_id: UUID):
-        """Update the primary company for a contact."""
-        # Clear existing primary
         ContactCompany.objects.filter(
             contact=contact,
             is_primary=True
@@ -212,8 +182,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         if company_id:
             try:
                 company = Company.objects.get(id=company_id, org_id=self.org_id)
-                
-                # Check if association exists
                 assoc, created = ContactCompany.objects.get_or_create(
                     contact=contact,
                     company=company,
@@ -227,7 +195,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                     assoc.is_primary = True
                     assoc.save()
                 
-                # Update contact's primary_company
                 contact.primary_company = company
                 contact.save(update_fields=['primary_company', 'updated_at'])
                 
@@ -242,7 +209,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         department: str = None,
         is_primary: bool = False,
     ) -> ContactCompany:
-        """Add a company association to a contact."""
         contact = self.get_by_id(contact_id)
         
         try:
@@ -250,14 +216,12 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         except Company.DoesNotExist:
             raise EntityNotFoundError('Company', str(company_id))
         
-        # Check if already associated
         existing = ContactCompany.objects.filter(
             contact=contact,
             company=company
         ).first()
         
         if existing:
-            # Update existing
             existing.title = title or existing.title
             existing.department = department or existing.department
             if is_primary:
@@ -265,14 +229,12 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             existing.save()
             return existing
         
-        # Clear existing primary if setting new primary
         if is_primary:
             ContactCompany.objects.filter(
                 contact=contact,
                 is_primary=True
             ).update(is_primary=False)
         
-        # Create new association
         return ContactCompany.objects.create(
             contact=contact,
             company=company,
@@ -283,7 +245,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         )
     
     def remove_company(self, contact_id: UUID, company_id: UUID):
-        """Remove a company association from a contact."""
         contact = self.get_by_id(contact_id)
         
         ContactCompany.objects.filter(
@@ -291,16 +252,12 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             company_id=company_id
         ).delete()
         
-        # Clear primary_company if it was removed
         if contact.primary_company_id == company_id:
             contact.primary_company = None
             contact.save(update_fields=['primary_company', 'updated_at'])
     
     def get_timeline(self, contact_id: UUID, limit: int = 50) -> List[Dict]:
-        """Get contact's activity timeline."""
         contact = self.get_by_id(contact_id)
-        
-        # Get activities
         activities = contact.activities.order_by('-created_at')[:limit]
         
         timeline = []
@@ -315,7 +272,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                 'created_at': activity.created_at.isoformat(),
             })
         
-        # Sort by date
         timeline.sort(key=lambda x: x['created_at'], reverse=True)
         
         return timeline
@@ -326,7 +282,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         phone: str = None,
         name: str = None,
     ) -> List[Contact]:
-        """Check for potential duplicates."""
         qs = self.get_queryset()
         
         conditions = Q()
@@ -335,7 +290,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             conditions |= Q(email__iexact=email)
         
         if phone:
-            # Normalize phone number comparison
             conditions |= Q(phone__icontains=phone[-10:]) | Q(mobile__icontains=phone[-10:])
         
         if name:
@@ -346,16 +300,12 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         return list(qs.filter(conditions)[:10])
     
     def update_last_activity(self, contact_id: UUID):
-        """Update last_activity_at timestamp."""
         Contact.objects.filter(id=contact_id).update(
             last_activity_at=timezone.now()
         )
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get contact statistics by status."""
         qs = self.get_queryset()
-        
-        # Get counts by status
         status_counts = qs.values('status').annotate(count=Count('id'))
         
         by_status = {}
@@ -378,7 +328,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         update_existing: bool = False,
         duplicate_check_field: str = 'email',
     ) -> Dict:
-        """Bulk import contacts."""
         results = {
             'total': len(contacts),
             'created': 0,
@@ -389,7 +338,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         
         for i, contact_data in enumerate(contacts):
             try:
-                # Check for required fields
                 if not contact_data.get('first_name') or not contact_data.get('last_name'):
                     results['errors'].append({
                         'row': i + 1,
@@ -397,7 +345,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                     })
                     continue
                 
-                # Check for duplicate
                 check_value = contact_data.get(duplicate_check_field)
                 if check_value:
                     existing = self.get_queryset().filter(
@@ -417,7 +364,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
                             })
                         continue
                 
-                # Create new contact
                 self.create(contact_data)
                 results['created'] += 1
                 
@@ -479,7 +425,6 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             'errors': [],
         }
         
-        # Validate the update data fields
         allowed_fields = {'status', 'owner_id', 'first_name', 'last_name', 'email', 
                          'phone', 'mobile', 'title', 'department'}
         update_data = {k: v for k, v in data.items() if k in allowed_fields}
@@ -533,20 +478,16 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
         if not primary or not secondary:
             raise EntityNotFoundError('Contact', str(primary_id if not primary else secondary_id))
         
-        # Fields that can be merged
         mergeable_fields = [
             'secondary_email', 'phone', 'mobile', 'title', 'department',
             'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'country',
             'description', 'linkedin_url', 'twitter_url', 'source', 'source_detail'
         ]
         
-        # Merge field values if strategy is 'fill_empty'
         if merge_strategy == 'fill_empty':
             for field in mergeable_fields:
                 primary_value = getattr(primary, field, None)
                 secondary_value = getattr(secondary, field, None)
-                
-                # If primary field is empty and secondary has a value, copy it
                 if not primary_value and secondary_value:
                     setattr(primary, field, secondary_value)
             
@@ -556,15 +497,10 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             
             primary.save()
         
-        # Move activities from secondary to primary
         Activity.objects.filter(contact=secondary).update(contact=primary)
-        
-        # Move deals from secondary to primary
         Deal.objects.filter(contact=secondary).update(contact=primary)
         
-        # Move company associations
         for contact_company in ContactCompany.objects.filter(contact=secondary):
-            # Check if primary already has this company association
             existing = ContactCompany.objects.filter(
                 contact=primary, 
                 company=contact_company.company
@@ -576,17 +512,14 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             else:
                 contact_company.delete()
         
-        # Update primary company if secondary has one and primary doesn't
         if not primary.primary_company and secondary.primary_company:
             primary.primary_company = secondary.primary_company
             primary.save()
         
-        # Merge tags
         for tag in secondary.tags.all():
             if not primary.tags.filter(id=tag.id).exists():
                 primary.tags.add(tag)
         
-        # Log the merge
         self._log_action(
             action=CRMAuditLog.Action.MERGE,
             entity=primary,
@@ -598,10 +531,7 @@ class ContactService(AdvancedFilterMixin, BaseService[Contact]):
             }
         )
         
-        # Delete the secondary contact
         secondary.delete()
-        
-        # Refresh from database to get updated state
         primary.refresh_from_db()
         
         return primary

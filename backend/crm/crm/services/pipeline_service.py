@@ -1,6 +1,3 @@
-"""
-Pipeline Service - Business logic for Pipeline and Stage management.
-"""
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
@@ -18,13 +15,10 @@ from .base_service import BaseService
 
 logger = logging.getLogger(__name__)
 
-# Cache timeout in seconds (5 minutes)
 PIPELINE_CACHE_TIMEOUT = 300
 
 
 class PipelineService(BaseService[Pipeline]):
-    """Service for Pipeline operations."""
-    
     model = Pipeline
     entity_type = 'pipeline'
     billing_feature_code = 'pipelines'
@@ -54,17 +48,9 @@ class PipelineService(BaseService[Pipeline]):
         return f"pipeline_stages:{pipeline_id}"
     
     def _invalidate_pipeline_cache(self, pipeline_id: UUID = None):
-        """
-        Invalidate pipeline caches.
-        
-        Call this after any pipeline or stage modification.
-        """
-        # Invalidate all list caches for this org
         cache.delete(self._get_pipeline_list_cache_key())
         cache.delete(self._get_pipeline_list_cache_key(is_active=True))
         cache.delete(self._get_pipeline_list_cache_key(is_active=False))
-        
-        # Invalidate specific pipeline stages cache
         if pipeline_id:
             cache.delete(self._get_stages_cache_key(pipeline_id))
     
@@ -74,12 +60,6 @@ class PipelineService(BaseService[Pipeline]):
         is_active: bool = None,
         order_by: str = 'order',
     ):
-        """
-        List pipelines with caching.
-        
-        Note: Only caches when no custom filters and default ordering.
-        """
-        # Only cache simple queries (no custom filters, default ordering)
         use_cache = not filters and order_by == 'order'
         
         if use_cache:
@@ -105,19 +85,12 @@ class PipelineService(BaseService[Pipeline]):
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Pipeline:
-        """Create a new pipeline with default stages."""
-        # Check plan limits via billing service
         self.check_plan_limit('pipelines')
-        
-        # Check if this is the first pipeline (make it default)
         current_count = self.count()
         if current_count == 0:
             data['is_default'] = True
         
-        # Create pipeline
         pipeline = super().create(data, **kwargs)
-        
-        # Create default stages if no stages provided
         stages_data = data.pop('stages', None)
         
         if stages_data:
@@ -125,7 +98,6 @@ class PipelineService(BaseService[Pipeline]):
                 stage_data['order'] = i + 1
                 self.create_stage(pipeline.id, stage_data)
         else:
-            # Use default stages
             default_stages = settings.CRM_SETTINGS.get('DEFAULT_PIPELINE_STAGES', [])
             for stage_data in default_stages:
                 PipelineStage.objects.create(
@@ -137,47 +109,36 @@ class PipelineService(BaseService[Pipeline]):
                     is_lost=stage_data.get('is_lost', False),
                 )
         
-        # Invalidate cache
         self._invalidate_pipeline_cache(pipeline.id)
-        
-        # Sync usage to billing
         self.sync_usage_to_billing('pipelines')
         
         return pipeline
     
     @transaction.atomic
     def update(self, entity_id: UUID, data: Dict[str, Any], **kwargs) -> Pipeline:
-        """Update a pipeline."""
         pipeline = self.get_by_id(entity_id)
         
-        # Handle is_default change
         if data.get('is_default') and not pipeline.is_default:
-            # Clear other defaults
             Pipeline.objects.filter(
                 org_id=self.org_id,
                 is_default=True
             ).exclude(id=entity_id).update(is_default=False)
         
         result = super().update(entity_id, data, **kwargs)
-        
-        # Invalidate cache
         self._invalidate_pipeline_cache(entity_id)
         
         return result
     
     @transaction.atomic
     def delete(self, entity_id: UUID, **kwargs) -> bool:
-        """Delete a pipeline."""
         pipeline = self.get_by_id(entity_id)
         
-        # Check if pipeline has deals
         if Deal.objects.filter(pipeline=pipeline).exists():
             raise InvalidOperationError(
                 'Cannot delete pipeline with existing deals. '
                 'Move deals to another pipeline first.'
             )
         
-        # If deleting default, make another pipeline default
         if pipeline.is_default:
             other_pipeline = Pipeline.objects.filter(
                 org_id=self.org_id,
@@ -189,11 +150,7 @@ class PipelineService(BaseService[Pipeline]):
                 other_pipeline.save(update_fields=['is_default'])
         
         result = super().delete(entity_id, **kwargs)
-        
-        # Invalidate cache
         self._invalidate_pipeline_cache(entity_id)
-        
-        # Usage sync handled by BaseService.delete via billing_feature_code
         
         return result
     
@@ -202,7 +159,6 @@ class PipelineService(BaseService[Pipeline]):
         pipeline = self.get_by_id(pipeline_id)
         
         with transaction.atomic():
-            # Clear other defaults
             Pipeline.objects.filter(
                 org_id=self.org_id,
                 is_default=True
@@ -211,15 +167,11 @@ class PipelineService(BaseService[Pipeline]):
             pipeline.is_default = True
             pipeline.save(update_fields=['is_default', 'updated_at'])
         
-        # Invalidate cache (affects all pipeline lists)
         self._invalidate_pipeline_cache()
         
         return pipeline
     
-    # Stage operations
-    
     def get_stages(self, pipeline_id: UUID) -> List[PipelineStage]:
-        """Get stages for a pipeline with caching and annotated deal stats."""
         cache_key = self._get_stages_cache_key(pipeline_id)
         cached = cache.get(cache_key)
         if cached is not None:
@@ -243,26 +195,20 @@ class PipelineService(BaseService[Pipeline]):
     
     @transaction.atomic
     def create_stage(self, pipeline_id: UUID, data: Dict[str, Any]) -> PipelineStage:
-        """Create a new stage in a pipeline."""
         pipeline = self.get_by_id(pipeline_id)
         
-        # Remove pipeline from data if present (we pass it separately)
         data.pop('pipeline', None)
         data.pop('pipeline_id', None)
         
-        # Auto-set order if not provided
         if 'order' not in data:
             max_order = pipeline.stages.order_by('-order').values_list('order', flat=True).first() or 0
             data['order'] = max_order + 1
         
-        # Validate terminal stage flags
         if data.get('is_won'):
-            # Only one won stage allowed
             if pipeline.stages.filter(is_won=True).exists():
                 raise InvalidOperationError('Pipeline already has a "won" stage')
         
         if data.get('is_lost'):
-            # Only one lost stage allowed
             if pipeline.stages.filter(is_lost=True).exists():
                 raise InvalidOperationError('Pipeline already has a "lost" stage')
         
@@ -270,29 +216,23 @@ class PipelineService(BaseService[Pipeline]):
             pipeline=pipeline,
             **data
         )
-        
-        # Invalidate cache
         self._invalidate_pipeline_cache(pipeline_id)
         
         return stage
     
     @transaction.atomic
     def update_stage(self, stage_id: UUID, data: Dict[str, Any]) -> PipelineStage:
-        """Update a pipeline stage."""
         try:
             stage = PipelineStage.objects.select_related('pipeline').get(id=stage_id)
         except PipelineStage.DoesNotExist:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
-        # Verify org ownership
         if stage.pipeline.org_id != self.org_id:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
-        # Remove pipeline from data - can't change pipeline of a stage
         data.pop('pipeline', None)
         data.pop('pipeline_id', None)
         
-        # Validate terminal stage flags
         if data.get('is_won') and not stage.is_won:
             if stage.pipeline.stages.filter(is_won=True).exclude(id=stage_id).exists():
                 raise InvalidOperationError('Pipeline already has a "won" stage')
@@ -306,25 +246,20 @@ class PipelineService(BaseService[Pipeline]):
                 setattr(stage, field, value)
         
         stage.save()
-        
-        # Invalidate cache
         self._invalidate_pipeline_cache(stage.pipeline_id)
         
         return stage
     
     @transaction.atomic
     def delete_stage(self, stage_id: UUID) -> bool:
-        """Delete a pipeline stage."""
         try:
             stage = PipelineStage.objects.select_related('pipeline').get(id=stage_id)
         except PipelineStage.DoesNotExist:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
-        # Verify org ownership
         if stage.pipeline.org_id != self.org_id:
             raise EntityNotFoundError('PipelineStage', str(stage_id))
         
-        # Check if stage has deals
         if Deal.objects.filter(stage=stage).exists():
             raise InvalidOperationError(
                 'Cannot delete stage with existing deals. '
@@ -333,15 +268,12 @@ class PipelineService(BaseService[Pipeline]):
         
         pipeline_id = stage.pipeline_id
         stage.delete()
-        
-        # Invalidate cache
         self._invalidate_pipeline_cache(pipeline_id)
         
         return True
     
     @transaction.atomic
     def reorder_stages(self, pipeline_id: UUID, stage_order: List[UUID]) -> List[PipelineStage]:
-        """Reorder stages in a pipeline."""
         pipeline = self.get_by_id(pipeline_id)
 
         stages = {str(s.id): s for s in pipeline.stages.all()}

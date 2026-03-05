@@ -1,11 +1,3 @@
-"""
-Companies V2 Models
-
-Hybrid Architecture (mirrors Contacts V2 / Leads V2 pattern):
-- System/Relationship fields → Database columns (indexed)
-- Custom/Dynamic fields → JSONB storage (entity_data)
-"""
-
 import uuid
 from django.db import models
 from django.utils import timezone
@@ -30,24 +22,20 @@ class CompanyV2(models.Model):
         ENTERPRISE = '501-1000', '501-1000'
         CORPORATE = '1000+', '1000+'
 
-    # IDENTITY & ORGANIZATION
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     org_id = models.UUIDField(db_index=True)
 
-    # OWNERSHIP & ASSIGNMENT
     owner_id = models.UUIDField(db_index=True, help_text="User who created this company")
     assigned_to_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Currently assigned account manager (UUID)"
     )
 
-    # RELATIONSHIPS
     parent_company_id = models.UUIDField(
         null=True, blank=True, db_index=True,
         help_text="Parent company (UUID, self-referencing)"
     )
 
-    # LIFECYCLE & STATUS
     status = models.CharField(
         max_length=50, choices=Status.choices,
         default=Status.ACTIVE, db_index=True
@@ -62,10 +50,8 @@ class CompanyV2(models.Model):
         help_text="Company size range"
     )
 
-    # CUSTOM FIELDS (JSONB)
     entity_data = models.JSONField(default=dict, blank=True)
 
-    # AUDIT TRAIL & METADATA
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)

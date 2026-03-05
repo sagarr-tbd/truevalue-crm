@@ -1,16 +1,8 @@
-"""
-Deals V2 Serializers
-
-Hybrid Architecture Serializer:
-- System fields (status, stage, value, probability, etc.) → Database columns
-- Custom fields → JSONB entity_data
-- Validates dynamically against FormDefinition schema
-"""
-
 from rest_framework import serializers
 from .models import DealV2
 from forms_v2.models import FormDefinition
 from django.db import transaction
+from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 
 
@@ -268,7 +260,7 @@ class DealV2Serializer(serializers.ModelSerializer):
                 is_default=True,
                 is_active=True,
                 schema=get_default_deal_schema(),
-                created_by=request.user.id
+                created_by=getattr(request.user, 'id', None)
             )
 
         field_definitions = {}
@@ -385,7 +377,6 @@ class DealV2Serializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
 
         if 'stage' in validated_data and validated_data['stage'] != old_stage:
-            from django.utils import timezone
             now = timezone.now()
 
             time_in_stage = None

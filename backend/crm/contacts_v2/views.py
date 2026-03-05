@@ -1,10 +1,3 @@
-"""
-Contacts V2 Views
-
-Dynamic CRUD operations - ALL fields from FormDefinition.
-Mirrors the Leads V2 pattern adapted for contacts.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,6 +15,7 @@ from .serializers import (
     ContactCompanyV2Serializer, ContactCompanyV2WriteSerializer,
 )
 from crm_service.audit_v2 import AuditLogV2Mixin
+from crm.permissions import CRMResourcePermission
 
 
 class ContactV2Pagination(PageNumberPagination):
@@ -31,6 +25,8 @@ class ContactV2Pagination(PageNumberPagination):
 
 
 class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'contacts'
+    permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'source', 'company_id', 'owner_id', 'assigned_to_id']
     queryset = ContactV2.objects.filter(deleted_at__isnull=True)
     serializer_class = ContactV2Serializer
@@ -45,7 +41,6 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             org_id=org_id, deleted_at__isnull=True
         )
 
-        # Dynamic search based on is_searchable fields from FormDefinition
         search = self.request.query_params.get('search')
         if search:
             from forms_v2.models import FormDefinition
@@ -78,32 +73,26 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     Q(entity_data__phone__icontains=search)
                 )
 
-        # Status filter
         status_filter = self.request.query_params.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        # Source filter
         source_filter = self.request.query_params.get('source')
         if source_filter:
             queryset = queryset.filter(source=source_filter)
 
-        # Assigned to filter
         assigned_to = self.request.query_params.get('assigned_to')
         if assigned_to:
             queryset = queryset.filter(assigned_to_id=assigned_to)
 
-        # Company filter
         company_id = self.request.query_params.get('company_id')
         if company_id:
             queryset = queryset.filter(company_id=company_id)
 
-        # Owner filter
         owner_id = self.request.query_params.get('owner_id')
         if owner_id:
             queryset = queryset.filter(owner_id=owner_id)
 
-        # Advanced filters (JSON)
         filters_param = self.request.query_params.get('filters')
         if filters_param:
             try:
@@ -156,7 +145,6 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
 
-        # Dynamic sorting
         sort_by = self.request.query_params.get('sort_by', '-created_at')
         sort_direction = self.request.query_params.get('sort_direction', 'desc')
 
@@ -203,8 +191,9 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
+            org_id = request.headers.get('X-Org-Id')
             contact = ContactV2.objects.filter(
-                id=pk, deleted_at__isnull=False
+                id=pk, org_id=org_id, deleted_at__isnull=False
             ).first()
             if not contact:
                 return Response(
@@ -339,7 +328,8 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        contacts = list(queryset[:10000])
+        EXPORT_MAX_ROWS = 50000
+        contacts = list(queryset[:EXPORT_MAX_ROWS])
 
         from forms_v2.models import FormDefinition
         form = FormDefinition.objects.filter(
@@ -519,11 +509,8 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
         return Response(ContactV2Serializer(contact).data)
 
-    # ─── Company Associations ──────────────────────────────────────
-
     @action(detail=True, methods=['get', 'post'], url_path='companies')
     def companies(self, request, pk=None):
-        """List or add company associations for a contact."""
         contact = self.get_object()
 
         if request.method == 'GET':
@@ -537,6 +524,15 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         company_id = serializer.validated_data['company_id']
+
+        from companies_v2.models import CompanyV2
+        org_id = request.headers.get('X-Org-Id')
+        if not CompanyV2.objects.filter(id=company_id, org_id=org_id, deleted_at__isnull=True).exists():
+            return Response(
+                {'error': 'Company not found in your organization'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         is_primary = serializer.validated_data.get('is_primary', False)
 
         if is_primary:
@@ -559,7 +555,6 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['patch', 'delete'],
             url_path='companies/(?P<association_id>[^/.]+)')
     def company_detail(self, request, pk=None, association_id=None):
-        """Update or delete a company association."""
         contact = self.get_object()
 
         try:
@@ -625,8 +620,6 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         ]
 
         return Response({'data': timeline, 'count': len(timeline)})
-
-    # ─── Import ────────────────────────────────────────────────────
 
     @action(detail=False, methods=['post'], url_path='import')
     def import_contacts(self, request):
@@ -716,8 +709,6 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 results['errors'].append({'row': i + 1, 'error': str(e)})
 
         return Response(results, status=status.HTTP_200_OK)
-
-    # ─── Merge ─────────────────────────────────────────────────────
 
     @action(detail=False, methods=['post'])
     def merge(self, request):

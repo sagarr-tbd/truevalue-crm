@@ -1,9 +1,3 @@
-"""
-Leads V2 Views
-
-Dynamic CRUD operations - fields defined via FormDefinition inline schemas.
-"""
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -15,32 +9,30 @@ from django.utils import timezone
 from django.http import HttpResponse
 import csv
 import json
+import logging
 from uuid import UUID
 
 from .models import LeadV2
 from .serializers import LeadV2Serializer, LeadV2ListSerializer
 from crm_service.audit_v2 import AuditLogV2Mixin
+from crm.permissions import CRMResourcePermission
+
+logger = logging.getLogger(__name__)
 
 
 class LeadV2Pagination(PageNumberPagination):
-    """Pagination for LeadV2 list view."""
     page_size = 25
     page_size_query_param = 'page_size'
     max_page_size = 100
 
 
 class WebFormThrottle(AnonRateThrottle):
-    """Rate limit for public web form submissions."""
     rate = '10/minute'
 
 
 class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
-    """
-    Dynamic Lead ViewSet.
-    
-    ALL fields defined via FormDefinition inline schemas.
-    ALL values stored in entity_data JSONB.
-    """
+    resource = 'leads'
+    permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'source', 'owner_id', 'assigned_to_id']
     
     queryset = LeadV2.objects.filter(deleted_at__isnull=True)
@@ -48,9 +40,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     pagination_class = LeadV2Pagination
     
     def get_queryset(self):
-        """
-        Filter leads by org_id and support search/filters with dynamic searchable fields.
-        """
         org_id = self.request.headers.get('X-Org-Id')
         if not org_id:
             return LeadV2.objects.none()
@@ -60,12 +49,10 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             deleted_at__isnull=True
         )
         
-        # Dynamic search based on is_searchable fields from FormDefinition
         search = self.request.query_params.get('search')
         if search:
             from forms_v2.models import FormDefinition
             
-            # Get default form to determine searchable fields
             form = FormDefinition.objects.filter(
                 org_id=org_id,
                 entity_type='lead',
@@ -75,19 +62,16 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             ).first()
             
             if form:
-                # Extract searchable field names from schema
                 searchable_fields = []
                 for section in form.schema.get('sections', []):
                     for field in section.get('fields', []):
-                        if field.get('is_searchable', True):  # Default to searchable
+                        if field.get('is_searchable', True):
                             field_name = field.get('name')
                             field_type = field.get('field_type', '')
                             
-                            # Only search text-based fields
                             if field_type in ['text', 'textarea', 'email', 'phone', 'url']:
                                 searchable_fields.append(field_name)
-                
-                # Build dynamic search query
+
                 if searchable_fields:
                     search_queries = Q()
                     for field_name in searchable_fields:
@@ -95,7 +79,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     
                     queryset = queryset.filter(search_queries)
             else:
-                # Fallback to common fields if no form definition found
                 queryset = queryset.filter(
                     Q(entity_data__first_name__icontains=search) |
                     Q(entity_data__last_name__icontains=search) |
@@ -103,12 +86,10 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     Q(entity_data__company_name__icontains=search)
                 )
         
-        # Status filter
         status_filter = self.request.query_params.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         
-        # Source filter
         source_filter = self.request.query_params.get('source')
         if source_filter:
             queryset = queryset.filter(source=source_filter)
@@ -118,7 +99,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         if assigned_to:
             queryset = queryset.filter(assigned_to_id=assigned_to)
         
-        # Converted filter
         is_converted = self.request.query_params.get('is_converted')
         if is_converted is not None:
             queryset = queryset.filter(is_converted=is_converted.lower() == 'true')
@@ -128,7 +108,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         if owner_id:
             queryset = queryset.filter(owner_id=owner_id)
         
-        # Advanced filters (JSON)
         filters_param = self.request.query_params.get('filters')
         if filters_param:
             try:
@@ -147,13 +126,11 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                         if not field or not operator:
                             continue
                         
-                        # Map field to query path
                         if field in ['status', 'source', 'rating', 'assigned_to_id', 'company_id', 'contact_id']:
                             field_path = field
                         else:
                             field_path = f'entity_data__{field}'
                         
-                        # Build query based on operator
                         if operator == 'equals':
                             q = Q(**{field_path: value})
                         elif operator == 'not_equals':
@@ -184,12 +161,9 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
-        
-        # Dynamic sorting
         sort_by = self.request.query_params.get('sort_by', '-created_at')
         sort_direction = self.request.query_params.get('sort_direction', 'desc')
         
-        # Map sortable fields (system fields + entity_data fields)
         allowed_sort_fields = {
             'created_at': 'created_at',
             'updated_at': 'updated_at',
@@ -212,13 +186,11 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         return queryset
     
     def get_serializer_class(self):
-        """Use list serializer for list action."""
         if self.action == 'list':
             return LeadV2ListSerializer
         return LeadV2Serializer
     
     def perform_create(self, serializer):
-        """Set org_id and owner_id on create."""
         org_id = self.request.headers.get('X-Org-Id')
         user_id = self.request.user.id if hasattr(self.request, 'user') else None
         
@@ -236,8 +208,9 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def restore(self, request, pk=None):
         try:
+            org_id = request.headers.get('X-Org-Id')
             lead = LeadV2.objects.filter(
-                id=pk, deleted_at__isnull=False
+                id=pk, org_id=org_id, deleted_at__isnull=False
             ).first()
             if not lead:
                 return Response(
@@ -255,9 +228,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
-        """
-        Get lead statistics.
-        """
         org_id = request.headers.get('X-Org-Id')
         if not org_id:
             return Response(
@@ -266,11 +236,7 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             )
         
         queryset = LeadV2.objects.filter(org_id=org_id, deleted_at__isnull=True)
-        
-        # Total
         total = queryset.count()
-        
-        # By status
         by_status = dict(
             queryset.values_list('status')
             .annotate(count=Count('id'))
@@ -283,7 +249,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def disqualify(self, request, pk=None):
-        """Disqualify a lead."""
         lead = self.get_object()
         
         lead.status = LeadV2.Status.UNQUALIFIED
@@ -297,7 +262,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def bulk_delete(self, request):
-        """Bulk delete leads (soft delete)."""
         org_id = request.headers.get('X-Org-Id')
         if not org_id:
             return Response(
@@ -314,8 +278,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             )
         
         deleted_by = request.user.id if hasattr(request, 'user') else None
-        
-        # Soft delete (exclude already-deleted)
         leads = LeadV2.objects.filter(id__in=lead_ids, org_id=org_id, deleted_at__isnull=True)
         count = 0
         for lead in leads:
@@ -329,23 +291,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def bulk_update(self, request):
-        """
-        Bulk update leads - Enhanced to support all fields.
-        
-        Request body:
-        {
-          "ids": ["uuid1", "uuid2"],
-          "data": {
-            "status": "contacted",
-            "source": "referral",
-            "assigned_to_id": "user-uuid",
-            "entity_data": {
-              "rating": "hot",
-              "notes": "Follow up needed"
-            }
-          }
-        }
-        """
         org_id = request.headers.get('X-Org-Id')
         if not org_id:
             return Response(
@@ -368,7 +313,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Separate system fields from entity_data fields
         system_fields = ['status', 'source', 'assigned_to_id', 'rating', 'company_id', 'contact_id']
         system_updates = {}
         entity_data_updates = data.get('entity_data', {})
@@ -377,16 +321,13 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             if field in data:
                 system_updates[field] = data[field]
         
-        # Update leads
         leads = LeadV2.objects.filter(id__in=lead_ids, org_id=org_id, deleted_at__isnull=True)
         count = 0
         
         for lead in leads:
-            # Update system fields
             for field, value in system_updates.items():
                 setattr(lead, field, value)
             
-            # Update entity_data fields
             if entity_data_updates:
                 lead.entity_data.update(entity_data_updates)
             
@@ -418,10 +359,7 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get filtered queryset
         queryset = self.get_queryset()
-        
-        # If specific IDs provided, filter to those
         ids_param = request.query_params.get('ids')
         if ids_param:
             try:
@@ -433,7 +371,8 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        leads = list(queryset[:10000])
+        EXPORT_MAX_ROWS = 50000
+        leads = list(queryset[:EXPORT_MAX_ROWS])
         
         from forms_v2.models import FormDefinition
         form = FormDefinition.objects.filter(
@@ -546,7 +485,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             )
         
         try:
-            # Get web form definition
             from forms_v2.models import FormDefinition
             form = FormDefinition.objects.filter(
                 org_id=org_id,
@@ -556,7 +494,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             ).first()
             
             if not form:
-                # Fallback to default form
                 form = FormDefinition.objects.filter(
                     org_id=org_id,
                     entity_type='lead',
@@ -569,8 +506,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                         {'success': False, 'message': 'Organization not configured for web forms'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
-            
-            # Build entity_data from form schema
             entity_data = {}
             required_fields = []
             
@@ -585,7 +520,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     if field_value is not None:
                         entity_data[field_name] = field_value
             
-            # Validate required fields
             missing_fields = []
             for field_name, field_label in required_fields:
                 if not entity_data.get(field_name):
@@ -600,7 +534,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check for duplicate by email
             email = entity_data.get('email')
             if email:
                 existing = LeadV2.objects.filter(
@@ -622,7 +555,7 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                             status='completed'
                         )
                     except Exception:
-                        pass  # Don't fail if activity creation fails
+                        pass
                     
                     return Response({
                         'success': True,
@@ -636,7 +569,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             try:
                 default_owner_id = fetch_org_owner(org_id)
             except Exception:
-                # Fallback: use org_id as owner
                 default_owner_id = org_id
             
             if not default_owner_id:
@@ -645,7 +577,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # Create lead
             lead = LeadV2.objects.create(
                 org_id=org_id,
                 owner_id=default_owner_id,
@@ -662,8 +593,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Web form error: {e}", exc_info=True)
             
             return Response({
@@ -673,29 +602,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def convert(self, request, pk=None):
-        """
-        Convert lead to Contact, Company, and/or Deal.
-        
-        Request body:
-        {
-          "create_contact": true,
-          "create_company": true,
-          "create_deal": false,
-          "deal_name": "Deal with Acme",
-          "deal_value": 50000,
-          "deal_pipeline_id": "uuid",
-          "deal_stage_id": "uuid"
-        }
-        
-        Returns:
-        {
-          "success": true,
-          "lead_id": "uuid",
-          "contact_id": "uuid",
-          "company_id": "uuid",
-          "deal_id": "uuid"
-        }
-        """
         lead = self.get_object()
         org_id = request.headers.get('X-Org-Id')
         
@@ -727,7 +633,7 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 entity_data = {}
                 entity_data_fields = [
                     'first_name', 'last_name', 'email', 'phone', 'mobile',
-                    'job_title', 'department', 'linkedin_url', 'description',
+                    'title', 'job_title', 'department', 'linkedin_url', 'description',
                 ]
                 for field in entity_data_fields:
                     value = lead.entity_data.get(field)
@@ -822,7 +728,10 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 stage_id = request.data.get('deal_stage_id')
                 if stage_id:
                     from pipelines_v2.models import PipelineStageV2
-                    stage_obj = PipelineStageV2.objects.filter(id=stage_id).first()
+                    stage_obj = PipelineStageV2.objects.filter(
+                        id=stage_id,
+                        pipeline__org_id=org_id,
+                    ).first()
                     if stage_obj:
                         stage_name = stage_obj.name
                         pipeline_id = pipeline_id or stage_obj.pipeline_id
@@ -862,7 +771,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                     result['deal_id'] = str(deal.id)
                     lead.converted_deal_id = deal.id
             
-            # Update lead status
             lead.status = LeadV2.Status.CONVERTED
             lead.converted_at = timezone.now()
             lead.save(update_fields=[
@@ -873,8 +781,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             return Response(result)
             
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Conversion error: {e}", exc_info=True)
             
             return Response({
@@ -884,21 +790,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def check_duplicate(self, request):
-        """
-        Check for duplicate leads by email.
-        
-        Request body:
-        {
-          "email": "john@example.com"
-        }
-        
-        Returns:
-        {
-          "has_duplicates": true,
-          "count": 2,
-          "duplicates": [...]
-        }
-        """
         org_id = request.headers.get('X-Org-Id')
         email = request.data.get('email')
         
@@ -908,7 +799,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Find duplicates
         duplicates = LeadV2.objects.filter(
             org_id=org_id,
             entity_data__email__iexact=email,
@@ -925,7 +815,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def sources(self, request):
-        """Get unique lead sources for this organization."""
         org_id = request.headers.get('X-Org-Id')
         
         sources = LeadV2.objects.filter(
@@ -940,11 +829,6 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def mine(self, request):
-        """
-        Get current user's leads only (scope=mine).
-        
-        Returns paginated list of leads owned by the current user.
-        """
         user_id = request.user.id if hasattr(request, 'user') else None
         
         if not user_id:
@@ -953,29 +837,16 @@ class LeadV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Filter queryset by current user as owner
         queryset = self.get_queryset().filter(owner_id=user_id)
-        
-        # Apply pagination
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
-        
-        # No pagination
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
-        """
-        Update lead status.
-        
-        Request body:
-        {
-          "status": "contacted"
-        }
-        """
         lead = self.get_object()
         new_status = request.data.get('status')
         

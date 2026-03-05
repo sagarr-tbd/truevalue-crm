@@ -1,8 +1,3 @@
-"""
-CRM Service API Views.
-
-REST API endpoints for CRM entities.
-"""
 import hashlib
 import hmac as hmac_mod
 import json
@@ -139,20 +134,13 @@ class BaseAPIView(APIView):
             return None
 
 
-# =============================================================================
-# CONTACT VIEWS
-# =============================================================================
-
 class ContactListView(BaseAPIView):
     """List and create contacts."""
     resource = 'contacts'
     
     def get(self, request):
-        """List contacts with filtering."""
-        
         service = self.get_service(ContactService)
-        
-        # Parse query params
+
         filters = {}
         owner_id = self.get_uuid_param('owner_id')
         if not owner_id and self.get_scope() == 'mine':
@@ -161,8 +149,7 @@ class ContactListView(BaseAPIView):
         company_id = self.get_uuid_param('company_id')
         search = request.query_params.get('search')
         order_by = request.query_params.get('order_by', '-created_at')
-        
-        # Parse advanced filters (JSON string)
+
         advanced_filters = None
         filter_logic = 'and'
         filters_param = request.query_params.get('filters')
@@ -173,13 +160,11 @@ class ContactListView(BaseAPIView):
                 filter_logic = filter_data.get('logic', 'and')
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
-        
-        # Pagination with safe int parsing and bounds
+
         page = self.get_int_param('page', default=1, min_value=1)
         page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
-        
-        # Get filtered queryset (without pagination) for count
+
         filtered_qs = service.list(
             filters=filters,
             search=search,
@@ -192,14 +177,9 @@ class ContactListView(BaseAPIView):
             advanced_filters=advanced_filters,
             filter_logic=filter_logic,
         )
-        
-        # Get total count of filtered results
+
         total = filtered_qs.count()
-        
-        # Get paginated contacts
         contacts = filtered_qs[offset:offset + page_size]
-        
-        # Stats should be for all contacts (not filtered)
         stats = service.get_stats()
         
         serializer = ContactListSerializer(contacts, many=True)
@@ -214,16 +194,13 @@ class ContactListView(BaseAPIView):
         })
     
     def post(self, request):
-        """Create a new contact."""
         serializer = ContactSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Auto-populate owner_id if not provided
+
         data = serializer.validated_data
         if not data.get('owner_id'):
             data['owner_id'] = self.get_user_id()
-        
-        # Check if duplicate check should be skipped (user explicitly confirmed)
+
         skip_duplicate_check = request.data.get('skip_duplicate_check', False)
         
         service = self.get_service(ContactService)
@@ -240,13 +217,11 @@ class ContactDetailView(BaseAPIView):
     resource = 'contacts'
     
     def get(self, request, contact_id):
-        """Get contact details."""
         service = self.get_service(ContactService)
         contact = service.get_by_id(contact_id)
         return Response(ContactSerializer(contact).data)
     
     def patch(self, request, contact_id):
-        """Update a contact."""
         service = self.get_service(ContactService)
         contact = service.get_by_id(contact_id)
         self.check_obj_perms(contact)
@@ -258,7 +233,6 @@ class ContactDetailView(BaseAPIView):
         return Response(ContactSerializer(contact).data)
     
     def delete(self, request, contact_id):
-        """Delete a contact."""
         service = self.get_service(ContactService)
         contact = service.get_by_id(contact_id)
         self.check_obj_perms(contact)
@@ -271,7 +245,6 @@ class ContactTimelineView(BaseAPIView):
     resource = 'contacts'
     
     def get(self, request, contact_id):
-        """Get contact timeline."""
         service = self.get_service(ContactService)
         timeline = service.get_timeline(contact_id)
         return Response({'data': timeline})
@@ -282,7 +255,6 @@ class ContactCompaniesView(BaseAPIView):
     resource = 'contacts'
     
     def get(self, request, contact_id):
-        """List all company associations for a contact."""
         service = self.get_service(ContactService)
         contact = service.get_by_id(contact_id)
         associations = contact.company_associations.select_related('company').all()
@@ -291,7 +263,6 @@ class ContactCompaniesView(BaseAPIView):
         })
     
     def post(self, request, contact_id):
-        """Add a company association to a contact."""
         service = self.get_service(ContactService)
         
         company_id = request.data.get('company_id')
@@ -319,7 +290,6 @@ class ContactCompanyDetailView(BaseAPIView):
     resource = 'contacts'
     
     def delete(self, request, contact_id, company_id):
-        """Remove a company association."""
         service = self.get_service(ContactService)
         service.remove_company(contact_id, company_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -327,7 +297,6 @@ class ContactCompanyDetailView(BaseAPIView):
     def patch(self, request, contact_id, company_id):
         """Update a company association (title, department, is_primary)."""
         service = self.get_service(ContactService)
-        # Re-use add_company which handles upsert
         association = service.add_company(
             contact_id=contact_id,
             company_id=company_id,
@@ -344,7 +313,6 @@ class ContactImportView(BaseAPIView):
     permission_action = 'import'
     
     def post(self, request):
-        """Import contacts from list."""
         serializer = ContactImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -360,7 +328,6 @@ class ContactBulkDeleteView(BaseAPIView):
     permission_action = 'delete'
     
     def post(self, request):
-        """Delete multiple contacts by IDs."""
         serializer = BulkDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -375,7 +342,6 @@ class ContactBulkUpdateView(BaseAPIView):
     resource = 'contacts'
     
     def post(self, request):
-        """Update multiple contacts with the same data."""
         serializer = BulkUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -410,8 +376,7 @@ class ContactMergeView(BaseAPIView):
                 secondary_id=serializer.validated_data['secondary_id'],
                 merge_strategy=serializer.validated_data.get('merge_strategy', 'keep_primary')
             )
-            
-            # Build result with model object (ContactMergeResultSerializer will serialize it)
+
             result = {
                 'success': True,
                 'merged_contact': merged_contact,
@@ -420,10 +385,8 @@ class ContactMergeView(BaseAPIView):
             
             return Response(ContactMergeResultSerializer(result).data)
         except CRMException:
-            # Let the custom exception handler deal with CRM errors
             raise
         except Exception as e:
-            # Log the full exception for debugging, return generic message
             logger.exception(f"Contact merge failed: {e}")
             return Response({
                 'success': False,
@@ -431,20 +394,13 @@ class ContactMergeView(BaseAPIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# =============================================================================
-# COMPANY VIEWS
-# =============================================================================
-
 class CompanyListView(BaseAPIView):
     """List and create companies."""
     resource = 'companies'
     
     def get(self, request):
-        """List companies with pagination, filtering, and stats."""
-        
         service = self.get_service(CompanyService)
-        
-        # Parse query params
+
         search = request.query_params.get('search')
         industry = request.query_params.get('industry')
         size = request.query_params.get('size')
@@ -452,8 +408,7 @@ class CompanyListView(BaseAPIView):
         if not owner_id and self.get_scope() == 'mine':
             owner_id = self.get_user_id()
         order_by = request.query_params.get('order_by', '-created_at')
-        
-        # Parse advanced filters (JSON string) - consistent with Lead/Contact views
+
         advanced_filters = None
         filter_logic = 'and'
         filters_param = request.query_params.get('filters')
@@ -464,13 +419,11 @@ class CompanyListView(BaseAPIView):
                 filter_logic = filter_data.get('logic', 'and')
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
-        
-        # Pagination with safe int parsing and bounds
+
         page = self.get_int_param('page', default=1, min_value=1)
         page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
-        
-        # Get filtered queryset (without pagination) for count
+
         filtered_qs = service.list(
             search=search,
             order_by=order_by,
@@ -482,14 +435,9 @@ class CompanyListView(BaseAPIView):
             advanced_filters=advanced_filters,
             filter_logic=filter_logic,
         )
-        
-        # Get total count of filtered results
+
         total = filtered_qs.count()
-        
-        # Get paginated companies
         companies = filtered_qs[offset:offset + page_size]
-        
-        # Get aggregate stats (for all companies, not filtered)
         stats = service.get_aggregate_stats()
         
         serializer = CompanyListSerializer(companies, many=True)
@@ -504,11 +452,9 @@ class CompanyListView(BaseAPIView):
         })
     
     def post(self, request):
-        """Create a new company."""
         serializer = CompanySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Auto-populate owner_id if not provided
+
         data = serializer.validated_data
         if not data.get('owner_id'):
             data['owner_id'] = self.get_user_id()
@@ -527,13 +473,11 @@ class CompanyDetailView(BaseAPIView):
     resource = 'companies'
     
     def get(self, request, company_id):
-        """Get company details."""
         service = self.get_service(CompanyService)
         company = service.get_by_id(company_id)
         return Response(CompanySerializer(company).data)
     
     def patch(self, request, company_id):
-        """Update a company."""
         service = self.get_service(CompanyService)
         company = service.get_by_id(company_id)
         self.check_obj_perms(company)
@@ -545,7 +489,6 @@ class CompanyDetailView(BaseAPIView):
         return Response(CompanySerializer(company).data)
     
     def delete(self, request, company_id):
-        """Delete a company."""
         service = self.get_service(CompanyService)
         company = service.get_by_id(company_id)
         self.check_obj_perms(company)
@@ -558,7 +501,6 @@ class CompanyContactsView(BaseAPIView):
     resource = 'companies'
     
     def get(self, request, company_id):
-        """Get company contacts with relationship details."""
         service = self.get_service(CompanyService)
         contacts = service.get_contacts(company_id)
         return Response({
@@ -566,7 +508,6 @@ class CompanyContactsView(BaseAPIView):
         })
     
     def post(self, request, company_id):
-        """Link a contact to this company."""
         contact_id = request.data.get('contact_id')
         if not contact_id:
             return Response(
@@ -593,7 +534,6 @@ class CompanyContactDetailView(BaseAPIView):
     resource = 'companies'
     
     def delete(self, request, company_id, contact_id):
-        """Unlink a contact from this company."""
         contact_service = self.get_service(ContactService)
         contact_service.remove_company(contact_id, company_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -604,23 +544,16 @@ class CompanyStatsView(BaseAPIView):
     resource = 'companies'
     
     def get(self, request, company_id):
-        """Get company stats."""
         service = self.get_service(CompanyService)
         stats = service.get_stats(company_id)
         return Response(stats)
 
-
-# =============================================================================
-# LEAD VIEWS
-# =============================================================================
 
 class LeadListView(BaseAPIView):
     """List and create leads."""
     resource = 'leads'
     
     def get(self, request):
-        """List leads."""
-        
         service = self.get_service(LeadService)
         
         search = request.query_params.get('search')
@@ -630,8 +563,7 @@ class LeadListView(BaseAPIView):
         owner_id = self.get_uuid_param('owner_id')
         if not owner_id and self.get_scope() == 'mine':
             owner_id = self.get_user_id()
-        
-        # Parse advanced filters (JSON string)
+
         advanced_filters = None
         filter_logic = 'and'
         filters_param = request.query_params.get('filters')
@@ -642,12 +574,11 @@ class LeadListView(BaseAPIView):
                 filter_logic = filter_data.get('logic', 'and')
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
-        
+
         page = self.get_int_param('page', default=1, min_value=1)
         page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
-        
-        # Get filtered queryset (without pagination) for count
+
         filtered_qs = service.list(
             search=search,
             status=status_param,
@@ -659,14 +590,9 @@ class LeadListView(BaseAPIView):
             advanced_filters=advanced_filters,
             filter_logic=filter_logic,
         )
-        
-        # Get total count of filtered results
+
         total = filtered_qs.count()
-        
-        # Get paginated leads
         leads = filtered_qs[offset:offset + page_size]
-        
-        # Get stats for all leads (not filtered)
         stats = service.get_stats()
         
         serializer = LeadListSerializer(leads, many=True)
@@ -681,11 +607,9 @@ class LeadListView(BaseAPIView):
         })
     
     def post(self, request):
-        """Create a new lead."""
         serializer = LeadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Auto-populate owner_id if not provided
+
         data = serializer.validated_data
         if not data.get('owner_id'):
             data['owner_id'] = self.get_user_id()
@@ -704,13 +628,11 @@ class LeadDetailView(BaseAPIView):
     resource = 'leads'
     
     def get(self, request, lead_id):
-        """Get lead details."""
         service = self.get_service(LeadService)
         lead = service.get_by_id(lead_id)
         return Response(LeadSerializer(lead).data)
     
     def patch(self, request, lead_id):
-        """Update a lead."""
         service = self.get_service(LeadService)
         lead = service.get_by_id(lead_id)
         self.check_obj_perms(lead)
@@ -722,7 +644,6 @@ class LeadDetailView(BaseAPIView):
         return Response(LeadSerializer(lead).data)
     
     def delete(self, request, lead_id):
-        """Delete a lead."""
         service = self.get_service(LeadService)
         lead = service.get_by_id(lead_id)
         self.check_obj_perms(lead)
@@ -735,7 +656,6 @@ class LeadConvertView(BaseAPIView):
     resource = 'leads'
     
     def post(self, request, lead_id):
-        """Convert lead."""
         serializer = LeadConvertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -750,7 +670,6 @@ class LeadDisqualifyView(BaseAPIView):
     resource = 'leads'
     
     def post(self, request, lead_id):
-        """Disqualify lead."""
         reason = request.data.get('reason', 'Not qualified')
         
         service = self.get_service(LeadService)
@@ -765,7 +684,6 @@ class LeadBulkDeleteView(BaseAPIView):
     permission_action = 'delete'
     
     def post(self, request):
-        """Delete multiple leads by IDs."""
         serializer = BulkDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -780,7 +698,6 @@ class LeadBulkUpdateView(BaseAPIView):
     resource = 'leads'
     
     def post(self, request):
-        """Update multiple leads with the same data."""
         serializer = BulkUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -793,19 +710,13 @@ class LeadBulkUpdateView(BaseAPIView):
         return Response(BulkResultSerializer(result).data)
 
 
-# =============================================================================
-# DEAL VIEWS
-# =============================================================================
-
 class DealListView(BaseAPIView):
     """List and create deals."""
     resource = 'deals'
     
     def get(self, request):
-        """List deals with filtering, pagination, and search."""
         service = self.get_service(DealService)
-        
-        # Parse query parameters
+
         search = request.query_params.get('search')
         status_param = request.query_params.get('status')
         pipeline_id = self.get_uuid_param('pipeline_id')
@@ -816,8 +727,7 @@ class DealListView(BaseAPIView):
         contact_id = self.get_uuid_param('contact_id')
         company_id = self.get_uuid_param('company_id')
         order_by = request.query_params.get('order_by', '-created_at')
-        
-        # Parse advanced filters (JSON string)
+
         advanced_filters = None
         filter_logic = 'and'
         filters_param = request.query_params.get('filters')
@@ -828,12 +738,11 @@ class DealListView(BaseAPIView):
                 filter_logic = filter_data.get('logic', 'and')
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, ignore
-        
+
         page = self.get_int_param('page', default=1, min_value=1)
         page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
-        
-        # Build filter kwargs
+
         filter_kwargs = {
             'search': search,
             'status': status_param,
@@ -846,13 +755,11 @@ class DealListView(BaseAPIView):
             'advanced_filters': advanced_filters,
             'filter_logic': filter_logic,
         }
-        
-        # Build filtered queryset once, then use for both count and pagination
+
         all_deals_qs = service.list(**filter_kwargs)
         total = all_deals_qs.count()
         deals = all_deals_qs[offset:offset + page_size]
-        
-        # Calculate stats from all deals (not filtered) using aggregation
+
         stats_aggregation = Deal.objects.filter(
             org_id=service.org_id
         ).aggregate(
@@ -870,8 +777,7 @@ class DealListView(BaseAPIView):
         won_value = float(stats_aggregation['won_value'] or 0)
         lost_value = float(stats_aggregation['lost_value'] or 0)
         open_value = float(stats_aggregation['open_value'] or 0)
-        
-        # Build stats using aggregation results (no Python loop needed)
+
         by_status = {
             'open': stats_aggregation['open_count'] or 0,
             'won': stats_aggregation['won_count'] or 0,
@@ -900,11 +806,9 @@ class DealListView(BaseAPIView):
         })
     
     def post(self, request):
-        """Create a new deal."""
         serializer = DealSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Auto-populate owner_id if not provided
+
         data = serializer.validated_data
         if not data.get('owner_id'):
             data['owner_id'] = self.get_user_id()
@@ -923,13 +827,11 @@ class DealDetailView(BaseAPIView):
     resource = 'deals'
     
     def get(self, request, deal_id):
-        """Get deal details."""
         service = self.get_service(DealService)
         deal = service.get_by_id(deal_id)
         return Response(DealSerializer(deal).data)
     
     def patch(self, request, deal_id):
-        """Update a deal."""
         service = self.get_service(DealService)
         deal = service.get_by_id(deal_id)
         self.check_obj_perms(deal)
@@ -941,7 +843,6 @@ class DealDetailView(BaseAPIView):
         return Response(DealSerializer(deal).data)
     
     def delete(self, request, deal_id):
-        """Delete a deal."""
         service = self.get_service(DealService)
         deal = service.get_by_id(deal_id)
         self.check_obj_perms(deal)
@@ -954,7 +855,6 @@ class DealKanbanView(BaseAPIView):
     resource = 'deals'
     
     def get(self, request, pipeline_id):
-        """Get Kanban board data."""
         service = self.get_service(DealService)
         kanban = service.get_kanban(pipeline_id)
         return Response(kanban)
@@ -965,7 +865,6 @@ class DealMoveStageView(BaseAPIView):
     resource = 'deals'
     
     def post(self, request, deal_id):
-        """Move deal stage."""
         stage_id = request.data.get('stage_id')
         if not stage_id:
             return Response(
@@ -992,7 +891,6 @@ class DealWinView(BaseAPIView):
     resource = 'deals'
     
     def post(self, request, deal_id):
-        """Win deal."""
         service = self.get_service(DealService)
         deal = service.win(deal_id)
         return Response(DealSerializer(deal).data)
@@ -1003,7 +901,6 @@ class DealLoseView(BaseAPIView):
     resource = 'deals'
     
     def post(self, request, deal_id):
-        """Lose deal."""
         loss_reason = request.data.get('loss_reason', 'Unknown')
         loss_notes = request.data.get('loss_notes')
         
@@ -1018,7 +915,6 @@ class DealReopenView(BaseAPIView):
     resource = 'deals'
     
     def post(self, request, deal_id):
-        """Reopen deal."""
         stage_id = request.data.get('stage_id')
         stage_uuid = None
         
@@ -1042,10 +938,8 @@ class DealForecastView(BaseAPIView):
     resource = 'deals'
     
     def get(self, request):
-        """Get forecast."""
         try:
             days = int(request.query_params.get('days', 30))
-            # Validate days is within reasonable range
             if days < 1 or days > 365:
                 return Response(
                     {'error': {'code': 'VALIDATION_ERROR', 'message': 'days must be between 1 and 365'}},
@@ -1094,7 +988,6 @@ class DealBulkDeleteView(BaseAPIView):
     permission_action = 'delete'
     
     def post(self, request):
-        """Delete multiple deals by IDs."""
         serializer = BulkDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1103,10 +996,6 @@ class DealBulkDeleteView(BaseAPIView):
         
         return Response(BulkResultSerializer(result).data)
 
-
-# =============================================================================
-# PIPELINE VIEWS
-# =============================================================================
 
 class PipelineListView(BaseAPIView):
     """List and create pipelines."""
@@ -1118,7 +1007,6 @@ class PipelineListView(BaseAPIView):
         return 'manage_pipeline'
 
     def get(self, request):
-        """List pipelines."""
         service = self.get_service(PipelineService)
         is_active = request.query_params.get('is_active')
         
@@ -1130,7 +1018,6 @@ class PipelineListView(BaseAPIView):
         return Response({'data': serializer.data})
     
     def post(self, request):
-        """Create a new pipeline. Requires deals:manage_pipeline."""
         serializer = PipelineSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1153,13 +1040,11 @@ class PipelineDetailView(BaseAPIView):
         return 'manage_pipeline'
 
     def get(self, request, pipeline_id):
-        """Get pipeline with stages."""
         service = self.get_service(PipelineService)
         pipeline = service.get_by_id(pipeline_id)
         return Response(PipelineSerializer(pipeline).data)
     
     def patch(self, request, pipeline_id):
-        """Update a pipeline."""
         service = self.get_service(PipelineService)
         pipeline = service.get_by_id(pipeline_id)
         
@@ -1170,7 +1055,6 @@ class PipelineDetailView(BaseAPIView):
         return Response(PipelineSerializer(pipeline).data)
     
     def delete(self, request, pipeline_id):
-        """Delete a pipeline."""
         service = self.get_service(PipelineService)
         service.delete(pipeline_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1181,7 +1065,6 @@ class PipelineStatsView(BaseAPIView):
     resource = 'deals'
     
     def get(self, request, pipeline_id):
-        """Get pipeline stats."""
         service = self.get_service(DealService)
         stats = service.get_pipeline_stats(pipeline_id)
         return Response(stats)
@@ -1197,7 +1080,6 @@ class PipelineStageListView(BaseAPIView):
         return 'manage_pipeline'
 
     def get(self, request, pipeline_id):
-        """List stages."""
         service = self.get_service(PipelineService)
         stages = service.get_stages(pipeline_id)
         return Response({
@@ -1205,15 +1087,12 @@ class PipelineStageListView(BaseAPIView):
         })
     
     def post(self, request, pipeline_id):
-        """Create a new stage."""
-        # Use write serializer for input validation (pipeline_id comes from URL, not body)
         serializer = PipelineStageWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         service = self.get_service(PipelineService)
         stage = service.create_stage(pipeline_id, serializer.validated_data)
-        
-        # Return with read serializer
+
         return Response(
             PipelineStageSerializer(stage).data,
             status=status.HTTP_201_CREATED
@@ -1226,19 +1105,14 @@ class PipelineStageDetailView(BaseAPIView):
     permission_action = 'manage_pipeline'
 
     def patch(self, request, pipeline_id, stage_id):
-        """Update a stage."""
-        # Use write serializer for input validation with partial=True for PATCH
         serializer = PipelineStageWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         
         service = self.get_service(PipelineService)
         stage = service.update_stage(stage_id, serializer.validated_data)
-        
-        # Return with read serializer
         return Response(PipelineStageSerializer(stage).data)
     
     def delete(self, request, pipeline_id, stage_id):
-        """Delete a stage."""
         service = self.get_service(PipelineService)
         service.delete_stage(stage_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1250,7 +1124,6 @@ class PipelineStageReorderView(BaseAPIView):
     permission_action = 'manage_pipeline'
     
     def post(self, request, pipeline_id):
-        """Reorder stages."""
         stage_order = request.data.get('stage_order') or []
         
         if not isinstance(stage_order, list):
@@ -1277,10 +1150,6 @@ class PipelineStageReorderView(BaseAPIView):
             'data': PipelineStageSerializer(stages, many=True).data
         })
 
-
-# =============================================================================
-# ACTIVITY VIEWS
-# =============================================================================
 
 class ActivityResourceMixin:
     """Resolves resource to 'tasks' when the request targets task activities."""
@@ -1311,7 +1180,6 @@ class ActivityListView(ActivityResourceMixin, BaseAPIView):
     """List and create activities."""
     
     def get(self, request):
-        """List activities."""
         service = self.get_service(ActivityService)
         
         search = request.query_params.get('search')
@@ -1326,8 +1194,7 @@ class ActivityListView(ActivityResourceMixin, BaseAPIView):
         if not owner_id and self.get_scope() == 'mine':
             owner_id = self.get_user_id()
         order_by = request.query_params.get('order_by', '-created_at')
-        
-        # Parse advanced filters (JSON string) — matches leads pattern
+
         advanced_filters = None
         filter_logic = 'and'
         filters_param = request.query_params.get('filters')
@@ -1337,13 +1204,12 @@ class ActivityListView(ActivityResourceMixin, BaseAPIView):
                 advanced_filters = filter_data.get('conditions', [])
                 filter_logic = filter_data.get('logic', 'and')
             except (json.JSONDecodeError, TypeError):
-                pass
-        
+                pass  # Invalid JSON, ignore
+
         page = self.get_int_param('page', default=1, min_value=1)
         page_size = self.get_int_param('page_size', default=10, min_value=1, max_value=100)
         offset = (page - 1) * page_size
-        
-        # Build shared filter kwargs
+
         filter_kwargs = dict(
             search=search,
             activity_type=activity_type,
@@ -1358,15 +1224,10 @@ class ActivityListView(ActivityResourceMixin, BaseAPIView):
             advanced_filters=advanced_filters,
             filter_logic=filter_logic,
         )
-        
-        # Get filtered queryset (without pagination) for count
+
         filtered_qs = service.list(**filter_kwargs)
         total = filtered_qs.count()
-        
-        # Get paginated results
         activities = filtered_qs[offset:offset + page_size]
-        
-        # Get stats for all activities of this type (not filtered by search/status)
         stats = service.get_type_stats(activity_type=activity_type)
         
         serializer = ActivityListSerializer(activities, many=True)
@@ -1381,11 +1242,9 @@ class ActivityListView(ActivityResourceMixin, BaseAPIView):
         })
     
     def post(self, request):
-        """Create a new activity."""
         serializer = ActivitySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Auto-populate owner_id if not provided
+
         data = serializer.validated_data
         user_id = self.get_user_id()
         if not data.get('owner_id'):
@@ -1410,13 +1269,11 @@ class ActivityDetailView(ActivityResourceMixin, BaseAPIView):
         return 'activities'
     
     def get(self, request, activity_id):
-        """Get activity details."""
         service = self.get_service(ActivityService)
         activity = service.get_by_id(activity_id)
         return Response(ActivitySerializer(activity).data)
     
     def patch(self, request, activity_id):
-        """Update an activity."""
         service = self.get_service(ActivityService)
         activity = service.get_by_id(activity_id)
         self.check_obj_perms(activity)
@@ -1428,7 +1285,6 @@ class ActivityDetailView(ActivityResourceMixin, BaseAPIView):
         return Response(ActivitySerializer(activity).data)
     
     def delete(self, request, activity_id):
-        """Delete an activity."""
         service = self.get_service(ActivityService)
         activity = service.get_by_id(activity_id)
         self.check_obj_perms(activity)
@@ -1446,7 +1302,6 @@ class ActivityCompleteView(ActivityResourceMixin, BaseAPIView):
         return 'activities'
     
     def post(self, request, activity_id):
-        """Complete activity."""
         service = self.get_service(ActivityService)
         activity = service.get_by_id(activity_id)
         self.check_obj_perms(activity)
@@ -1459,7 +1314,6 @@ class ActivityUpcomingView(BaseAPIView):
     resource = 'activities'
     
     def get(self, request):
-        """Get upcoming activities."""
         days = self.get_int_param('days', default=7, min_value=1, max_value=365)
         
         service = self.get_service(ActivityService)
@@ -1478,7 +1332,6 @@ class ActivityOverdueView(BaseAPIView):
     resource = 'activities'
     
     def get(self, request):
-        """Get overdue activities."""
         service = self.get_service(ActivityService)
         activities = service.get_overdue(user_id=self.get_user_id())
         
@@ -1492,7 +1345,6 @@ class ActivityStatsView(BaseAPIView):
     resource = 'activities'
     
     def get(self, request):
-        """Get activity stats."""
         service = self.get_service(ActivityService)
         stats = service.get_stats(user_id=self.get_user_id())
         return Response(stats)
@@ -1503,7 +1355,6 @@ class ActivityTrendView(BaseAPIView):
     resource = 'activities'
     
     def get(self, request):
-        """Get daily activity counts grouped by type."""
         days_param = request.query_params.get('days', '30')
         try:
             days = int(days_param)
@@ -1516,16 +1367,11 @@ class ActivityTrendView(BaseAPIView):
         return Response({'data': trend})
 
 
-# =============================================================================
-# TAG VIEWS
-# =============================================================================
-
 class TagListView(BaseAPIView):
     """List and create tags. Read is open; write requires contacts:write."""
     resource = 'contacts'
 
     def get(self, request):
-        """List tags."""
         service = self.get_service(TagService)
         entity_type = request.query_params.get('entity_type')
         
@@ -1533,7 +1379,6 @@ class TagListView(BaseAPIView):
         return Response({'data': tags})
     
     def post(self, request):
-        """Create a new tag."""
         serializer = TagSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1551,13 +1396,11 @@ class TagDetailView(BaseAPIView):
     resource = 'contacts'
 
     def get(self, request, tag_id):
-        """Get tag details."""
         service = self.get_service(TagService)
         tag = service.get_by_id(tag_id)
         return Response(TagSerializer(tag).data)
     
     def patch(self, request, tag_id):
-        """Update a tag."""
         service = self.get_service(TagService)
         tag = service.get_by_id(tag_id)
         
@@ -1568,15 +1411,10 @@ class TagDetailView(BaseAPIView):
         return Response(TagSerializer(tag).data)
     
     def delete(self, request, tag_id):
-        """Delete a tag."""
         service = self.get_service(TagService)
         service.delete(tag_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-# =============================================================================
-# CUSTOM FIELD VIEWS
-# =============================================================================
 
 class CustomFieldListView(BaseAPIView):
     """List and create custom fields. Read is open; write requires org:write."""
@@ -1587,7 +1425,6 @@ class CustomFieldListView(BaseAPIView):
         return 'org'
     
     def get(self, request):
-        """List custom fields."""
         entity_type = request.query_params.get('entity_type')
         
         qs = CustomFieldDefinition.objects.filter(org_id=self.get_org_id())
@@ -1598,7 +1435,6 @@ class CustomFieldListView(BaseAPIView):
         return Response({'data': serializer.data})
     
     def post(self, request):
-        """Create a custom field."""
         serializer = CustomFieldDefinitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1617,7 +1453,6 @@ class CustomFieldDetailView(BaseAPIView):
     resource = 'org'
     
     def patch(self, request, field_id):
-        """Update a custom field."""
         try:
             field = CustomFieldDefinition.objects.get(
                 id=field_id,
@@ -1639,7 +1474,6 @@ class CustomFieldDetailView(BaseAPIView):
         return Response(CustomFieldDefinitionSerializer(field).data)
     
     def delete(self, request, field_id):
-        """Delete a custom field."""
         CustomFieldDefinition.objects.filter(
             id=field_id,
             org_id=self.get_org_id()
@@ -1647,15 +1481,10 @@ class CustomFieldDetailView(BaseAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# =============================================================================
-# SEARCH & UTILITY VIEWS
-# =============================================================================
-
 class GlobalSearchView(BaseAPIView):
     """Global search across all entities. IsAuthenticated — results are org-scoped."""
     
     def get(self, request):
-        """Search all entities."""
         query = request.query_params.get('q', '')
         limit = self.get_int_param('limit', default=5, min_value=1, max_value=50)
         
@@ -1711,7 +1540,6 @@ class DuplicateCheckView(BaseAPIView):
     """Check for duplicates across entity types. IsAuthenticated — org-scoped."""
     
     def post(self, request):
-        """Check for duplicates."""
         serializer = DuplicateCheckSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -1745,10 +1573,6 @@ class DuplicateCheckView(BaseAPIView):
             'match_field': 'email' if data.get('email') else 'phone' if data.get('phone') else 'name',
         })
 
-
-# =============================================================================
-# WEB FORM LEAD CAPTURE (Public Endpoint)
-# =============================================================================
 
 class WebFormThrottle(SimpleRateThrottle):
     """Rate limit public web form submissions by IP + org_id."""
@@ -1796,8 +1620,7 @@ class LeadWebFormView(APIView):
         
         data = serializer.validated_data
         org_id = data.pop('org_id')
-        
-        # Build lead data
+
         lead_data = {
             'org_id': org_id,
             'first_name': data['first_name'],
@@ -1811,14 +1634,11 @@ class LeadWebFormView(APIView):
             'status': 'new',
             'custom_fields': {},
         }
-        
-        # Add UTM parameters to custom fields
+
         utm_fields = ['utm_source', 'utm_medium', 'utm_campaign']
         for field in utm_fields:
             if data.get(field):
                 lead_data['custom_fields'][field] = data[field]
-        
-        # For web forms, find the org owner to use as default lead owner
 
         default_owner_id = None
         try:
@@ -1858,14 +1678,10 @@ class LeadWebFormView(APIView):
         service = LeadService(org_id=org_id, user_id=default_owner_uuid)
 
         try:
-            # Check for duplicates
             duplicates = service.check_duplicates(email=lead_data['email'])
-            
+
             if duplicates:
-                # Lead exists - log activity instead of creating duplicate
                 existing_lead = duplicates[0]
-                
-                # Create activity on existing lead
                 activity_service = ActivityService(org_id=org_id, user_id=default_owner_uuid)
                 activity_service.create({
                     'org_id': org_id,
@@ -1883,8 +1699,7 @@ class LeadWebFormView(APIView):
                     'lead_id': str(existing_lead.id),
                     'is_new': False,
                 }, status=status.HTTP_200_OK)
-            
-            # Create new lead
+
             lead = service.create(lead_data)
             
             # TODO: Auto-assign owner (round-robin or territory-based)
@@ -1911,7 +1726,6 @@ class LeadSourcesView(BaseAPIView):
     resource = 'leads'
     
     def get(self, request):
-        """Get unique lead sources for this org."""
         service = self.get_service(LeadService)
         sources = service.get_sources()
         return Response({'data': sources})
@@ -1922,7 +1736,6 @@ class LeadStatusUpdateView(BaseAPIView):
     resource = 'leads'
     
     def post(self, request, lead_id):
-        """Update lead status."""
         new_status = request.data.get('status')
         if not new_status:
             return Response(
@@ -1942,14 +1755,6 @@ class LeadStatusUpdateView(BaseAPIView):
         
         return Response(LeadSerializer(lead).data)
 
-
-# Import models for global search
-from django.db import models
-
-
-# =============================================================================
-# EXPORT VIEWS
-# =============================================================================
 
 EXPORT_MAX_ROWS = 10000
 

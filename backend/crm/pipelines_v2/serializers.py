@@ -1,9 +1,3 @@
-"""
-Pipeline V2 Serializers
-
-Nested serialization — pipeline responses include their stages inline.
-"""
-
 from rest_framework import serializers
 from .models import PipelineV2, PipelineStageV2
 

@@ -1,8 +1,3 @@
-"""
-CRM Service Serializers.
-
-Serializers for all CRM entities with validation and nested representations.
-"""
 from decimal import Decimal
 from rest_framework import serializers
 from django.utils import timezone
@@ -16,10 +11,6 @@ from .models import (
     CRMAuditLog,
 )
 
-
-# =============================================================================
-# SANITIZATION HELPERS
-# =============================================================================
 
 PHONE_REGEX = re.compile(r'^[\d\s\-\+\(\)]+$')
 
@@ -59,13 +50,7 @@ class SanitizedEmailField(serializers.EmailField):
         return normalize_email(value)
 
 
-# =============================================================================
-# TAG SERIALIZERS
-# =============================================================================
-
 class TagSerializer(serializers.ModelSerializer):
-    """Serializer for Tag model."""
-    
     class Meta:
         model = Tag
         fields = [
@@ -76,21 +61,12 @@ class TagSerializer(serializers.ModelSerializer):
 
 
 class TagMinimalSerializer(serializers.ModelSerializer):
-    """Minimal tag serializer for embedding."""
-    
     class Meta:
         model = Tag
         fields = ['id', 'name', 'color']
 
 
-# =============================================================================
-# CUSTOM FIELD SERIALIZERS
-# =============================================================================
-
 class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
-    """Serializer for CustomFieldDefinition model."""
-    
-    # Reserved field names for each entity type (built-in model fields)
     RESERVED_FIELDS = {
         'contact': [
             'id', 'org_id', 'owner_id', 'first_name', 'last_name', 'full_name',
@@ -138,7 +114,6 @@ class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_name(self, value):
-        """Validate field name is a valid identifier and not reserved."""
         if not value.replace('_', '').isalnum():
             raise serializers.ValidationError(
                 "Field name must contain only letters, numbers, and underscores"
@@ -146,11 +121,8 @@ class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
         return value.lower()
     
     def validate(self, attrs):
-        """Validate that field name doesn't conflict with built-in fields."""
         entity_type = attrs.get('entity_type')
         field_name = attrs.get('name', '').lower()
-        
-        # Check if field name conflicts with reserved/built-in fields
         reserved_fields = self.RESERVED_FIELDS.get(entity_type, [])
         if field_name in reserved_fields:
             raise serializers.ValidationError({
@@ -162,7 +134,6 @@ class CustomFieldDefinitionSerializer(serializers.ModelSerializer):
 
 
 class CustomFieldValueSerializer(serializers.ModelSerializer):
-    """Serializer for CustomFieldValue model."""
     field_name = serializers.CharField(source='field.name', read_only=True)
     field_type = serializers.CharField(source='field.field_type', read_only=True)
     
@@ -177,12 +148,7 @@ class CustomFieldValueSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-# =============================================================================
-# COMPANY SERIALIZERS
-# =============================================================================
-
 class CompanySerializer(serializers.ModelSerializer):
-    """Full serializer for Company model."""
     tags = TagMinimalSerializer(many=True, read_only=True)
     tag_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -253,12 +219,7 @@ class CompanyMinimalSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'industry', 'website']
 
 
-# =============================================================================
-# CONTACT SERIALIZERS
-# =============================================================================
-
 class ContactCompanySerializer(serializers.ModelSerializer):
-    """Serializer for Contact-Company relationship (from contact perspective)."""
     company = CompanyMinimalSerializer(read_only=True)
     company_id = serializers.UUIDField(write_only=True, required=False)
     
@@ -273,7 +234,6 @@ class ContactCompanySerializer(serializers.ModelSerializer):
 
 
 class ContactSerializer(serializers.ModelSerializer):
-    """Full serializer for Contact model."""
     full_name = serializers.CharField(read_only=True)
     primary_company = CompanyMinimalSerializer(read_only=True)
     primary_company_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
@@ -347,7 +307,6 @@ class ContactSerializer(serializers.ModelSerializer):
 
 
 class ContactListSerializer(serializers.ModelSerializer):
-    """Serializer for Contact listings with fields for list view and export."""
     full_name = serializers.CharField(read_only=True)
     primary_company = CompanyMinimalSerializer(read_only=True)
     tags = TagMinimalSerializer(many=True, read_only=True)
@@ -366,17 +325,12 @@ class ContactListSerializer(serializers.ModelSerializer):
 
 
 class ContactMinimalSerializer(serializers.ModelSerializer):
-    """Minimal contact serializer for embedding."""
     full_name = serializers.CharField(read_only=True)
     
     class Meta:
         model = Contact
         fields = ['id', 'first_name', 'last_name', 'full_name', 'email']
 
-
-# =============================================================================
-# PIPELINE SERIALIZERS
-# =============================================================================
 
 class PipelineStageWriteSerializer(serializers.Serializer):
     """
@@ -425,7 +379,6 @@ class PipelineStageSerializer(serializers.ModelSerializer):
 
 
 class PipelineSerializer(serializers.ModelSerializer):
-    """Full serializer for Pipeline model."""
     stages = PipelineStageSerializer(many=True, read_only=True)
     total_deals = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
@@ -460,7 +413,6 @@ class PipelineSerializer(serializers.ModelSerializer):
 
 
 class PipelineListSerializer(serializers.ModelSerializer):
-    """Minimal serializer for Pipeline listings."""
     stage_count = serializers.SerializerMethodField()
     
     class Meta:
@@ -478,27 +430,18 @@ class PipelineListSerializer(serializers.ModelSerializer):
 
 
 class PipelineMinimalSerializer(serializers.ModelSerializer):
-    """Minimal pipeline serializer for embedding."""
-    
     class Meta:
         model = Pipeline
         fields = ['id', 'name', 'currency']
 
 
 class PipelineStageMinimalSerializer(serializers.ModelSerializer):
-    """Minimal stage serializer for embedding."""
-    
     class Meta:
         model = PipelineStage
         fields = ['id', 'name', 'probability', 'order', 'is_won', 'is_lost', 'color']
 
 
-# =============================================================================
-# DEAL SERIALIZERS
-# =============================================================================
-
 class DealSerializer(serializers.ModelSerializer):
-    """Full serializer for Deal model."""
     pipeline = PipelineMinimalSerializer(read_only=True)
     pipeline_id = serializers.UUIDField(write_only=True)
     stage = PipelineStageMinimalSerializer(read_only=True)
@@ -547,7 +490,6 @@ class DealSerializer(serializers.ModelSerializer):
         return obj.activities.count()
     
     def validate(self, data):
-        """Validate stage belongs to pipeline."""
         pipeline_id = data.get('pipeline_id') or (self.instance.pipeline_id if self.instance else None)
         stage_id = data.get('stage_id') or (self.instance.stage_id if self.instance else None)
         
@@ -567,7 +509,6 @@ class DealSerializer(serializers.ModelSerializer):
 
 
 class DealListSerializer(serializers.ModelSerializer):
-    """Minimal serializer for Deal listings (Kanban)."""
     stage = PipelineStageMinimalSerializer(read_only=True)
     contact = ContactMinimalSerializer(read_only=True)
     company = CompanyMinimalSerializer(read_only=True)
@@ -587,15 +528,12 @@ class DealListSerializer(serializers.ModelSerializer):
 
 
 class DealMinimalSerializer(serializers.ModelSerializer):
-    """Minimal deal serializer for embedding."""
-    
     class Meta:
         model = Deal
         fields = ['id', 'name', 'value', 'currency', 'status']
 
 
 class DealStageHistorySerializer(serializers.ModelSerializer):
-    """Serializer for DealStageHistory model."""
     from_stage = PipelineStageMinimalSerializer(read_only=True)
     to_stage = PipelineStageMinimalSerializer(read_only=True)
     
@@ -607,12 +545,7 @@ class DealStageHistorySerializer(serializers.ModelSerializer):
         ]
 
 
-# =============================================================================
-# LEAD SERIALIZERS
-# =============================================================================
-
 class LeadSerializer(serializers.ModelSerializer):
-    """Full serializer for Lead model."""
     full_name = serializers.CharField(read_only=True)
     tags = TagMinimalSerializer(many=True, read_only=True)
     tag_ids = serializers.ListField(
@@ -679,7 +612,6 @@ class LeadSerializer(serializers.ModelSerializer):
 
 
 class LeadListSerializer(serializers.ModelSerializer):
-    """Minimal serializer for Lead listings."""
     full_name = serializers.CharField(read_only=True)
     tags = TagMinimalSerializer(many=True, read_only=True)
     
@@ -693,7 +625,6 @@ class LeadListSerializer(serializers.ModelSerializer):
 
 
 class LeadMinimalSerializer(serializers.ModelSerializer):
-    """Minimal lead serializer for embedding."""
     full_name = serializers.CharField(read_only=True)
     
     class Meta:
@@ -702,19 +633,12 @@ class LeadMinimalSerializer(serializers.ModelSerializer):
 
 
 class LeadConvertSerializer(serializers.Serializer):
-    """Serializer for lead conversion."""
     create_contact = serializers.BooleanField(default=True)
     create_company = serializers.BooleanField(default=True)
     create_deal = serializers.BooleanField(default=False)
-    
-    # Contact overrides
     contact_owner_id = serializers.UUIDField(required=False)
-    
-    # Company overrides
     company_name = serializers.CharField(max_length=255, required=False)
     company_owner_id = serializers.UUIDField(required=False)
-    
-    # Deal details (if create_deal=True)
     deal_name = serializers.CharField(max_length=255, required=False)
     deal_value = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
     deal_pipeline_id = serializers.UUIDField(required=False)
@@ -730,13 +654,7 @@ class LeadConvertSerializer(serializers.Serializer):
         return data
 
 
-# =============================================================================
-# ACTIVITY SERIALIZERS
-# =============================================================================
-
 class ActivityValidationMixin:
-    """Shared validation logic for Activity serializers."""
-    
     # Fields that are only relevant to specific activity types
     CALL_ONLY_FIELDS = {'call_direction', 'call_outcome'}
     EMAIL_ONLY_FIELDS = {'email_direction', 'email_message_id'}
@@ -752,13 +670,11 @@ class ActivityValidationMixin:
     }
     
     def _validate_activity(self, data):
-        """Cross-field and type-specific validation for activities."""
         errors = {}
         activity_type = data.get('activity_type') or (
             self.instance.activity_type if self.instance else None
         )
         
-        # --- Entity link required on create ---
         if not self.instance:
             has_entity = any([
                 data.get('contact_id') or data.get('contact'),
@@ -770,20 +686,14 @@ class ActivityValidationMixin:
                 raise serializers.ValidationError(
                     'Activity must be linked to at least one entity (contact, company, deal, or lead)'
                 )
-        
-        # --- Cross-field: end_time > start_time ---
         start = data.get('start_time')
         end = data.get('end_time')
         if start and end and end <= start:
             errors['end_time'] = 'End time must be after start time.'
-        
-        # --- Cross-field: reminder_at < due_date ---
         reminder = data.get('reminder_at')
         due = data.get('due_date')
         if reminder and due and reminder >= due:
             errors['reminder_at'] = 'Reminder must be before the due date.'
-        
-        # --- Type-specific: strip irrelevant fields silently ---
         if activity_type and activity_type in self.TYPE_ALLOWED_FIELDS:
             allowed = self.TYPE_ALLOWED_FIELDS[activity_type]
             type_specific_fields = (
@@ -792,8 +702,6 @@ class ActivityValidationMixin:
             )
             for field in type_specific_fields - allowed:
                 data.pop(field, None)
-        
-        # --- Type-specific: call_direction required for calls ---
         if activity_type == 'call' and not self.instance:
             if not data.get('call_direction'):
                 errors['call_direction'] = 'Call direction is required for calls.'
@@ -805,7 +713,6 @@ class ActivityValidationMixin:
 
 
 class ActivitySerializer(ActivityValidationMixin, serializers.ModelSerializer):
-    """Full serializer for Activity model."""
     contact = ContactMinimalSerializer(read_only=True)
     contact_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
     company = CompanyMinimalSerializer(read_only=True)
@@ -844,7 +751,6 @@ class ActivitySerializer(ActivityValidationMixin, serializers.ModelSerializer):
 
 
 class ActivityListSerializer(serializers.ModelSerializer):
-    """Serializer for Activity listings — includes all fields needed by list views."""
     contact = ContactMinimalSerializer(read_only=True)
     company = CompanyMinimalSerializer(read_only=True)
     deal = DealMinimalSerializer(read_only=True)
@@ -866,8 +772,6 @@ class ActivityListSerializer(serializers.ModelSerializer):
 
 
 class ActivityCreateSerializer(ActivityValidationMixin, serializers.ModelSerializer):
-    """Serializer for creating activities (simplified)."""
-    
     class Meta:
         model = Activity
         fields = [
@@ -886,13 +790,7 @@ class ActivityCreateSerializer(ActivityValidationMixin, serializers.ModelSeriali
         return self._validate_activity(data)
 
 
-# =============================================================================
-# AUDIT LOG SERIALIZER
-# =============================================================================
-
 class CRMAuditLogSerializer(serializers.ModelSerializer):
-    """Serializer for CRMAuditLog model."""
-    
     class Meta:
         model = CRMAuditLog
         fields = [
@@ -903,12 +801,7 @@ class CRMAuditLogSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
-# =============================================================================
-# IMPORT/EXPORT SERIALIZERS
-# =============================================================================
-
 class ContactImportSerializer(serializers.Serializer):
-    """Serializer for bulk contact import."""
     contacts = serializers.ListField(
         child=serializers.DictField(),
         min_length=1,
@@ -923,7 +816,6 @@ class ContactImportSerializer(serializers.Serializer):
 
 
 class ImportResultSerializer(serializers.Serializer):
-    """Serializer for import results."""
     total = serializers.IntegerField()
     created = serializers.IntegerField()
     updated = serializers.IntegerField()
@@ -932,7 +824,6 @@ class ImportResultSerializer(serializers.Serializer):
 
 
 class BulkDeleteSerializer(serializers.Serializer):
-    """Serializer for bulk delete operations."""
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
@@ -942,7 +833,6 @@ class BulkDeleteSerializer(serializers.Serializer):
 
 
 class BulkUpdateSerializer(serializers.Serializer):
-    """Serializer for bulk update operations."""
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
@@ -955,19 +845,13 @@ class BulkUpdateSerializer(serializers.Serializer):
 
 
 class BulkResultSerializer(serializers.Serializer):
-    """Serializer for bulk operation results."""
     total = serializers.IntegerField()
     success = serializers.IntegerField()
     failed = serializers.IntegerField()
     errors = serializers.ListField(child=serializers.DictField(), required=False)
 
 
-# =============================================================================
-# SEARCH/FILTER SERIALIZERS
-# =============================================================================
-
 class GlobalSearchSerializer(serializers.Serializer):
-    """Serializer for global search results."""
     contacts = ContactListSerializer(many=True)
     companies = CompanyListSerializer(many=True)
     deals = DealListSerializer(many=True)
@@ -975,7 +859,6 @@ class GlobalSearchSerializer(serializers.Serializer):
 
 
 class DuplicateCheckSerializer(serializers.Serializer):
-    """Serializer for duplicate detection."""
     entity_type = serializers.ChoiceField(choices=['contact', 'company', 'lead'])
     email = serializers.EmailField(required=False)
     phone = serializers.CharField(required=False)
@@ -990,14 +873,12 @@ class DuplicateCheckSerializer(serializers.Serializer):
 
 
 class DuplicateResultSerializer(serializers.Serializer):
-    """Serializer for duplicate detection results."""
     has_duplicates = serializers.BooleanField()
     duplicates = serializers.ListField(child=serializers.DictField())
     match_field = serializers.CharField()
 
 
 class ContactMergeSerializer(serializers.Serializer):
-    """Serializer for merging two contacts."""
     primary_id = serializers.UUIDField(
         help_text="ID of the primary contact (will be kept)"
     )
@@ -1019,20 +900,12 @@ class ContactMergeSerializer(serializers.Serializer):
 
 
 class ContactMergeResultSerializer(serializers.Serializer):
-    """Serializer for merge operation result."""
     success = serializers.BooleanField()
     merged_contact = ContactSerializer(required=False)
     message = serializers.CharField()
 
 
-# =============================================================================
-# WEB FORM SERIALIZERS
-# =============================================================================
-
 class LeadWebFormSerializer(serializers.Serializer):
-    """Serializer for public web form lead capture."""
-    
-    # Required fields
     org_id = serializers.UUIDField(
         help_text="Organization ID for the lead"
     )
@@ -1047,8 +920,6 @@ class LeadWebFormSerializer(serializers.Serializer):
     email = serializers.EmailField(
         help_text="Lead's email address"
     )
-    
-    # Optional fields
     phone = serializers.CharField(
         max_length=50,
         required=False,
@@ -1073,8 +944,6 @@ class LeadWebFormSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Which form or page the lead came from"
     )
-    
-    # UTM tracking fields
     utm_source = serializers.CharField(
         max_length=100,
         required=False,
@@ -1090,8 +959,6 @@ class LeadWebFormSerializer(serializers.Serializer):
         required=False,
         allow_blank=True
     )
-    
-    # Optional form validation token
     form_token = serializers.CharField(
         max_length=255,
         required=False,
@@ -1100,13 +967,10 @@ class LeadWebFormSerializer(serializers.Serializer):
     )
     
     def validate_email(self, value):
-        """Normalize email to lowercase."""
         return value.lower().strip()
-    
+
     def validate_phone(self, value):
-        """Basic phone validation and cleanup."""
         if not value:
             return value
-        # Remove common formatting characters
         cleaned = ''.join(c for c in value if c.isdigit() or c == '+')
         return cleaned if cleaned else value

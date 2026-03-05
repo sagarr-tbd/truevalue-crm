@@ -1,18 +1,3 @@
-"""
-Management command: migrate V1 CRM data into V2 tables.
-
-Usage:
-    py manage.py migrate_v1_to_v2                        # migrate everything
-    py manage.py migrate_v1_to_v2 --entity contacts      # single entity
-    py manage.py migrate_v1_to_v2 --dry-run              # preview only
-    py manage.py migrate_v1_to_v2 --org-id <uuid>        # single org
-    py manage.py migrate_v1_to_v2 --batch-size 500       # custom batch
-
-Migration order (respects FK dependencies):
-    1. pipelines  2. pipeline_stages  3. tags
-    4. companies  5. contacts  6. leads
-    7. deals  8. activities  9. entity_tags
-"""
 import logging
 from collections import defaultdict
 from datetime import timezone as dt_tz
@@ -91,9 +76,6 @@ class Command(BaseCommand):
             qs = model_class.all_objects.all()
         return set(qs.values_list('id', flat=True))
 
-    # ------------------------------------------------------------------
-    # Pipelines
-    # ------------------------------------------------------------------
     def _migrate_pipelines(self):
         from crm.models import Pipeline
         from pipelines_v2.models import PipelineV2
@@ -140,9 +122,6 @@ class Command(BaseCommand):
             f'{self.stats["pipelines"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Pipeline Stages
-    # ------------------------------------------------------------------
     def _migrate_pipeline_stages(self):
         from crm.models import PipelineStage
         from pipelines_v2.models import PipelineStageV2, PipelineV2
@@ -197,9 +176,6 @@ class Command(BaseCommand):
             f'{self.stats["pipeline_stages"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Tags
-    # ------------------------------------------------------------------
     def _migrate_tags(self):
         from crm.models import Tag
         from tags_v2.models import TagV2
@@ -243,9 +219,6 @@ class Command(BaseCommand):
             f'{self.stats["tags"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Companies
-    # ------------------------------------------------------------------
     def _migrate_companies(self):
         from crm.models import Company
         from companies_v2.models import CompanyV2
@@ -318,9 +291,6 @@ class Command(BaseCommand):
             f'{self.stats["companies"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Contacts
-    # ------------------------------------------------------------------
     def _migrate_contacts(self):
         from crm.models import Contact
         from contacts_v2.models import ContactV2
@@ -410,9 +380,6 @@ class Command(BaseCommand):
             f'{self.stats["contacts"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Leads
-    # ------------------------------------------------------------------
     def _migrate_leads(self):
         from crm.models import Lead
         from leads_v2.models import LeadV2
@@ -512,9 +479,6 @@ class Command(BaseCommand):
             f'{self.stats["leads"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Deals
-    # ------------------------------------------------------------------
     def _migrate_deals(self):
         from crm.models import Deal
         from deals_v2.models import DealV2
@@ -592,9 +556,6 @@ class Command(BaseCommand):
             f'{self.stats["deals"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Activities
-    # ------------------------------------------------------------------
     def _migrate_activities(self):
         from crm.models import Activity
         from activities_v2.models import ActivityV2
@@ -656,9 +617,6 @@ class Command(BaseCommand):
             f'{self.stats["activities"]["skipped"]} skipped'
         ))
 
-    # ------------------------------------------------------------------
-    # Entity Tags
-    # ------------------------------------------------------------------
     def _migrate_entity_tags(self):
         from crm.models import EntityTag
         from tags_v2.models import EntityTagV2, TagV2

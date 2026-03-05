@@ -1,12 +1,3 @@
-"""
-Contacts V2 Serializers
-
-Hybrid Architecture Serializer:
-- System fields (assigned_to, company, source, status) → Database columns
-- Custom fields → JSONB entity_data
-- Validates dynamically against FormDefinition schema
-"""
-
 from rest_framework import serializers
 from .models import ContactV2, ContactCompanyV2
 from forms_v2.models import FormDefinition
@@ -171,7 +162,7 @@ class ContactV2Serializer(serializers.ModelSerializer):
                 is_default=True,
                 is_active=True,
                 schema=get_default_contact_schema(),
-                created_by=request.user.id
+                created_by=getattr(request.user, 'id', None)
             )
 
         field_definitions = {}
@@ -309,7 +300,6 @@ class ContactV2ListSerializer(serializers.ModelSerializer):
         ]
 
     def _get_company_cache(self):
-        """Batch-load company names once per serializer invocation to avoid N+1."""
         if self._company_cache is None:
             if hasattr(self.instance, '__iter__') and not isinstance(self.instance, dict):
                 company_ids = {obj.company_id for obj in self.instance if obj.company_id}

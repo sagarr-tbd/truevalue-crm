@@ -2,15 +2,45 @@
 Audit logging utility for V2 entities.
 
 Reuses the existing CRMAuditLog model with entity_type suffixed '_v2'.
-Provides a mixin for DRF ViewSets to auto-log create/update/delete.
+Provides a mixin for DRF ViewSets to auto-log create/update/delete
+and publish Kafka events for cross-service communication.
 """
 import logging
 from typing import Optional
 from uuid import UUID
 
 from crm.models import CRMAuditLog
+from crm.events import publish_event
 
 logger = logging.getLogger(__name__)
+
+KAFKA_TOPIC_MAP = {
+    'contact_v2': 'crm.contacts',
+    'company_v2': 'crm.companies',
+    'deal_v2': 'crm.deals',
+    'lead_v2': 'crm.leads',
+    'activity_v2': 'crm.activities',
+    'pipeline_v2': 'crm.pipelines',
+    'tag_v2': 'crm.tags',
+}
+
+
+def _publish_v2_event(*, org_id, actor_id, action, entity_type, entity_id,
+                       entity_name='', changes=None):
+    topic = KAFKA_TOPIC_MAP.get(entity_type, 'crm.events')
+    base_type = entity_type.replace('_v2', '')
+    publish_event(
+        topic=topic,
+        event_type=f'{base_type}.{action}',
+        data={
+            'entity_name': entity_name,
+            'changes': changes or {},
+        },
+        org_id=org_id,
+        user_id=actor_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+    )
 
 
 def log_v2_action(
@@ -77,6 +107,8 @@ ENTITY_TYPE_MAP = {
     'DealV2': 'deal_v2',
     'LeadV2': 'lead_v2',
     'ActivityV2': 'activity_v2',
+    'PipelineV2': 'pipeline_v2',
+    'TagV2': 'tag_v2',
 }
 
 
@@ -158,6 +190,7 @@ class AuditLogV2Mixin:
         org_id = request.headers.get('X-Org-Id') if request else None
         actor_id = request.user.id if hasattr(request, 'user') and request.user else org_id
         entity_type = self._resolve_entity_type()
+        entity_name = data.get('display_name', data.get('name', ''))
 
         log_v2_action(
             org_id=org_id,
@@ -165,8 +198,17 @@ class AuditLogV2Mixin:
             action=action,
             entity_type=entity_type,
             entity_id=data.get('id'),
-            entity_name=data.get('display_name', data.get('name', '')),
+            entity_name=entity_name,
             request=request,
+        )
+
+        _publish_v2_event(
+            org_id=org_id,
+            actor_id=actor_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=data.get('id'),
+            entity_name=entity_name,
         )
 
     def _audit_log(self, action, instance, changes=None, request=None):
@@ -174,6 +216,7 @@ class AuditLogV2Mixin:
         org_id = getattr(instance, 'org_id', None) or request.headers.get('X-Org-Id')
         actor_id = request.user.id if hasattr(request, 'user') and request.user else org_id
         entity_type = ENTITY_TYPE_MAP.get(type(instance).__name__, type(instance).__name__.lower())
+        entity_name = _get_entity_name(instance, entity_type)
 
         log_v2_action(
             org_id=org_id,
@@ -181,9 +224,19 @@ class AuditLogV2Mixin:
             action=action,
             entity_type=entity_type,
             entity_id=instance.id,
-            entity_name=_get_entity_name(instance, entity_type),
+            entity_name=entity_name,
             changes=changes,
             request=request,
+        )
+
+        _publish_v2_event(
+            org_id=org_id,
+            actor_id=actor_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=instance.id,
+            entity_name=entity_name,
+            changes=changes,
         )
 
     def _resolve_entity_type(self):

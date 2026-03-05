@@ -1,21 +1,9 @@
-"""
-Leads V2 Admin
-
-Admin interface for pure dynamic LeadV2 model.
-"""
-
 from django.contrib import admin
 from .models import LeadV2
 
 
 @admin.register(LeadV2)
 class LeadV2Admin(admin.ModelAdmin):
-    """
-    Admin for V2 Leads (Pure Dynamic).
-    
-    Shows entity_data as JSON and allows filtering by status.
-    """
-    
     list_display = [
         'id',
         'get_display_name',
@@ -39,10 +27,7 @@ class LeadV2Admin(admin.ModelAdmin):
         'deleted_at',
     ]
     
-    search_fields = [
-        'id',
-        'entity_data',  # Search in JSONB
-    ]
+    search_fields = ['id', 'entity_data']
     
     readonly_fields = [
         'id',
@@ -81,7 +66,6 @@ class LeadV2Admin(admin.ModelAdmin):
     )
     
     def get_display_name(self, obj):
-        """Extract name from entity_data."""
         first = obj.entity_data.get('first_name', '')
         last = obj.entity_data.get('last_name', '')
         name = f"{first} {last}".strip()
@@ -89,10 +73,8 @@ class LeadV2Admin(admin.ModelAdmin):
     get_display_name.short_description = 'Name'
     
     def get_display_email(self, obj):
-        """Extract email from entity_data."""
         return obj.entity_data.get('email', '(No email)')
     get_display_email.short_description = 'Email'
     
     def get_queryset(self, request):
-        """Include soft-deleted records in admin."""
-        return LeadV2.objects.all()  # Show all including deleted
+        return LeadV2.objects.all()

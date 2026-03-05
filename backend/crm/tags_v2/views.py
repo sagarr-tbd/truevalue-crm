@@ -1,13 +1,8 @@
-"""
-Tags V2 ViewSet
-
-CRUD for tags + assign/unassign to entities + bulk operations.
-"""
-
 from uuid import UUID
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count, Q
 
 from .models import TagV2, EntityTagV2
@@ -18,10 +13,22 @@ from .serializers import (
     BulkAssignTagSerializer,
     EntityTagV2Serializer,
 )
+from crm.permissions import CRMResourcePermission
+from crm_service.audit_v2 import AuditLogV2Mixin
 
 
-class TagV2ViewSet(viewsets.ModelViewSet):
+class TagV2Pagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
+
+
+class TagV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+    resource = 'tags'
+    permission_classes = [CRMResourcePermission]
+    audit_tracked_fields = ['name', 'color', 'entity_type']
     serializer_class = TagV2Serializer
+    pagination_class = TagV2Pagination
     lookup_field = 'pk'
 
     def get_queryset(self):
@@ -53,7 +60,6 @@ class TagV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def assign(self, request):
-        """Assign a tag to an entity."""
         serializer = AssignTagSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -88,7 +94,6 @@ class TagV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def unassign(self, request):
-        """Remove a tag from an entity."""
         serializer = AssignTagSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -111,7 +116,6 @@ class TagV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_assign(self, request):
-        """Assign multiple tags to multiple entities."""
         serializer = BulkAssignTagSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -146,7 +150,6 @@ class TagV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_unassign(self, request):
-        """Remove multiple tags from multiple entities."""
         serializer = BulkAssignTagSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -166,7 +169,6 @@ class TagV2ViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def for_entity(self, request):
-        """Get all tags assigned to a specific entity."""
         entity_type = request.query_params.get('entity_type')
         entity_id = request.query_params.get('entity_id')
 

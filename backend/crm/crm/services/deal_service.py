@@ -1,6 +1,3 @@
-"""
-Deal Service - Business logic for Deal management.
-"""
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
@@ -20,14 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class DealService(AdvancedFilterMixin, BaseService[Deal]):
-    """Service for Deal operations."""
-    
     model = Deal
     entity_type = 'deal'
     billing_feature_code = 'deals'
     
-    # Field mapping for advanced filters (frontend field -> backend field)
-    # Inherits FILTER_OPERATOR_MAP and EXCLUDE_OPERATORS from AdvancedFilterMixin
     FILTER_FIELD_MAP = {
         'name': 'name',
         'dealName': 'name',
@@ -40,7 +33,7 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         'stage_id': 'stage_id',
         'stageName': 'stage__name',
         'probability': 'probability',
-        'contactName': ['contact__first_name', 'contact__last_name'],  # Compound field
+        'contactName': ['contact__first_name', 'contact__last_name'],
         'contact': ['contact__first_name', 'contact__last_name'],
         'companyName': 'company__name',
         'company': 'company__name',
@@ -56,7 +49,7 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     # Fields that are UUIDs and need special handling (extends mixin's UUID_FIELDS)
     UUID_FIELDS = {'stage_id', 'pipeline_id', 'owner_id', 'contact_id', 'company_id'}
     
-    # SECURITY: Whitelist of valid order_by fields
+    # Whitelist to prevent SQL injection via order_by
     VALID_ORDER_FIELDS = {
         'name', '-name', 
         'value', '-value', 
@@ -71,7 +64,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     }
     
     def _create_stage_history(self, deal, from_stage, to_stage, time_in_stage_seconds: int = 0):
-        """Helper to create stage history record - reduces code duplication."""
         DealStageHistory.objects.create(
             deal=deal,
             from_stage=from_stage,
@@ -81,7 +73,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         )
     
     def get_by_id(self, entity_id):
-        """Get deal by ID with optimized queryset for detail serialization."""
         try:
             return self.get_queryset().select_related(
                 'pipeline', 'stage', 'contact', 'company'
@@ -122,11 +113,7 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         advanced_filters: List[Dict] = None,
         filter_logic: str = 'and',
     ):
-        """List deals with advanced filtering."""
-        # Use optimized queryset to prevent N+1 queries
         qs = self.get_optimized_queryset()
-        
-        # Apply basic filters
         if filters:
             qs = qs.filter(**filters)
         
@@ -162,7 +149,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             ).values_list('entity_id', flat=True)
             qs = qs.filter(id__in=deal_ids)
         
-        # Apply search
         if search:
             qs = qs.filter(
                 Q(name__icontains=search) |
@@ -171,16 +157,11 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
                 Q(company__name__icontains=search)
             )
         
-        # Apply advanced filters using mixin
-        qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
-        
-        # Apply ordering - SECURITY: Only allow whitelisted fields
         if order_by and order_by in self.VALID_ORDER_FIELDS:
             qs = qs.order_by(order_by)
         else:
-            qs = qs.order_by('-created_at')  # Default safe ordering
+            qs = qs.order_by('-created_at')
         
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
@@ -203,7 +184,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         
         stages = list(pipeline.stages.order_by('order'))
         
-        # Single query to fetch ALL deals for this pipeline with related data
         all_deals = list(
             Deal.objects.filter(
                 org_id=self.org_id,
@@ -213,10 +193,8 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             ).order_by('stage_entered_at')
         )
         
-        # Group deals by stage_id in Python (O(n) instead of N+1 queries)
         deals_by_stage = defaultdict(list)
         for deal in all_deals:
-            # Only include deals with correct status for their stage type
             expected_status = (
                 'won' if deal.stage.is_won 
                 else 'lost' if deal.stage.is_lost 
@@ -269,16 +247,11 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Deal:
-        """Create a new deal."""
-        # Check plan limits via billing service
         self.check_plan_limit('deals')
-        
-        # Get pipeline and stage
         pipeline_id = data.get('pipeline_id')
         stage_id = data.get('stage_id')
         
         if not pipeline_id:
-            # Use default pipeline
             pipeline = Pipeline.objects.filter(
                 org_id=self.org_id,
                 is_default=True,
@@ -302,7 +275,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
                 raise EntityNotFoundError('Pipeline', str(pipeline_id))
         
         if not stage_id:
-            # Use first stage
             data['stage'] = data['pipeline'].stages.order_by('order').first()
             if not data['stage']:
                 raise InvalidOperationError('Pipeline has no stages. Create stages first.')
@@ -315,35 +287,27 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             except PipelineStage.DoesNotExist:
                 raise EntityNotFoundError('PipelineStage', str(stage_id))
         
-        # SECURITY: Validate contact belongs to same org
         contact_id = data.get('contact_id') or data.get('contact')
         if contact_id:
             if not Contact.objects.filter(id=contact_id, org_id=self.org_id).exists():
                 raise InvalidOperationError('Contact does not belong to your organization')
         
-        # SECURITY: Validate company belongs to same org
         company_id = data.get('company_id') or data.get('company')
         if company_id:
             if not Company.objects.filter(id=company_id, org_id=self.org_id).exists():
                 raise InvalidOperationError('Company does not belong to your organization')
         
-        # Remove ID fields (we've set the objects directly)
         data.pop('pipeline_id', None)
         data.pop('stage_id', None)
-        
-        # Set stage entered time
         data['stage_entered_at'] = timezone.now()
         
         deal = super().create(data, **kwargs)
-        
-        # Sync usage to billing
         self.sync_usage_to_billing('deals')
         
         return deal
     
     @transaction.atomic
     def move_stage(self, deal_id: UUID, stage_id: UUID) -> Deal:
-        """Move a deal to a different stage."""
         deal = self.get_by_id(deal_id)
         
         if deal.status != Deal.Status.OPEN:
@@ -361,16 +325,11 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             return deal  # No change
         
         old_stage = deal.stage
-        
-        # Calculate time in old stage and create history record
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
         self._create_stage_history(deal, old_stage, new_stage, int(time_in_stage))
-        
-        # Update deal
         deal.move_to_stage(new_stage)
         deal.save()
         
-        # Log stage change
         self._log_action(
             action=CRMAuditLog.Action.STAGE_CHANGE,
             entity=deal,
@@ -384,18 +343,15 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     
     @transaction.atomic
     def win(self, deal_id: UUID, actual_close_date: date = None) -> Deal:
-        """Mark a deal as won."""
         deal = self.get_by_id(deal_id)
         
         if deal.status != Deal.Status.OPEN:
             raise InvalidOperationError('Deal is already closed')
         
-        # Find won stage
         won_stage = deal.pipeline.stages.filter(is_won=True).first()
         if not won_stage:
             raise InvalidOperationError('Pipeline has no "won" stage')
         
-        # Move to won stage
         old_stage = deal.stage
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
         self._create_stage_history(deal, old_stage, won_stage, int(time_in_stage))
@@ -428,12 +384,10 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         if deal.status != Deal.Status.OPEN:
             raise InvalidOperationError('Deal is already closed')
         
-        # Find lost stage
         lost_stage = deal.pipeline.stages.filter(is_lost=True).first()
         if not lost_stage:
             raise InvalidOperationError('Pipeline has no "lost" stage')
         
-        # Move to lost stage
         old_stage = deal.stage
         time_in_stage = (timezone.now() - deal.stage_entered_at).total_seconds()
         self._create_stage_history(deal, old_stage, lost_stage, int(time_in_stage))
@@ -459,13 +413,11 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
     
     @transaction.atomic
     def reopen(self, deal_id: UUID, stage_id: UUID = None) -> Deal:
-        """Reopen a closed deal."""
         deal = self.get_by_id(deal_id)
         
         if deal.status == Deal.Status.OPEN:
             raise InvalidOperationError('Deal is already open')
         
-        # Determine stage to reopen to
         if stage_id:
             try:
                 stage = PipelineStage.objects.get(
@@ -475,7 +427,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             except PipelineStage.DoesNotExist:
                 raise EntityNotFoundError('PipelineStage', str(stage_id))
         else:
-            # Use first non-terminal stage
             stage = deal.pipeline.stages.filter(
                 is_won=False,
                 is_lost=False
@@ -504,7 +455,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         return deal
     
     def get_pipeline_stats(self, pipeline_id: UUID) -> Dict:
-        """Get statistics for a pipeline using database-level aggregation."""
         from django.db.models import Case, When, F, DecimalField
         from django.db.models.functions import Coalesce
         
@@ -513,7 +463,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         except Pipeline.DoesNotExist:
             raise EntityNotFoundError('Pipeline', str(pipeline_id))
         
-        # Single aggregation query for all stats - prevents N+1 and multiple DB roundtrips
         stats = Deal.objects.filter(
             org_id=self.org_id, 
             pipeline=pipeline
@@ -542,15 +491,10 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             ),
         )
         
-        # Calculate win rate
         closed_deals = stats['won_deals'] + stats['lost_deals']
         win_rate = (stats['won_deals'] / closed_deals * 100) if closed_deals > 0 else 0
-        
-        # Total value across all statuses
         total_value = stats['open_value'] + stats['won_value'] + stats['lost_value']
         avg_deal_size = (total_value / stats['total_deals']) if stats['total_deals'] > 0 else Decimal('0')
-        
-        # By-stage breakdown: include all stages even if 0 deals
         stages = PipelineStage.objects.filter(pipeline=pipeline).order_by('order')
         stage_stats = (
             Deal.objects.filter(org_id=self.org_id, pipeline=pipeline)
@@ -604,7 +548,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             expected_close_date__gte=date.today(),
         ).select_related('stage').order_by('expected_close_date')
         
-        # Aggregate totals in single query
         stats = deals_qs.aggregate(
             total_value=Coalesce(Sum('value'), Decimal('0')),
             weighted_value=Coalesce(
@@ -616,7 +559,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             ),
         )
         
-        # Annotate deals with calculated weighted_value for display
         deals_list = deals_qs.annotate(
             calc_probability=Coalesce(F('probability'), F('stage__probability'), 0),
             calc_weighted_value=F('value') * Coalesce(F('probability'), F('stage__probability'), 0) / 100
@@ -641,7 +583,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         }
     
     def get_analysis(self, days: int = 90, pipeline_id: UUID = None) -> Dict:
-        """Won/lost analysis: summary, monthly trend, and loss-reason breakdown."""
         from decimal import Decimal
 
         cutoff = date.today() - timedelta(days=days)
@@ -653,7 +594,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         if pipeline_id:
             base = base.filter(pipeline_id=pipeline_id)
 
-        # -- summary --
         agg = base.aggregate(
             total_won=Count('id', filter=Q(status='won')),
             total_lost=Count('id', filter=Q(status='lost')),
@@ -666,14 +606,12 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
         closed = agg['total_won'] + agg['total_lost']
         win_rate = (agg['total_won'] / closed * 100) if closed > 0 else 0
 
-        # avg time to close for won deals (actual_close_date - created_at)
         won_deals = base.filter(status='won', actual_close_date__isnull=False).annotate(
             close_days=ExpressionWrapper(
                 F('actual_close_date') - F('created_at__date'),
                 output_field=db_fields.DurationField(),
             )
         )
-        # DurationField math on DateField isn't fully portable; fall back to Python
         close_day_counts = []
         for d in base.filter(status='won', actual_close_date__isnull=False).values_list(
             'actual_close_date', 'created_at'
@@ -697,7 +635,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             'avg_time_to_close_days': avg_time_to_close_days,
         }
 
-        # -- trend (grouped by month) --
         trend_qs = (
             base.annotate(period=TruncMonth('actual_close_date'))
             .values('period')
@@ -720,7 +657,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
             for t in trend_qs
         ]
 
-        # -- loss reasons --
         loss_qs = (
             base.filter(status='lost')
             .exclude(loss_reason__isnull=True)
@@ -745,7 +681,6 @@ class DealService(AdvancedFilterMixin, BaseService[Deal]):
 
     @transaction.atomic
     def bulk_delete(self, ids: List[UUID]) -> Dict[str, Any]:
-        """Delete multiple deals by IDs."""
         result = {
             'total': len(ids),
             'success': 0,

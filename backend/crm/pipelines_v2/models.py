@@ -1,12 +1,3 @@
-"""
-Pipeline V2 Models
-
-Fixed-column models (no JSONB hybrid) — pipelines and stages are structured
-configuration, not user-customizable entity data.
-
-Completely independent of V1 crm.Pipeline / crm.PipelineStage.
-"""
-
 import uuid
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator

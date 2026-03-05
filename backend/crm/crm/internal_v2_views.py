@@ -1,10 +1,3 @@
-"""
-Internal V2 views for service-to-service communication.
-
-Queries V2 tables. Coexists with V1 internal views.
-Uses the same require_service_auth decorator.
-"""
-
 import logging
 from uuid import UUID
 
@@ -13,6 +6,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 
 from .internal_views import require_service_auth
+from .middleware import bump_permission_version
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +87,6 @@ def get_deal_v2(request, deal_id):
 @require_http_methods(['GET'])
 @require_service_auth
 def get_org_stats_v2(request, org_id):
-    """Org stats from V2 tables."""
     try:
         org_uuid = UUID(str(org_id))
     except ValueError:
@@ -148,7 +141,6 @@ def get_org_stats_v2(request, org_id):
 @require_http_methods(['POST'])
 @require_service_auth
 def record_usage_v2(request, org_id):
-    """Record V2 CRM usage for billing."""
     try:
         org_uuid = UUID(str(org_id))
     except ValueError:
@@ -175,3 +167,17 @@ def record_usage_v2(request, org_id):
         'leads': row[3],
         'activities': row[4],
     })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@require_service_auth
+def invalidate_permissions_v2(request, user_id):
+    try:
+        UUID(str(user_id))
+    except ValueError:
+        return JsonResponse({'error': 'Invalid user_id'}, status=400)
+
+    new_version = bump_permission_version(str(user_id))
+    logger.info(f"[V2] Permission version bumped for user={user_id} to v{new_version}")
+    return JsonResponse({'user_id': str(user_id), 'version': new_version})
