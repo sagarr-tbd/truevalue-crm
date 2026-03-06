@@ -14,12 +14,12 @@ import {
 import { Button } from "@/components/ui/button";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import {
-  useTags,
-  useCreateTag,
-  useUpdateTag,
-  useDeleteTag,
-} from "@/lib/queries/useTags";
-import type { Tag } from "@/lib/api/tags";
+  useTagsV2,
+  useCreateTagV2,
+  useUpdateTagV2,
+  useDeleteTagV2,
+} from "@/lib/queries/useTagsV2";
+import type { TagV2 } from "@/lib/api/tagsV2";
 import { usePermission, CONTACTS_WRITE, CONTACTS_DELETE } from "@/lib/permissions";
 
 const PRESET_COLORS = [
@@ -49,17 +49,17 @@ export default function TagManagementSettings() {
   const canWrite = can(CONTACTS_WRITE);
   const canDelete = can(CONTACTS_DELETE);
 
-  const { data: tags = [], isLoading } = useTags();
-  const createTag = useCreateTag();
-  const updateTag = useUpdateTag();
-  const deleteTag = useDeleteTag();
+  const { data: tags = [], isLoading } = useTagsV2();
+  const createTag = useCreateTagV2();
+  const updateTag = useUpdateTagV2();
+  const deleteTag = useDeleteTagV2();
 
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all_filter");
   const [showForm, setShowForm] = useState(false);
-  const [editingTag, setEditingTag] = useState<Tag | null>(null);
+  const [editingTag, setEditingTag] = useState<TagV2 | null>(null);
   const [form, setForm] = useState<TagFormState>(DEFAULT_FORM);
-  const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<TagV2 | null>(null);
 
   const filteredTags = tags.filter((tag) => {
     const matchesSearch = tag.name.toLowerCase().includes(search.toLowerCase());
@@ -74,7 +74,7 @@ export default function TagManagementSettings() {
     setShowForm(true);
   }, []);
 
-  const handleOpenEdit = useCallback((tag: Tag) => {
+  const handleOpenEdit = useCallback((tag: TagV2) => {
     setEditingTag(tag);
     setForm({
       name: tag.name,

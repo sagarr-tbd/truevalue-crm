@@ -1,6 +1,3 @@
-"""
-Utility functions for CRM service.
-"""
 import hashlib
 import hmac as hmac_mod
 import logging
@@ -14,17 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 def get_user_email_from_org_service(user_id: str, org_id: str) -> Optional[str]:
-    """
-    Fetch user email from org service via internal API.
-    
-    Returns the user's email address if found, None otherwise.
-    """
     try:
         org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
         service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
         service_secret = getattr(django_settings, 'ORG_SERVICE_SECRET', '')
-        
-        # Call internal API: /internal/orgs/{org_id}/members/{user_id}
         path = f"/internal/orgs/{org_id}/members/{user_id}"
         ts = str(int(time_mod.time()))
         sig = hmac_mod.new(
@@ -45,7 +35,6 @@ def get_user_email_from_org_service(user_id: str, org_id: str) -> Optional[str]:
         
         if resp.status_code == 200:
             data = resp.json()
-            # The org service returns member data with email
             return data.get('email')
         else:
             logger.warning(f"Failed to fetch user {user_id} from org service: {resp.status_code}")
@@ -57,11 +46,7 @@ def get_user_email_from_org_service(user_id: str, org_id: str) -> Optional[str]:
 
 
 def fetch_member_names(org_id: str) -> dict:
-    """
-    Fetch {user_id: display_name} map from the org service.
-    
-    Used for export functionality to resolve owner UUIDs to names.
-    """
+    """Resolve owner UUIDs to names for export."""
     try:
         org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
         service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')
@@ -93,12 +78,7 @@ def fetch_member_names(org_id: str) -> dict:
 
 
 def fetch_org_owner(org_id: str) -> Optional[str]:
-    """
-    Fetch organization owner user ID from org service.
-    
-    Used for web form submissions to assign default owner.
-    Returns the owner's user ID if found, None otherwise.
-    """
+    """Assign default owner for web form submissions."""
     try:
         org_service_url = getattr(django_settings, 'ORG_SERVICE_URL', 'http://org-service:8000')
         service_name = getattr(django_settings, 'SERVICE_NAME', 'crm-service')

@@ -1,110 +1,32 @@
-import { useQuery, useMutation, useQueryClient, UseQueryOptions } from '@tanstack/react-query';
-import { leadsV2Api, LeadV2, LeadV2QueryParams, LeadV2Stats } from '@/lib/api/leadsV2';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { leadsV2Api, type LeadV2, type LeadV2ListItem, type LeadV2QueryParams } from '@/lib/api/leadsV2';
 import { toast } from 'sonner';
+import { createEntityV2QueryKeys, createEntityV2Hooks } from './useEntityV2';
 
-export const leadsV2QueryKeys = {
-  all: ['leadsV2'] as const,
-  lists: () => [...leadsV2QueryKeys.all, 'list'] as const,
-  list: (params: LeadV2QueryParams) => [...leadsV2QueryKeys.lists(), params] as const,
-  details: () => [...leadsV2QueryKeys.all, 'detail'] as const,
-  detail: (id: string) => [...leadsV2QueryKeys.details(), id] as const,
-  stats: () => [...leadsV2QueryKeys.all, 'stats'] as const,
-};
+export type { LeadV2Stats } from '@/lib/api/leadsV2';
 
-export function useLeadsV2(
-  params?: LeadV2QueryParams,
-  options?: Omit<UseQueryOptions<Awaited<ReturnType<typeof leadsV2Api.list>>>, 'queryKey' | 'queryFn'>
-) {
-  return useQuery({
-    queryKey: leadsV2QueryKeys.list(params || {}),
-    queryFn: () => leadsV2Api.list(params),
-    staleTime: 30000, // 30 seconds
-    ...options,
-  });
-}
+export const leadsV2QueryKeys = createEntityV2QueryKeys('leadsV2');
 
-export function useLeadV2(
-  id: string,
-  options?: Omit<UseQueryOptions<LeadV2>, 'queryKey' | 'queryFn'>
-) {
-  return useQuery<LeadV2, Error>({
-    queryKey: leadsV2QueryKeys.detail(id),
-    queryFn: () => leadsV2Api.getById(id),
-    enabled: !!id,
-    staleTime: 60000,
-    ...options,
-  });
-}
+const hooks = createEntityV2Hooks<LeadV2, LeadV2ListItem, LeadV2QueryParams>(
+  leadsV2Api,
+  leadsV2QueryKeys,
+  'Lead',
+  'Leads',
+);
 
-export function useLeadsV2Stats(
-  options?: Omit<UseQueryOptions<LeadV2Stats>, 'queryKey' | 'queryFn'>
-) {
-  return useQuery<LeadV2Stats, Error>({
-    queryKey: leadsV2QueryKeys.stats(),
-    queryFn: () => leadsV2Api.stats(),
-    staleTime: 60000,
-    ...options,
-  });
-}
-
-export function useCreateLeadV2() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: Partial<LeadV2>) => leadsV2Api.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
-      toast.success('Lead created successfully');
-    },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to create lead';
-      toast.error(message);
-    },
-  });
-}
-
-export function useUpdateLeadV2() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<LeadV2> }) => 
-      leadsV2Api.update(id, data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.detail(variables.id) });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
-      toast.success('Lead updated successfully');
-    },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to update lead';
-      toast.error(message);
-    },
-  });
-}
-
-export function useDeleteLeadV2() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id: string) => leadsV2Api.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
-      toast.success('Lead deleted successfully');
-    },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to delete lead';
-      toast.error(message);
-    },
-  });
-}
+export const useLeadsV2 = hooks.useList;
+export const useLeadV2 = hooks.useDetail;
+export const useLeadsV2Stats = hooks.useStats;
+export const useCreateLeadV2 = hooks.useCreate;
+export const useUpdateLeadV2 = hooks.useUpdate;
+export const useDeleteLeadV2 = hooks.useDelete;
+export const useBulkDeleteLeadsV2 = hooks.useBulkDelete;
+export const useBulkUpdateLeadsV2 = hooks.useBulkUpdate;
 
 export function useConvertLeadV2() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: ({ id, params }: { id: string; params?: any }) => 
+    mutationFn: ({ id, params }: { id: string; params?: Record<string, unknown> }) =>
       leadsV2Api.convert(id, params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
@@ -112,18 +34,17 @@ export function useConvertLeadV2() {
       queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
       toast.success('Lead converted successfully');
     },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to convert lead';
-      toast.error(message);
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err?.response?.data?.message || 'Failed to convert lead');
     },
   });
 }
 
 export function useDisqualifyLeadV2() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) => 
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       leadsV2Api.disqualify(id, reason),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
@@ -131,44 +52,25 @@ export function useDisqualifyLeadV2() {
       queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
       toast.success('Lead disqualified');
     },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to disqualify lead';
-      toast.error(message);
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      toast.error(err?.response?.data?.message || 'Failed to disqualify lead');
     },
   });
 }
 
-export function useBulkDeleteLeadsV2() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (ids: string[]) => leadsV2Api.bulkDelete(ids),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
-      toast.success(data.message || 'Leads deleted successfully');
+export function useLeadV2Options() {
+  return useQuery({
+    queryKey: [...leadsV2QueryKeys.all, 'options'],
+    queryFn: async () => {
+      const res = await leadsV2Api.list({ page_size: 200 } as LeadV2QueryParams);
+      return (res.results || []).map((l) => ({
+        value: l.id,
+        label: l.display_name || l.entity_data?.first_name
+          ? `${l.entity_data?.first_name || ''} ${l.entity_data?.last_name || ''}`.trim()
+          : l.id,
+      }));
     },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to delete leads';
-      toast.error(message);
-    },
-  });
-}
-
-export function useBulkUpdateLeadsV2() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ ids, data }: { ids: string[]; data: Partial<LeadV2> }) => 
-      leadsV2Api.bulkUpdate(ids, data),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: leadsV2QueryKeys.stats() });
-      toast.success(data.message || 'Leads updated successfully');
-    },
-    onError: (error: any) => {
-      const message = error?.response?.data?.message || 'Failed to update leads';
-      toast.error(message);
-    },
+    staleTime: 5 * 60 * 1000,
   });
 }

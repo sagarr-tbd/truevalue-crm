@@ -1,19 +1,3 @@
-"""
-Seed Companies Command
-
-Creates sample company/account data for testing.
-
-Usage:
-    # Using docker:
-    docker exec crm-backend python manage.py seed_companies --org-id <uuid> --owner-id <uuid>
-    
-    # Or locally:
-    python manage.py seed_companies --org-id <uuid> --owner-id <uuid>
-    
-    # With count:
-    python manage.py seed_companies --org-id <uuid> --owner-id <uuid> --count 25
-"""
-
 import random
 from decimal import Decimal
 from django.core.management.base import BaseCommand, CommandError
@@ -21,7 +5,6 @@ from django.db import transaction
 from crm.models import Company, Tag, EntityTag
 
 
-# Sample data for generating realistic companies
 COMPANY_NAMES = [
     ("TechVision", "Solutions"),
     ("Global", "Systems"),
@@ -168,11 +151,8 @@ def generate_employee_count(size: str) -> int:
 
 
 def generate_revenue(employee_count: int) -> Decimal:
-    """Generate annual revenue based on employee count."""
-    # Rough revenue per employee: $50K - $200K
     revenue_per_emp = random.randint(50000, 200000)
     revenue = employee_count * revenue_per_emp
-    # Round to nearest 10K
     revenue = round(revenue / 10000) * 10000
     return Decimal(str(revenue))
 
@@ -215,31 +195,23 @@ class Command(BaseCommand):
 
         try:
             with transaction.atomic():
-                # Clear existing if requested
                 if clear_existing:
                     deleted_count = Company.objects.filter(org_id=org_id).delete()[0]
                     self.stdout.write(f"  Cleared {deleted_count} existing companies")
-
-                # Fetch existing tags for the org (if any)
                 existing_tags = list(Tag.objects.filter(
                     org_id=org_id,
                     entity_type__in=['company', 'all']
                 ))
-
-                # Create companies
                 companies_created = []
                 used_names = set()
 
                 for i in range(count):
-                    # Generate unique company name
                     while True:
                         name_parts = random.choice(COMPANY_NAMES)
                         company_name = f"{name_parts[0]} {name_parts[1]}"
                         if company_name not in used_names:
                             used_names.add(company_name)
                             break
-
-                    # Generate company data
                     industry = random.choice(INDUSTRIES)
                     size = random.choices(SIZES, weights=SIZE_WEIGHTS)[0]
                     city, state, country = random.choice(CITIES)
@@ -268,8 +240,6 @@ class Command(BaseCommand):
                         twitter_url=f"https://twitter.com/{company_name.lower().replace(' ', '')}" if random.random() > 0.5 else None,
                         facebook_url=f"https://facebook.com/{company_name.lower().replace(' ', '')}" if random.random() > 0.6 else None,
                     )
-
-                    # Assign random tags (if available)
                     if existing_tags and random.random() > 0.4:
                         num_tags = random.randint(1, min(3, len(existing_tags)))
                         selected_tags = random.sample(existing_tags, num_tags)
@@ -287,16 +257,12 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.SUCCESS(f"\nSuccessfully created {len(companies_created)} companies!")
                 )
-
-                # Summary by industry
                 self.stdout.write("\nSummary by industry:")
                 industry_counts = {}
                 for c in companies_created:
                     industry_counts[c.industry] = industry_counts.get(c.industry, 0) + 1
                 for industry, cnt in sorted(industry_counts.items(), key=lambda x: -x[1]):
                     self.stdout.write(f"  {industry}: {cnt}")
-
-                # Summary by size
                 self.stdout.write("\nSummary by size:")
                 size_counts = {}
                 for c in companies_created:

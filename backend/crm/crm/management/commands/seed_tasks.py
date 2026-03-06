@@ -1,20 +1,3 @@
-"""
-Seed Activities Command
-
-Creates 25 tasks, 20 calls, and 20 meetings for testing the Activities module.
-
-Usage:
-    python manage.py seed_tasks --org-id <uuid> --owner-id <uuid>
-    
-    # Or use environment variables:
-    export ORG_ID=<uuid>
-    export OWNER_ID=<uuid>
-    python manage.py seed_tasks
-    
-    # Clear existing activities first:
-    python manage.py seed_tasks --org-id <uuid> --owner-id <uuid> --clear
-"""
-
 import os
 import uuid
 import random
@@ -640,8 +623,6 @@ class Command(BaseCommand):
             raise CommandError(f'Invalid UUID format: {e}')
 
         seed_type = options['type']
-
-        # Clear existing activities if requested
         if options['clear']:
             if seed_type == 'all':
                 deleted, _ = Activity.objects.filter(
@@ -653,14 +634,10 @@ class Command(BaseCommand):
                     org_id=org_id, activity_type=seed_type
                 ).delete()
                 self.stdout.write(self.style.WARNING(f'Cleared {deleted} existing {seed_type}s'))
-
-        # Get related entities (optional — works even if none exist)
         contacts = list(Contact.objects.filter(org_id=org_id)[:10])
         companies = list(Company.objects.filter(org_id=org_id)[:10])
         deals = list(Deal.objects.filter(org_id=org_id)[:10])
         leads = list(Lead.objects.filter(org_id=org_id)[:10])
-
-        # Use owner_id as the assignee UUID (assigned_to is a raw UUIDField)
         assignee_ids = [owner_id]
 
         if seed_type in ('task', 'all'):
@@ -678,12 +655,9 @@ class Command(BaseCommand):
         if seed_type in ('email', 'all'):
             count = self._seed_emails(org_id, owner_id, contacts, companies, deals, leads, assignee_ids)
             self.stdout.write(self.style.SUCCESS(f'Created {count} emails'))
-
-        # Print summary
         self._print_summary(org_id, seed_type)
 
     def _get_related_entities(self, index, contacts, companies, deals, leads):
-        """Pick related entities for a given index — shared across all activity types."""
         contact = contacts[index % len(contacts)] if contacts else None
         company = companies[index % len(companies)] if companies else None
         deal = deals[index % len(deals)] if deals and random.random() > 0.5 else None
@@ -717,11 +691,7 @@ class Command(BaseCommand):
             contact, company, deal, lead = self._get_related_entities(
                 i, contacts, companies, deals, leads
             )
-
-            # ~70% of tasks have an assignee
             assigned_to = assignee_ids[i % len(assignee_ids)] if assignee_ids and random.random() > 0.3 else None
-
-            # ~50% have a reminder (1-24 hours before due date)
             reminder_at = None
             if random.random() > 0.5:
                 reminder_at = due_date - timedelta(hours=random.choice([1, 2, 4, 8, 24]))
@@ -749,17 +719,14 @@ class Command(BaseCommand):
 
     def _seed_calls(self, org_id, owner_id, contacts, companies, deals, leads, assignee_ids):
         statuses = ['pending', 'in_progress', 'completed', 'cancelled']
-        status_weights = [0.20, 0.10, 0.60, 0.10]  # most calls are completed
+        status_weights = [0.20, 0.10, 0.60, 0.10]
         created = 0
 
         for i, data in enumerate(CALL_DATA):
             status = random.choices(statuses, weights=status_weights, k=1)[0]
-
-            # Calls are typically recent — within the past 2 weeks or upcoming
             days_offset = random.randint(-10, 7)
             due_date = timezone.now() + timedelta(days=days_offset)
 
-            # Start/end times for completed calls
             start_time = None
             end_time = None
             completed_at = None
@@ -774,11 +741,7 @@ class Command(BaseCommand):
             contact, company, deal, lead = self._get_related_entities(
                 i, contacts, companies, deals, leads
             )
-
-            # ~60% of calls have an assignee
             assigned_to = assignee_ids[i % len(assignee_ids)] if assignee_ids and random.random() > 0.4 else None
-
-            # ~40% have a reminder (15min to 2 hours before)
             reminder_at = None
             if status == 'pending' and random.random() > 0.6:
                 reminder_at = due_date - timedelta(minutes=random.choice([15, 30, 60, 120]))
@@ -816,18 +779,13 @@ class Command(BaseCommand):
 
         for i, data in enumerate(MEETING_DATA):
             status = random.choices(statuses, weights=status_weights, k=1)[0]
-
-            # Meetings spread across past and future weeks
             days_offset = random.randint(-14, 21)
             due_date = timezone.now() + timedelta(days=days_offset)
-
-            # Start/end times
             start_time = due_date.replace(
                 hour=random.randint(8, 16),
                 minute=random.choice([0, 30]),
             )
             end_time = start_time + timedelta(minutes=data['duration_minutes'])
-
             completed_at = None
             if status == 'completed':
                 completed_at = end_time
@@ -835,11 +793,7 @@ class Command(BaseCommand):
             contact, company, deal, lead = self._get_related_entities(
                 i, contacts, companies, deals, leads
             )
-
-            # ~80% of meetings have an assignee (organizer)
             assigned_to = assignee_ids[i % len(assignee_ids)] if assignee_ids and random.random() > 0.2 else None
-
-            # ~60% have a reminder (15min to 24 hours before start)
             reminder_at = None
             if status in ('pending', 'in_progress') and random.random() > 0.4:
                 reminder_at = start_time - timedelta(minutes=random.choice([15, 30, 60, 120, 1440]))
@@ -870,13 +824,11 @@ class Command(BaseCommand):
 
     def _seed_emails(self, org_id, owner_id, contacts, companies, deals, leads, assignee_ids):
         statuses = ['pending', 'in_progress', 'completed', 'cancelled']
-        status_weights = [0.15, 0.10, 0.65, 0.10]  # most emails are completed
+        status_weights = [0.15, 0.10, 0.65, 0.10]
         created = 0
 
         for i, data in enumerate(EMAIL_DATA):
             status = random.choices(statuses, weights=status_weights, k=1)[0]
-
-            # Emails spread across past 3 weeks and upcoming week
             days_offset = random.randint(-21, 7)
             due_date = timezone.now() + timedelta(days=days_offset)
 
@@ -890,11 +842,7 @@ class Command(BaseCommand):
             contact, company, deal, lead = self._get_related_entities(
                 i, contacts, companies, deals, leads
             )
-
-            # ~50% of emails have an assignee
             assigned_to = assignee_ids[i % len(assignee_ids)] if assignee_ids and random.random() > 0.5 else None
-
-            # ~30% have a reminder
             reminder_at = None
             if status == 'pending' and random.random() > 0.7:
                 reminder_at = due_date - timedelta(hours=random.choice([1, 2, 4, 8]))

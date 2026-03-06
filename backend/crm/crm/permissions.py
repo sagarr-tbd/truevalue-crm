@@ -61,20 +61,18 @@ class CRMResourcePermission(BasePermission):
         if not user or not getattr(user, 'is_authenticated', False):
             return False
 
-        # Admin roles bypass all checks
         user_roles = set(getattr(user, 'roles', []))
         if user_roles & ADMIN_ROLES:
             return True
 
-        # Determine the resource from the view
-        # Views can implement get_resource(request) for dynamic resolution
         get_resource = getattr(view, 'get_resource', None)
         resource = get_resource(request) if callable(get_resource) else getattr(view, 'resource', None)
         if not resource:
-            return True
+            logger.warning(
+                f"CRMResourcePermission: no 'resource' on {view.__class__.__name__}, denying access"
+            )
+            return False
 
-        # Determine the action
-        # Views can implement get_permission_action(request) for dynamic resolution
         get_action = getattr(view, 'get_permission_action', None)
         action = get_action(request) if callable(get_action) else getattr(view, 'permission_action', None)
         if not action:

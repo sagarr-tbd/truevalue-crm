@@ -1,23 +1,3 @@
-"""
-Clear CRM Data Command
-
-Removes entity data while preserving infrastructure (Pipeline, Stages, Tags).
-Use this to start fresh for testing.
-
-Usage:
-    python manage.py clear_crm_data --org-id <uuid>
-    
-    # Or use environment variable:
-    export ORG_ID=<uuid>
-    python manage.py clear_crm_data
-    
-    # Clear tags too:
-    python manage.py clear_crm_data --org-id <uuid> --include-tags
-    
-    # Clear everything including pipeline:
-    python manage.py clear_crm_data --org-id <uuid> --include-all
-"""
-
 import os
 import uuid
 from django.core.management.base import BaseCommand, CommandError
@@ -56,7 +36,6 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        # Get org_id
         org_id = options['org_id'] or os.environ.get('ORG_ID')
         
         if not org_id:
@@ -72,7 +51,6 @@ class Command(BaseCommand):
         include_tags = options['include_tags'] or options['include_all']
         include_pipeline = options['include_all']
         
-        # Show what will be deleted
         self.stdout.write(self.style.WARNING(f'\nThis will DELETE data for org: {org_id}'))
         self.stdout.write('')
         
@@ -95,7 +73,6 @@ class Command(BaseCommand):
         if include_pipeline:
             self.stdout.write(f'  - Pipeline Stages: {counts["stages"]}')
             self.stdout.write(f'  - Pipelines: {counts["pipelines"]}')
-        
         self.stdout.write('')
         self.stdout.write('Will KEEP:')
         if not include_tags:
@@ -103,8 +80,6 @@ class Command(BaseCommand):
         if not include_pipeline:
             self.stdout.write(f'  - Pipelines: {counts["pipelines"]} (use --include-all to clear)')
             self.stdout.write(f'  - Pipeline Stages: {counts["stages"]}')
-        
-        # Confirm
         if not options['yes']:
             self.stdout.write('')
             confirm = input('Proceed? [y/N]: ')
@@ -112,49 +87,31 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR('Aborted.'))
                 return
         
-        # Clear data in correct order (respecting FK constraints)
         self.stdout.write('')
         self.stdout.write('Clearing data...')
-        
-        # 1. Junction/history tables first
         deleted = EntityTag.objects.filter(tag__org_id=org_id).delete()[0]
         self.stdout.write(f'  - EntityTag: {deleted} deleted')
-        
         deleted = DealStageHistory.objects.filter(deal__org_id=org_id).delete()[0]
         self.stdout.write(f'  - DealStageHistory: {deleted} deleted')
-        
         deleted = ContactCompany.objects.filter(contact__org_id=org_id).delete()[0]
         self.stdout.write(f'  - ContactCompany: {deleted} deleted')
-        
         deleted = CustomFieldValue.objects.filter(field__org_id=org_id).delete()[0]
         self.stdout.write(f'  - CustomFieldValue: {deleted} deleted')
-        
         deleted = CRMAuditLog.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - CRMAuditLog: {deleted} deleted')
-        
-        # 2. Activities
         deleted = Activity.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - Activity: {deleted} deleted')
-        
-        # 3. Main entities
         deleted = Deal.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - Deal: {deleted} deleted')
-        
         deleted = Lead.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - Lead: {deleted} deleted')
-        
         deleted = Contact.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - Contact: {deleted} deleted')
-        
         deleted = Company.objects.filter(org_id=org_id).delete()[0]
         self.stdout.write(f'  - Company: {deleted} deleted')
-        
-        # 4. Tags (if requested)
         if include_tags:
             deleted = Tag.objects.filter(org_id=org_id).delete()[0]
             self.stdout.write(f'  - Tag: {deleted} deleted')
-        
-        # 5. Pipeline (if requested)
         if include_pipeline:
             deleted = PipelineStage.objects.filter(pipeline__org_id=org_id).delete()[0]
             self.stdout.write(f'  - PipelineStage: {deleted} deleted')
@@ -176,7 +133,6 @@ class Command(BaseCommand):
                     self.stdout.write(f'      Stage: {s.name} ({s.probability}%)')
 
     def _get_counts(self, org_id):
-        """Get counts of records that will be affected."""
         return {
             'activities': Activity.objects.filter(org_id=org_id).count(),
             'deals': Deal.objects.filter(org_id=org_id).count(),

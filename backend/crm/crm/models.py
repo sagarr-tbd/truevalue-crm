@@ -1,22 +1,3 @@
-"""
-CRM Service Models.
-
-Phase 1 (MVP):
-- Contact, Company, ContactCompany (linking)
-- Lead, LeadSource
-- Deal, Pipeline, PipelineStage
-- Activity (Task, Note, Call, Email, Meeting)
-- Tag, EntityTag
-- CustomFieldDefinition, CustomFieldValue
-
-Designed for Phase 2+:
-- Products, Quotes (via Deal.line_items JSON initially)
-- Cases/Tickets (new model)
-- Email sync (EmailMessage model)
-- Workflows (new service or module)
-
-Multi-tenant: All entities are org-scoped via org_id.
-"""
 import uuid
 from decimal import Decimal
 from django.db import models
@@ -26,10 +7,6 @@ from django.contrib.postgres.operations import TrigramExtension
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-
-# =============================================================================
-# ABSTRACT BASE MODELS
-# =============================================================================
 
 class SoftDeleteManager(models.Manager):
     """
@@ -136,10 +113,6 @@ class SoftDeleteOwnedModel(SoftDeleteModel):
         abstract = True
 
 
-# =============================================================================
-# CUSTOM FIELDS (for extensibility)
-# =============================================================================
-
 class CustomFieldDefinition(OrgScopedModel):
     """
     Definition of a custom field for an entity type.
@@ -192,10 +165,7 @@ class CustomFieldDefinition(OrgScopedModel):
     validation = models.JSONField(default=dict, blank=True)
     # {"min": 0, "max": 100, "pattern": "^[A-Z]+$", "min_length": 5, ...}
     
-    # Display order
     order = models.PositiveIntegerField(default=0)
-    
-    # Active/inactive
     is_active = models.BooleanField(default=True)
     
     class Meta:
@@ -210,10 +180,6 @@ class CustomFieldDefinition(OrgScopedModel):
     def __str__(self):
         return f"{self.entity_type}.{self.name}"
 
-
-# =============================================================================
-# TAGS
-# =============================================================================
 
 class Tag(OrgScopedModel):
     """
@@ -250,10 +216,6 @@ class Tag(OrgScopedModel):
         return self.name
 
 
-# =============================================================================
-# COMPANY
-# =============================================================================
-
 class Company(OwnedModel):
     """
     Company/Account entity.
@@ -270,17 +232,14 @@ class Company(OwnedModel):
         ENTERPRISE = '501-1000', '501-1000'
         CORPORATE = '1000+', '1000+'
     
-    # Basic info
     name = models.CharField(max_length=255, db_index=True)
     website = models.URLField(max_length=500, null=True, blank=True)
     industry = models.CharField(max_length=100, null=True, blank=True)
     size = models.CharField(max_length=20, choices=Size.choices, null=True, blank=True)
     
-    # Contact info
     phone = models.CharField(max_length=50, null=True, blank=True)
     email = models.EmailField(null=True, blank=True)
     
-    # Address
     address_line1 = models.CharField(max_length=255, null=True, blank=True)
     address_line2 = models.CharField(max_length=255, null=True, blank=True)
     city = models.CharField(max_length=100, null=True, blank=True)
@@ -288,7 +247,6 @@ class Company(OwnedModel):
     postal_code = models.CharField(max_length=20, null=True, blank=True)
     country = models.CharField(max_length=100, null=True, blank=True)
     
-    # Business info
     description = models.TextField(null=True, blank=True)
     annual_revenue = models.DecimalField(
         max_digits=15, decimal_places=2, null=True, blank=True,
@@ -296,7 +254,6 @@ class Company(OwnedModel):
     )
     employee_count = models.PositiveIntegerField(null=True, blank=True)
     
-    # Social
     linkedin_url = models.URLField(max_length=500, null=True, blank=True)
     twitter_url = models.URLField(max_length=500, null=True, blank=True)
     facebook_url = models.URLField(max_length=500, null=True, blank=True)
@@ -336,10 +293,6 @@ class Company(OwnedModel):
         return self.name
 
 
-# =============================================================================
-# CONTACT
-# =============================================================================
-
 class Contact(SoftDeleteOwnedModel):
     """
     Contact entity with soft delete support.
@@ -355,7 +308,6 @@ class Contact(SoftDeleteOwnedModel):
         UNSUBSCRIBED = 'unsubscribed', 'Unsubscribed'
         ARCHIVED = 'archived', 'Archived'
     
-    # Name
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     
@@ -369,7 +321,6 @@ class Contact(SoftDeleteOwnedModel):
     title = models.CharField(max_length=100, null=True, blank=True)
     department = models.CharField(max_length=100, null=True, blank=True)
     
-    # Primary company (shortcut for the main company)
     primary_company = models.ForeignKey(
         Company,
         on_delete=models.SET_NULL,
@@ -377,7 +328,7 @@ class Contact(SoftDeleteOwnedModel):
         related_name='primary_contacts'
     )
     
-    # Address (personal address, may differ from company)
+    # Personal address, may differ from company
     address_line1 = models.CharField(max_length=255, null=True, blank=True)
     address_line2 = models.CharField(max_length=255, null=True, blank=True)
     city = models.CharField(max_length=100, null=True, blank=True)
@@ -385,11 +336,9 @@ class Contact(SoftDeleteOwnedModel):
     postal_code = models.CharField(max_length=20, null=True, blank=True)
     country = models.CharField(max_length=100, null=True, blank=True)
     
-    # Profile
     description = models.TextField(null=True, blank=True)
     avatar_url = models.URLField(max_length=500, null=True, blank=True)
     
-    # Social
     linkedin_url = models.URLField(max_length=500, null=True, blank=True)
     twitter_url = models.URLField(max_length=500, null=True, blank=True)
     
@@ -495,10 +444,6 @@ class ContactCompany(BaseModel):
         return f"{self.contact} at {self.company}"
 
 
-# =============================================================================
-# ENTITY TAG (polymorphic tagging)
-# =============================================================================
-
 class EntityTag(BaseModel):
     """
     Polymorphic tag assignment.
@@ -541,10 +486,6 @@ class EntityTag(BaseModel):
         return f"{self.tag.name} on {self.entity_type}:{self.entity_id}"
 
 
-# =============================================================================
-# PIPELINE & STAGES
-# =============================================================================
-
 class Pipeline(OrgScopedModel):
     """
     Sales pipeline.
@@ -555,16 +496,9 @@ class Pipeline(OrgScopedModel):
     name = models.CharField(max_length=100)
     description = models.TextField(null=True, blank=True)
     
-    # Is this the default pipeline for new deals?
     is_default = models.BooleanField(default=False)
-    
-    # Is this pipeline active?
     is_active = models.BooleanField(default=True)
-    
-    # Currency for deals in this pipeline
     currency = models.CharField(max_length=3, default='USD')
-    
-    # Display order
     order = models.PositiveIntegerField(default=0)
     
     class Meta:
@@ -601,20 +535,16 @@ class PipelineStage(BaseModel):
     
     name = models.CharField(max_length=100)
     
-    # Win probability at this stage (0-100)
     probability = models.PositiveIntegerField(
         default=0,
         validators=[MinValueValidator(0), MaxValueValidator(100)]
     )
     
-    # Display order (left to right)
     order = models.PositiveIntegerField(default=0)
     
-    # Terminal stages
     is_won = models.BooleanField(default=False)
     is_lost = models.BooleanField(default=False)
     
-    # Rotting period (days before deal is considered stale)
     rotting_days = models.PositiveIntegerField(null=True, blank=True)
     
     # Color for Kanban
@@ -655,10 +585,6 @@ class PipelineStage(BaseModel):
         return self.is_won or self.is_lost
 
 
-# =============================================================================
-# DEAL
-# =============================================================================
-
 class Deal(SoftDeleteOwnedModel):
     """
     Deal/Opportunity entity with soft delete support.
@@ -672,10 +598,8 @@ class Deal(SoftDeleteOwnedModel):
         LOST = 'lost', 'Lost'
         ABANDONED = 'abandoned', 'Abandoned'
     
-    # Basic info
     name = models.CharField(max_length=255, db_index=True)
     
-    # Pipeline position
     pipeline = models.ForeignKey(
         Pipeline,
         on_delete=models.PROTECT,
@@ -800,7 +724,6 @@ class Deal(SoftDeleteOwnedModel):
         self.stage = stage
         self.stage_entered_at = timezone.now()
         
-        # Update status based on stage
         if stage.is_won:
             self.status = self.Status.WON
             self.actual_close_date = timezone.now().date()
@@ -850,10 +773,6 @@ class DealStageHistory(BaseModel):
         return f"{self.deal.name}: {self.from_stage} → {self.to_stage}"
 
 
-# =============================================================================
-# LEAD
-# =============================================================================
-
 class Lead(SoftDeleteOwnedModel):
     """
     Lead entity with soft delete support.
@@ -868,7 +787,6 @@ class Lead(SoftDeleteOwnedModel):
         UNQUALIFIED = 'unqualified', 'Unqualified'
         CONVERTED = 'converted', 'Converted'
     
-    # Person info
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField(db_index=True)
@@ -880,7 +798,6 @@ class Lead(SoftDeleteOwnedModel):
     title = models.CharField(max_length=100, null=True, blank=True)
     website = models.URLField(max_length=500, null=True, blank=True)
     
-    # Address
     address_line1 = models.CharField(max_length=255, null=True, blank=True)
     city = models.CharField(max_length=100, null=True, blank=True)
     state = models.CharField(max_length=100, null=True, blank=True)
@@ -966,10 +883,6 @@ class Lead(SoftDeleteOwnedModel):
         return f"{self.first_name} {self.last_name}"
 
 
-# =============================================================================
-# ACTIVITY
-# =============================================================================
-
 class Activity(OwnedModel):
     """
     Activity entity (Task, Note, Call, Email, Meeting).
@@ -1018,7 +931,6 @@ class Activity(OwnedModel):
         db_index=True
     )
     
-    # Basic info
     subject = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
     
@@ -1121,10 +1033,6 @@ class Activity(OwnedModel):
         self.completed_at = timezone.now()
 
 
-# =============================================================================
-# CUSTOM FIELD VALUES
-# =============================================================================
-
 class CustomFieldValue(BaseModel):
     """
     Store custom field values for entities.
@@ -1160,10 +1068,6 @@ class CustomFieldValue(BaseModel):
     def __str__(self):
         return f"{self.field.name} for {self.entity_type}:{self.entity_id}"
 
-
-# =============================================================================
-# AUDIT LOG (CRM-specific)
-# =============================================================================
 
 class CRMAuditLog(BaseModel):
     """

@@ -1,6 +1,3 @@
-"""
-Health check URL configuration.
-"""
 from django.urls import path
 from . import health_views
 

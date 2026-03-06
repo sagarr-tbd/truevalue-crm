@@ -1,9 +1,3 @@
-"""
-Internal views for service-to-service communication.
-
-These endpoints are called by other services (not through the gateway).
-They use service-to-service HMAC authentication via ServiceAuthMiddleware.
-"""
 import functools
 import logging
 from uuid import UUID
@@ -39,7 +33,6 @@ def require_service_auth(view_func):
 @require_http_methods(['GET'])
 @require_service_auth
 def get_contact(request, contact_id):
-    """Get contact by ID for internal services."""
     org_id = request.GET.get('org_id')
     if not org_id:
         return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
@@ -63,7 +56,6 @@ def get_contact(request, contact_id):
 @require_http_methods(['GET'])
 @require_service_auth
 def get_company(request, company_id):
-    """Get company by ID for internal services."""
     org_id = request.GET.get('org_id')
     if not org_id:
         return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
@@ -85,7 +77,6 @@ def get_company(request, company_id):
 @require_http_methods(['GET'])
 @require_service_auth
 def get_deal(request, deal_id):
-    """Get deal by ID for internal services."""
     org_id = request.GET.get('org_id')
     if not org_id:
         return JsonResponse({'error': 'org_id query parameter is required'}, status=400)
@@ -108,7 +99,6 @@ def get_deal(request, deal_id):
 @require_http_methods(['GET'])
 @require_service_auth
 def get_org_stats(request, org_id):
-    """Get CRM statistics for an organization — single DB roundtrip."""
     try:
         org_uuid = UUID(str(org_id))
     except ValueError:
@@ -118,20 +108,20 @@ def get_org_stats(request, org_id):
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT
-                (SELECT COUNT(*) FROM crm_contact WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_company WHERE org_id = %s),
-                (SELECT COUNT(*) FROM crm_activity WHERE org_id = %s),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
-                (SELECT COALESCE(SUM(value), 0) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL AND status = 'new'),
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL AND status = 'converted')
+                (SELECT COUNT(*) FROM crm_contacts WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_companies WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_activities WHERE org_id = %s),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'won'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'lost'),
+                (SELECT COALESCE(SUM(value), 0) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL AND status = 'open'),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL AND status = 'new'),
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL AND status = 'converted')
         """, [str(org_uuid)] * 14)
         r = cursor.fetchone()
 
@@ -164,11 +154,6 @@ def get_org_stats(request, org_id):
 @require_http_methods(['POST'])
 @require_service_auth
 def record_usage(request, org_id):
-    """
-    Record CRM usage for billing service.
-    
-    This is called periodically by the billing service to get usage metrics.
-    """
     try:
         org_uuid = UUID(str(org_id))
     except ValueError:
@@ -178,11 +163,11 @@ def record_usage(request, org_id):
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT
-                (SELECT COUNT(*) FROM crm_contact WHERE org_id = %s AND deleted_at IS NULL) AS contacts,
-                (SELECT COUNT(*) FROM crm_company WHERE org_id = %s) AS companies,
-                (SELECT COUNT(*) FROM crm_deal WHERE org_id = %s AND deleted_at IS NULL) AS deals,
-                (SELECT COUNT(*) FROM crm_lead WHERE org_id = %s AND deleted_at IS NULL) AS leads,
-                (SELECT COUNT(*) FROM crm_activity WHERE org_id = %s) AS activities
+                (SELECT COUNT(*) FROM crm_contacts WHERE org_id = %s AND deleted_at IS NULL) AS contacts,
+                (SELECT COUNT(*) FROM crm_companies WHERE org_id = %s) AS companies,
+                (SELECT COUNT(*) FROM crm_deals WHERE org_id = %s AND deleted_at IS NULL) AS deals,
+                (SELECT COUNT(*) FROM crm_leads WHERE org_id = %s AND deleted_at IS NULL) AS leads,
+                (SELECT COUNT(*) FROM crm_activities WHERE org_id = %s) AS activities
         """, [str(org_uuid)] * 5)
         row = cursor.fetchone()
 
@@ -202,10 +187,6 @@ def record_usage(request, org_id):
 @require_http_methods(['POST'])
 @require_service_auth
 def invalidate_permissions(request, user_id):
-    """
-    Bump the permission version for a user, forcing token refresh.
-    Called by the Permission/Org service when a user's role changes.
-    """
     from .middleware import bump_permission_version
 
     try:

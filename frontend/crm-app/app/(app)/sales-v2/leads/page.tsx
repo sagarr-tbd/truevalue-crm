@@ -63,10 +63,7 @@ const BulkDeleteModal = dynamic(
   { ssr: false }
 );
 
-const BulkUpdateModal = dynamic(
-  () => import("@/components/BulkUpdateModal").then(mod => ({ default: mod.BulkUpdateModal })),
-  { ssr: false }
-) as typeof import("@/components/BulkUpdateModal").BulkUpdateModal;
+import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
 const LeadConversionModal = dynamic(
   () => import("@/components/LeadConversionModal").then(mod => ({ default: mod.LeadConversionModal })),
@@ -258,39 +255,19 @@ export default function LeadsV2Page() {
     [memoizedLeads]
   );
 
-  // Filter options with counts
-  const filterOptions = useMemo(() => [
-    {
-      label: "All Leads",
-      value: null,
-      count: totalItems,
-    },
-    {
-      label: "New",
-      value: "new",
-      count: memoizedLeads.filter(l => l.status === 'new').length,
-    },
-    {
-      label: "Contacted",
-      value: "contacted",
-      count: memoizedLeads.filter(l => l.status === 'contacted').length,
-    },
-    {
-      label: "Qualified",
-      value: "qualified",
-      count: memoizedLeads.filter(l => l.status === 'qualified').length,
-    },
-    {
-      label: "Unqualified",
-      value: "unqualified",
-      count: memoizedLeads.filter(l => l.status === 'unqualified').length,
-    },
-    {
-      label: "Converted",
-      value: "converted",
-      count: memoizedLeads.filter(l => l.status === 'converted').length,
-    },
-  ], [memoizedLeads, totalItems]);
+  // Filter options with counts from stats API (full dataset, not current page)
+  const filterOptions = useMemo(() => {
+    const byStatus = statsData?.by_status || {};
+    const total = statsData?.total || totalItems;
+    return [
+      { label: "All Leads", value: null, count: total },
+      { label: "New", value: "new", count: byStatus.new || 0 },
+      { label: "Contacted", value: "contacted", count: byStatus.contacted || 0 },
+      { label: "Qualified", value: "qualified", count: byStatus.qualified || 0 },
+      { label: "Unqualified", value: "unqualified", count: byStatus.unqualified || 0 },
+      { label: "Converted", value: "converted", count: byStatus.converted || 0 },
+    ];
+  }, [statsData, totalItems]);
 
   // Stats calculations - Use API data when available
   const stats = useMemo(() => {
@@ -468,7 +445,7 @@ export default function LeadsV2Page() {
     }
   };
 
-  const handleBulkUpdateStatus = async (newStatus: 'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted') => {
+  const handleBulkUpdateStatus = async (newStatus: "new" | "contacted" | "qualified" | "unqualified" | "converted") => {
     setIsBulkProcessing(true);
     try {
       await bulkUpdateLeads.mutateAsync({ ids: selectedLeads, data: { status: newStatus } });
@@ -514,10 +491,8 @@ export default function LeadsV2Page() {
       
       if (formMode === "edit" && editingLead?.id) {
         await updateLead.mutateAsync({ id: editingLead.id, data });
-        toast.success("Lead updated successfully");
       } else {
         await createLead.mutateAsync(data);
-        toast.success("Lead created successfully");
       }
       
       setFormDrawerOpen(false);
@@ -627,19 +602,19 @@ export default function LeadsV2Page() {
       ],
     },
     {
-      key: 'firstName',
+      key: 'first_name',
       label: 'First Name',
       type: 'text',
       placeholder: 'Enter first name...',
     },
     {
-      key: 'lastName',
+      key: 'last_name',
       label: 'Last Name',
       type: 'text',
       placeholder: 'Enter last name...',
     },
     {
-      key: 'companyName',
+      key: 'company_name',
       label: 'Company',
       type: 'text',
       placeholder: 'Enter company...',
@@ -743,11 +718,11 @@ export default function LeadsV2Page() {
     <div className="flex flex-col gap-6">
       {/* Header - Using V1 PageHeader with built-in search */}
       <PageHeader
-        title="Leads (V2 Dynamic Forms)"
+        title="Leads"
         icon={Target}
         iconBgColor="bg-primary/10"
         iconColor="text-primary"
-        subtitle={`${totalItems} leads in pipeline - Pure Dynamic System`}
+        subtitle={`${totalItems} leads in pipeline`}
         searchPlaceholder="Search leads by name, company, or email..."
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
@@ -846,9 +821,9 @@ export default function LeadsV2Page() {
             )}
             {can(LEADS_READ) && (
               <ExportButton
-                exportUrl="/crm/api/v2/leads/export"
+                exportUrl="/crm/api/v2/leads/export/"
                 exportParams={exportParams}
-                filename="leads-v2"
+                filename="leads"
                 totalRecords={totalItems}
               />
             )}
@@ -1080,7 +1055,7 @@ export default function LeadsV2Page() {
       />
 
       {/* Bulk Update Status Modal */}
-      <BulkUpdateModal<'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted'>
+      <BulkUpdateModal<"new" | "contacted" | "qualified" | "unqualified" | "converted">
         isOpen={showBulkUpdateStatus}
         onClose={() => setShowBulkUpdateStatus(false)}
         onConfirm={handleBulkUpdateStatus}

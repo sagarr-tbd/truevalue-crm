@@ -1,12 +1,3 @@
-"""
-Management command to seed default forms for all organizations.
-
-Form Builder Architecture: Creates forms with inline field definitions (no separate FieldDefinition table).
-
-Usage:
-    python manage.py seed_default_forms
-    python manage.py seed_default_forms --org-id <uuid>
-"""
 from django.core.management.base import BaseCommand
 from forms_v2.models import FormDefinition
 import uuid
@@ -29,14 +20,23 @@ class Command(BaseCommand):
             org_ids = [uuid.UUID(org_id_str)]
             self.stdout.write(f"Seeding forms for organization: {org_id_str}")
         else:
-            # Get all organizations from existing data
-            from crm.models import Contact
-            org_ids = Contact.objects.values_list('org_id', flat=True).distinct()
-            
+            from leads_v2.models import LeadV2
+            from contacts_v2.models import ContactV2
+            from companies_v2.models import CompanyV2
+            from deals_v2.models import DealV2
+
+            org_id_set = set()
+            for model in [LeadV2, ContactV2, CompanyV2, DealV2]:
+                org_id_set.update(
+                    model.objects.order_by().values_list('org_id', flat=True).distinct()
+                )
+
+            org_ids = list(org_id_set)
+
             if not org_ids:
                 self.stdout.write(self.style.WARNING('No organizations found. Please provide --org-id'))
                 return
-            
+
             self.stdout.write(f"Found {len(org_ids)} organizations")
         
         for org_id in org_ids:
@@ -49,10 +49,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('\n✅ Default forms seeded successfully!'))
     
     def seed_lead_forms(self, org_id):
-        """Seed default Lead form with inline field definitions."""
         self.stdout.write('  Creating Lead form with inline fields...')
         
-        # Define inline field definitions
         form_schema = {
             'version': '1.0.0',
             'sections': [
@@ -244,7 +242,6 @@ class Command(BaseCommand):
             ]
         }
         
-        # Create or update form
         form, created = FormDefinition.objects.update_or_create(
             org_id=org_id,
             entity_type='lead',
@@ -263,13 +260,55 @@ class Command(BaseCommand):
             self.stdout.write('    ✓ Updated Default Lead Form with inline fields')
     
     def seed_contact_forms(self, org_id):
-        """Seed default Contact forms (placeholder)."""
-        self.stdout.write('  Skipping Contact forms (implement if needed)')
-    
+        from forms_v2.default_schemas import get_default_contact_schema
+        form, created = FormDefinition.objects.update_or_create(
+            org_id=org_id,
+            entity_type='contact',
+            name='Default Contact Form',
+            form_type='create',
+            defaults={
+                'description': 'Standard form for creating contacts with inline field definitions',
+                'is_default': True,
+                'schema': get_default_contact_schema(),
+            }
+        )
+        if created:
+            self.stdout.write('    ✓ Created Default Contact Form')
+        else:
+            self.stdout.write('    ✓ Updated Default Contact Form')
+
     def seed_company_forms(self, org_id):
-        """Seed default Company forms (placeholder)."""
-        self.stdout.write('  Skipping Company forms (implement if needed)')
-    
+        from forms_v2.default_schemas import get_default_company_schema
+        form, created = FormDefinition.objects.update_or_create(
+            org_id=org_id,
+            entity_type='company',
+            name='Default Company Form',
+            form_type='create',
+            defaults={
+                'description': 'Standard form for creating companies with inline field definitions',
+                'is_default': True,
+                'schema': get_default_company_schema(),
+            }
+        )
+        if created:
+            self.stdout.write('    ✓ Created Default Company Form')
+        else:
+            self.stdout.write('    ✓ Updated Default Company Form')
+
     def seed_deal_forms(self, org_id):
-        """Seed default Deal forms (placeholder)."""
-        self.stdout.write('  Skipping Deal forms (implement if needed)')
+        from forms_v2.default_schemas import get_default_deal_schema
+        form, created = FormDefinition.objects.update_or_create(
+            org_id=org_id,
+            entity_type='deal',
+            name='Default Deal Form',
+            form_type='create',
+            defaults={
+                'description': 'Standard form for creating deals with inline field definitions',
+                'is_default': True,
+                'schema': get_default_deal_schema(),
+            }
+        )
+        if created:
+            self.stdout.write('    ✓ Created Default Deal Form')
+        else:
+            self.stdout.write('    ✓ Updated Default Deal Form')

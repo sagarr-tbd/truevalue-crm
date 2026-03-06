@@ -1053,6 +1053,102 @@ export const projectSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
+// ── Activity V2 Form Schemas (camelCase for react-hook-form / FormDrawer) ──
+
+const v2OptStr = z.preprocess(
+  (val) => (val === "" || val === null || val === undefined ? undefined : val),
+  z.string().optional()
+);
+
+const v2OptDuration = z.preprocess(
+  (val) => {
+    if (!val || val === "" || val === null || val === undefined) return undefined;
+    if (typeof val === "string") { const n = parseInt(val, 10); return isNaN(n) ? undefined : n; }
+    return typeof val === "number" && !isNaN(val) ? val : undefined;
+  },
+  z.number().int().min(0, "Must be a positive number").max(1440, "Cannot exceed 24 hours").optional()
+);
+
+const v2TimingRefine = (data: Record<string, unknown>, ctx: z.RefinementCtx) => {
+  if (data.startTime && data.endTime) {
+    const s = new Date(data.startTime as string), e = new Date(data.endTime as string);
+    if (!isNaN(s.getTime()) && !isNaN(e.getTime()) && e <= s) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "End time must be after start time", path: ["endTime"] });
+    }
+  }
+  if (data.reminderAt && data.dueDate) {
+    const dueDateStr = data.dueDate as string;
+    const dueEnd = dueDateStr.includes("T")
+      ? new Date(dueDateStr)
+      : new Date(dueDateStr + "T23:59:59");
+    const r = new Date(data.reminderAt as string);
+    if (!isNaN(r.getTime()) && !isNaN(dueEnd.getTime()) && r >= dueEnd) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reminder must be before the due date", path: ["reminderAt"] });
+    }
+  }
+};
+
+const activityV2FormBase = z.object({
+  subject: z.string().min(1, "Title is required").max(255, "Max 255 characters"),
+  description: v2OptStr,
+  status: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["pending", "in_progress", "completed", "cancelled"], { required_error: "Status is required", invalid_type_error: "Status is required" })
+  ),
+  priority: z.preprocess(
+    (val) => (val === "" || val === null || val === undefined ? undefined : val),
+    z.enum(["low", "normal", "high", "urgent"], { required_error: "Priority is required", invalid_type_error: "Priority is required" })
+  ),
+  dueDate: v2OptStr,
+  startTime: v2OptStr,
+  endTime: v2OptStr,
+  durationMinutes: v2OptDuration,
+  callDirection: v2OptStr,
+  callOutcome: v2OptStr,
+  emailDirection: v2OptStr,
+  contactId: v2OptStr,
+  companyId: v2OptStr,
+  dealId: v2OptStr,
+  leadId: v2OptStr,
+  assignedTo: v2OptStr,
+  reminderAt: v2OptStr,
+});
+
+export const activityV2TaskFormSchema = activityV2FormBase.superRefine(v2TimingRefine);
+
+export const activityV2CallFormSchema = activityV2FormBase
+  .extend({
+    callDirection: z.preprocess(
+      (val) => (val === "" || val === null || val === undefined ? undefined : val),
+      z.enum(["inbound", "outbound"], { required_error: "Direction is required", invalid_type_error: "Direction is required" })
+    ),
+  })
+  .superRefine(v2TimingRefine);
+
+export const activityV2MeetingFormSchema = activityV2FormBase.superRefine(v2TimingRefine);
+
+export const activityV2NoteFormSchema = activityV2FormBase.omit({
+  priority: true,
+  dueDate: true,
+  startTime: true,
+  endTime: true,
+  durationMinutes: true,
+  reminderAt: true,
+  assignedTo: true,
+});
+
+export const activityV2EmailFormSchema = activityV2FormBase.superRefine(v2TimingRefine);
+
+export function getActivityV2FormSchema(activityType: string) {
+  switch (activityType) {
+    case "call": return activityV2CallFormSchema;
+    case "meeting": return activityV2MeetingFormSchema;
+    case "note": return activityV2NoteFormSchema;
+    case "email": return activityV2EmailFormSchema;
+    default: return activityV2TaskFormSchema;
+  }
+}
+
 // Profile Settings validation schema
 export const profileSettingsSchema = z.object({
   firstName: z.string().min(1, "First name is required"),

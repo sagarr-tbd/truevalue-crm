@@ -1,6 +1,3 @@
-"""
-Activity Service - Business logic for Activity management.
-"""
 import logging
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -19,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
-    """Service for Activity operations."""
-    
     model = Activity
     entity_type = 'activity'
     
@@ -78,10 +73,8 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         advanced_filters: List[Dict] = None,
         filter_logic: str = 'and',
     ):
-        """List activities with advanced filtering."""
         qs = self.get_optimized_queryset()
         
-        # Apply basic filters
         if filters:
             qs = qs.filter(**filters)
         
@@ -124,20 +117,15 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
                 status__in=['pending', 'in_progress']
             )
         
-        # Apply search
         if search:
             qs = qs.filter(
                 Q(subject__icontains=search) |
                 Q(description__icontains=search)
             )
         
-        # Apply advanced filters (same as leads/contacts/deals)
         qs = self.apply_advanced_filters(qs, advanced_filters, filter_logic)
-        
-        # Apply ordering
         qs = qs.order_by(order_by)
         
-        # Apply pagination
         if limit:
             qs = qs[offset:offset + limit]
         
@@ -146,20 +134,17 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
     @transaction.atomic
     def create(self, data: Dict[str, Any], **kwargs) -> Activity:
         """Create a new activity."""
-        # Handle entity IDs
         for field in ['contact_id', 'company_id', 'deal_id', 'lead_id']:
             entity_id = data.pop(field, None)
             if entity_id:
                 entity_field = field.replace('_id', '')
                 data[entity_field + '_id'] = entity_id
         
-        # Set default assigned_to if not provided
         if 'assigned_to' not in data:
             data['assigned_to'] = self.user_id
         
         activity = super().create(data, **kwargs)
         
-        # Update last_activity_at on related entities
         self._update_entity_activity(activity)
         
         return activity
@@ -178,7 +163,7 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
                 )
         
         if activity.company_id:
-            pass  # Companies don't have last_activity_at yet
+            pass
         
         if activity.deal_id:
             Deal.objects.filter(id=activity.deal_id).update(
@@ -196,19 +181,15 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
     
     @transaction.atomic
     def complete(self, activity_id: UUID) -> Activity:
-        """Mark an activity as completed."""
         activity = self.get_by_id(activity_id)
         activity.complete()
         activity.save()
-        
-        # Update entity activity timestamps
         self._update_entity_activity(activity)
         
         return activity
     
     @transaction.atomic
     def reschedule(self, activity_id: UUID, due_date: datetime) -> Activity:
-        """Reschedule an activity."""
         activity = self.get_by_id(activity_id)
         activity.due_date = due_date
         activity.save(update_fields=['due_date', 'updated_at'])
@@ -220,7 +201,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         days: int = 7,
         limit: int = 50,
     ) -> List[Activity]:
-        """Get upcoming activities for a user."""
         qs = self.get_optimized_queryset().filter(
             status__in=['pending', 'in_progress'],
             due_date__gte=timezone.now(),
@@ -237,7 +217,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         user_id: UUID = None,
         limit: int = 50,
     ) -> List[Activity]:
-        """Get overdue activities for a user."""
         qs = self.get_optimized_queryset().filter(
             status__in=['pending', 'in_progress'],
             due_date__lt=timezone.now(),
@@ -256,7 +235,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         lead_id: UUID = None,
         limit: int = 50,
     ) -> List[Activity]:
-        """Get activity timeline for an entity."""
         qs = self.get_optimized_queryset()
         
         if contact_id:
@@ -282,7 +260,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         direction: str = 'outbound',
         outcome: str = 'answered',
     ) -> Activity:
-        """Log a phone call."""
         data = {
             'activity_type': Activity.ActivityType.CALL,
             'subject': subject or 'Phone Call',
@@ -310,7 +287,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         direction: str = 'sent',
         message_id: str = None,
     ) -> Activity:
-        """Log an email."""
         data = {
             'activity_type': Activity.ActivityType.EMAIL,
             'subject': subject or 'Email',
@@ -336,7 +312,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         lead_id: UUID = None,
         content: str = None,
     ) -> Activity:
-        """Add a note to an entity."""
         data = {
             'activity_type': Activity.ActivityType.NOTE,
             'subject': content[:100] if content else 'Note',
@@ -368,7 +343,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         priority: str = 'normal',
         description: str = None,
     ) -> Activity:
-        """Create a task."""
         data = {
             'activity_type': Activity.ActivityType.TASK,
             'subject': subject,
@@ -391,10 +365,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         return self.create(data)
     
     def get_stats(self, user_id: UUID = None) -> Dict:
-        """
-        Get activity statistics using a single aggregation query.
-        Cached for 60 seconds to reduce DB load on dashboard refreshes.
-        """
         cache_key = f"activity_stats:{self.org_id}:{user_id or 'all'}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -455,10 +425,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         return result
     
     def get_type_stats(self, activity_type: str = None) -> Dict[str, Any]:
-        """
-        Get activity statistics by status and priority, optionally scoped to an activity type.
-        Single aggregate query with conditional counts.
-        """
         qs = self.get_queryset()
 
         if activity_type:
@@ -504,11 +470,8 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
         }
     
     def get_activity_trend(self, days: int = 30) -> List[Dict]:
-        """Get activity counts per day grouped by type for time-series chart."""
         qs = self.get_queryset()
         start_date = timezone.now() - timedelta(days=days)
-        
-        # Get activities created in the period, grouped by date and type
         daily_counts = (
             qs.filter(created_at__gte=start_date)
             .annotate(date=TruncDate('created_at'))
@@ -516,8 +479,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
             .annotate(count=Count('id'))
             .order_by('date')
         )
-        
-        # Build a lookup: {date_str: {type: count}}
         date_map = {}
         for row in daily_counts:
             d = row['date'].isoformat()
@@ -527,7 +488,6 @@ class ActivityService(AdvancedFilterMixin, BaseService[Activity]):
             if atype in ('call', 'meeting', 'email'):
                 date_map[d][f'{atype}s'] = row['count']
         
-        # Fill in missing dates with zeros
         result = []
         for i in range(days):
             d = (timezone.now() - timedelta(days=days - 1 - i)).date().isoformat()
