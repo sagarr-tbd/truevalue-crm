@@ -288,7 +288,6 @@ export default function CompaniesV2Page() {
     setIsDeleting(true);
     try {
       await deleteCompany.mutateAsync(companyToDelete.id);
-      toast.success("Company deleted successfully");
       setIsDeleteModalOpen(false);
       setCompanyToDelete(null);
     } catch {
@@ -364,7 +363,7 @@ export default function CompaniesV2Page() {
     try {
       if (formMode === "add" && data.entity_data?.name) {
         try {
-          const duplicateCheck = await companiesV2Api.checkDuplicate(data.entity_data.name);
+          const duplicateCheck = await companiesV2Api.checkDuplicate({ name: data.entity_data.name });
           if (duplicateCheck.has_duplicates) {
             toast.warning(
               `Found ${duplicateCheck.count} existing company(ies) with this name. Creating anyway.`,

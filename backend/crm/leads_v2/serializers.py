@@ -130,26 +130,19 @@ class LeadV2Serializer(serializers.ModelSerializer):
     # PHASE 3: FIELD ROUTING LOGIC
     # ═════════════════════════════════════════════════════════════
     def validate(self, attrs):
-        """
-        Phase 3+: Route fields to correct storage.
-        
-        - 'source' in entity_data → Move to source column
-        - 'status' in entity_data → Move to status column
-        - 'rating' in entity_data → Move to rating column
-        - 'assigned_to' in entity_data → Move to assigned_to_id column
-        - 'company' in entity_data → Move to company_id column
-        - Other fields → Keep in entity_data
-        """
-        entity_data = attrs.get('entity_data', {})
-        
+        if 'entity_data' not in attrs:
+            return attrs
+
+        entity_data = attrs['entity_data']
+
         if 'source' in entity_data:
             source_value = entity_data.pop('source')
             if source_value and source_value in dict(LeadV2.Source.choices):
                 attrs['source'] = source_value
-        
+
         if 'status' in entity_data:
             status_value = entity_data.pop('status')
-            if status_value and status_value in dict(LeadV2.Status.choices):
+            if not self.instance and status_value and status_value in dict(LeadV2.Status.choices):
                 attrs['status'] = status_value
 
         if 'rating' in entity_data:
@@ -166,7 +159,7 @@ class LeadV2Serializer(serializers.ModelSerializer):
             company_value = entity_data.pop('company')
             if company_value:
                 attrs['company_id'] = company_value
-        
+
         attrs['entity_data'] = entity_data
         return attrs
     

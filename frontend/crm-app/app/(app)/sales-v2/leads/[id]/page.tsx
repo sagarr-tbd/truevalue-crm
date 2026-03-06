@@ -175,7 +175,6 @@ export default function LeadV2DetailPage() {
     setIsDeleting(true);
     try {
       await deleteLead.mutateAsync(leadId);
-      toast.success("Lead deleted successfully");
       router.push("/sales-v2/leads");
     } catch {
       toast.error("Failed to delete lead");
@@ -250,7 +249,6 @@ export default function LeadV2DetailPage() {
       await disqualifyLead.mutateAsync({ id: leadId, reason: disqualifyReason.trim() || undefined });
       setShowDisqualifyInput(false);
       setDisqualifyReason("");
-      window.location.reload();
     } catch {
       // error toast handled by hook
     }

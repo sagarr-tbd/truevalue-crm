@@ -296,7 +296,6 @@ export default function ContactsV2Page() {
     setIsDeleting(true);
     try {
       await deleteContact.mutateAsync(contactToDelete.id);
-      toast.success("Contact deleted successfully");
       setIsDeleteModalOpen(false);
       setContactToDelete(null);
     } catch {
@@ -406,7 +405,7 @@ export default function ContactsV2Page() {
     try {
       if (formMode === "add" && data.entity_data?.email) {
         try {
-          const duplicateCheck = await contactsV2Api.checkDuplicate(data.entity_data.email);
+          const duplicateCheck = await contactsV2Api.checkDuplicate({ email: data.entity_data.email });
           if (duplicateCheck.has_duplicates) {
             toast.warning(
               `Found ${duplicateCheck.count} existing contact(s) with this email. Creating anyway.`,

@@ -99,7 +99,10 @@ class ContactV2Serializer(serializers.ModelSerializer):
         return representation
 
     def validate(self, attrs):
-        entity_data = attrs.get('entity_data', {})
+        if 'entity_data' not in attrs:
+            return attrs
+
+        entity_data = attrs['entity_data']
 
         if 'source' in entity_data:
             source_value = entity_data.pop('source')
@@ -270,13 +273,53 @@ class ContactV2Serializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        return ContactV2.objects.create(**validated_data)
+        company_id = validated_data.get('company_id')
+        contact = ContactV2.objects.create(**validated_data)
+
+        if company_id:
+            company = CompanyV2.objects.filter(id=company_id).first()
+            if company:
+                ContactCompanyV2.objects.get_or_create(
+                    contact=contact,
+                    company_id=company_id,
+                    defaults={
+                        'title': validated_data.get('entity_data', {}).get('title'),
+                        'department': validated_data.get('entity_data', {}).get('department'),
+                        'is_primary': True,
+                        'is_current': True,
+                    }
+                )
+
+        return contact
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        old_company_id = instance.company_id
+        new_company_id = validated_data.get('company_id')
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+
+        if new_company_id and new_company_id != old_company_id:
+            ContactCompanyV2.objects.filter(
+                contact=instance, is_primary=True
+            ).update(is_primary=False)
+
+            company = CompanyV2.objects.filter(id=new_company_id).first()
+            if company:
+                assoc, created = ContactCompanyV2.objects.get_or_create(
+                    contact=instance,
+                    company_id=new_company_id,
+                    defaults={
+                        'is_primary': True,
+                        'is_current': True,
+                    }
+                )
+                if not created:
+                    assoc.is_primary = True
+                    assoc.save(update_fields=['is_primary', 'updated_at'])
+
         return instance
 
 

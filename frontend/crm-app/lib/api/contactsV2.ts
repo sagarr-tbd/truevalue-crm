@@ -11,7 +11,7 @@ export interface ContactV2 {
   status: 'active' | 'inactive' | 'bounced' | 'unsubscribed' | 'archived';
   source?: string;
   assigned_to_id?: string;
-  company_id?: string;
+  company_id?: string | null;
   entity_data: Record<string, any>;
   full_name?: string;
   display_name?: string;
@@ -84,9 +84,10 @@ export interface MergeContactV2Params {
 }
 
 export interface MergeContactV2Result {
-  id: string;
-  status: string;
-  reassigned: Record<string, number>;
+  success: boolean;
+  merged_contact: Record<string, any>;
+  deleted_contact_id: string;
+  strategy: string;
 }
 
 export interface ContactCompanyAssociation {
@@ -109,6 +110,7 @@ export interface AddContactCompanyInput {
   title?: string;
   department?: string;
   is_primary?: boolean;
+  is_current?: boolean;
 }
 
 export const contactCompaniesV2Api = {

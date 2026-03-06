@@ -42,7 +42,7 @@ class DealV2(models.Model):
     )
     stage = models.CharField(
         max_length=50,
-        default='qualification', db_index=True
+        default='Qualification', db_index=True
     )
     value = models.DecimalField(
         max_digits=15, decimal_places=2, default=Decimal('0'),

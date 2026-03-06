@@ -13,7 +13,7 @@ interface EntityApi<TEntity, TListItem, TQueryParams extends EntityV2QueryParams
   bulkDelete: (ids: string[]) => Promise<unknown>;
   bulkUpdate: (ids: string[], data: Partial<TEntity> & { entity_data?: Record<string, unknown> }) => Promise<unknown>;
   export: (params?: TQueryParams & { ids?: string[] }) => Promise<void>;
-  checkDuplicate: (email: string) => Promise<unknown>;
+  checkDuplicate: (params: { email?: string; phone?: string; name?: string }) => Promise<unknown>;
   sources: () => Promise<string[]>;
   mine: (params?: TQueryParams) => Promise<PaginatedResponse<TListItem>>;
 }
