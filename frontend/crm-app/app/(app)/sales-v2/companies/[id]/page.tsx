@@ -123,7 +123,6 @@ export default function CompanyV2DetailPage() {
   const existingContactIds = new Set(companyContacts.map(c => c.id));
   const filteredContactResults = (contactSearchResults?.results ?? []).filter(c => !existingContactIds.has(c.id));
 
-  console.log("companyContacts",companyContacts)
   const handleLinkContact = async () => {
     if (!selectedContactId) return;
     try {

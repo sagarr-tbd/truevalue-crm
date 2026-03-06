@@ -140,10 +140,10 @@ export default function MeetingsV2Page() {
       status: statusFilter || undefined,
     };
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const priorityCond = filterGroup.conditions.find((c) => c.field === "priority");
-      if (statusCond?.value) params.status = statusCond.value;
-      if (priorityCond?.value) params.priority = priorityCond.value;
+      params.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
@@ -222,15 +222,15 @@ export default function MeetingsV2Page() {
 
   const handleBulkDelete = async () => {
     setIsBulkProcessing(true);
-    try { await bulkDelete.mutateAsync(selectedItems); setSelectedItems([]); setShowBulkDelete(false); toast.success("Meetings deleted"); }
-    catch { toast.error("Failed to delete meetings"); }
+    try { await bulkDelete.mutateAsync(selectedItems); setSelectedItems([]); setShowBulkDelete(false); }
+    catch { /* Error toast handled by mutation hook */ }
     finally { setIsBulkProcessing(false); }
   };
 
   const handleBulkUpdateStatus = async (newStatus: "pending" | "in_progress" | "completed" | "cancelled") => {
     setIsBulkProcessing(true);
-    try { await bulkUpdate.mutateAsync({ ids: selectedItems, updates: { status: newStatus } }); setSelectedItems([]); setShowBulkUpdateStatus(false); toast.success("Meetings updated"); }
-    catch { toast.error("Failed to update meetings"); }
+    try { await bulkUpdate.mutateAsync({ ids: selectedItems, updates: { status: newStatus } }); setSelectedItems([]); setShowBulkUpdateStatus(false); }
+    catch { /* Error toast handled by mutation hook */ }
     finally { setIsBulkProcessing(false); }
   };
 
@@ -239,10 +239,10 @@ export default function MeetingsV2Page() {
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const priorityCond = filterGroup.conditions.find((c) => c.field === "priority");
-      if (statusCond?.value) p.status = statusCond.value;
-      if (priorityCond?.value) p.priority = priorityCond.value;
+      p.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return p;
   }, [debouncedSearchQuery, statusFilter, filterGroup]);
@@ -350,7 +350,7 @@ export default function MeetingsV2Page() {
     { label: "View Details", icon: FileText, onClick: () => router.push(`/activities-v2/meetings/${item.id}`) },
     ...(can(ACTIVITIES_WRITE) ? [
       { label: "Edit Meeting", icon: Edit, onClick: () => handleEditItem(item) },
-      { label: "Mark Complete", icon: Check, onClick: () => { completeActivity.mutate(item.id); toast.success("Meeting marked complete"); } },
+      { label: "Mark Complete", icon: Check, disabled: item.status === "completed", onClick: () => { completeActivity.mutate(item.id); toast.success("Meeting marked complete"); } },
     ] : []),
     ...(can(ACTIVITIES_DELETE) ? [
       { divider: true, label: "", onClick: () => {} },

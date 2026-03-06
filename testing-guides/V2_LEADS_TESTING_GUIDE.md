@@ -1,14 +1,51 @@
 # CRM V2 Leads — UI Testing Guide
 
+## Organisation & Environment
+
+| Item | Value |
+|------|-------|
+| **Organisation** | TrueValue CRM (multi-tenant) |
+| **Frontend URL** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:8000/crm/api/v2/` |
+| **Docker Backend** | `crm-backend` container |
+
+## User Roles & Permissions
+
+| Role | Permissions | Use For Testing |
+|------|------------|-----------------|
+| **Super Admin** | Full access — all modules, all actions | Primary testing role (bypasses all permission checks) |
+| **Org Admin / Owner** | Full access within organisation | Equivalent to Super Admin for CRM testing |
+| **Manager** | Read, Write, Delete on assigned modules | Test permission-gated buttons (Edit, Delete, Bulk) |
+| **Member** | Read, Write on assigned modules | Test limited write access |
+| **Viewer** | Read-only | Test that Add/Edit/Delete buttons are hidden |
+
+### Permission Codes (Leads)
+
+| Code | Description |
+|------|-------------|
+| `leads:read` | View leads list and detail pages |
+| `leads:write` | Create, edit, convert, disqualify leads |
+| `leads:delete` | Delete leads (single and bulk) |
+
+> **Testing Condition:** Unless testing role-based access specifically, log in as **Super Admin** or **Org Admin** to ensure all buttons and actions are available.
+
 ## Prerequisites
 
-1. Backend running (`python manage.py runserver`)
+1. Backend running via Docker (`docker compose up`) or locally (`python manage.py runserver`)
 2. Frontend running (`cd frontend/crm-app && npm run dev`)
-3. Re-seed the lead form to get full fields: `python manage.py seed_default_forms`
-4. Logged in with a valid user
+3. Re-seed the lead form to get full fields: `docker exec crm-backend python manage.py seed_default_forms`
+4. Logged in with a valid user (Super Admin or Org Admin recommended)
 
 > **After re-seeding**, refresh the browser. The lead form will now show all fields
 > (Mobile, Website, Industry, Assigned To, Rating, Lead Score, Address, etc.)
+
+## Testing Conditions
+
+- All tests assume a **fresh or near-fresh** database state (seed data + any data from prior V2 testing guides)
+- Tests should be run in **order** (Test 1 → Test 12) as some depend on data created in earlier tests
+- After each create/edit/delete, verify **no duplicate toast** notifications appear
+- After each mutation, verify **no page reload** — UI should update via React Query cache invalidation
+- Cross-check the **Stats cards** after every create/edit/delete to confirm counts are correct
 
 ---
 

@@ -184,10 +184,10 @@ export default function NotesV2Page() {
     };
 
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) params.status = statusCond.value;
-      if (subjectCond?.value) params.search = subjectCond.value;
+      params.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
 
     return params;
@@ -320,10 +320,10 @@ export default function NotesV2Page() {
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) p.status = statusCond.value;
-      if (subjectCond?.value) p.search = subjectCond.value;
+      p.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return p;
   }, [debouncedSearchQuery, statusFilter, filterGroup]);
@@ -386,9 +386,8 @@ export default function NotesV2Page() {
       await bulkDeleteActivities.mutateAsync(selectedNotes);
       setSelectedNotes([]);
       setShowBulkDelete(false);
-      toast.success("Notes deleted successfully");
     } catch {
-      toast.error("Failed to delete notes");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }
@@ -442,9 +441,8 @@ export default function NotesV2Page() {
       });
       setSelectedNotes([]);
       setShowBulkUpdateStatus(false);
-      toast.success("Notes updated successfully");
     } catch {
-      toast.error("Failed to update notes");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }

@@ -19,6 +19,7 @@ import {
   Check,
   AlertCircle,
   Calendar,
+  User,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,13 +48,13 @@ import type {
 import { toast } from "sonner";
 import { useKeyboardShortcuts, useFilterPresets, useDebounce } from "@/hooks";
 import { ExportButton } from "@/components/ExportButton";
-import { toSnakeCaseOperator } from "@/lib/utils";
 import { AdvancedFilter, FilterField, FilterGroup } from "@/components/AdvancedFilter";
 import { FilterChips, FilterChip } from "@/components/FilterChips";
 import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { useUIStore } from "@/stores";
 import { usePermission, TASKS_WRITE, TASKS_DELETE } from "@/lib/permissions";
 import { TokenManager } from "@/lib/api/client";
+import { useMemberOptions } from "@/lib/queries/useMembers";
 
 // Lazy load heavy components
 const DeleteConfirmationModal = dynamic(
@@ -187,12 +188,10 @@ export default function TasksV2Page() {
     };
 
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const priorityCond = filterGroup.conditions.find((c) => c.field === "priority");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) params.status = statusCond.value;
-      if (priorityCond?.value) params.priority = priorityCond.value;
-      if (subjectCond?.value) params.search = subjectCond.value;
+      params.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
 
     return params;
@@ -200,6 +199,16 @@ export default function TasksV2Page() {
 
   const { data: response, isLoading } = useActivitiesV2(queryParams);
   const { data: statsData } = useActivitiesV2Stats("task");
+  const { data: memberOptions = [] } = useMemberOptions();
+
+  const resolveMemberName = useCallback(
+    (userId?: string | null): string | null => {
+      if (!userId) return null;
+      const member = memberOptions.find((m) => m.value === userId);
+      return member?.label || null;
+    },
+    [memberOptions]
+  );
 
   const createActivityV2 = useCreateActivityV2();
   const updateActivityV2 = useUpdateActivityV2();
@@ -326,12 +335,10 @@ export default function TasksV2Page() {
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const priorityCond = filterGroup.conditions.find((c) => c.field === "priority");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) p.status = statusCond.value;
-      if (priorityCond?.value) p.priority = priorityCond.value;
-      if (subjectCond?.value) p.search = subjectCond.value;
+      p.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return p;
   }, [debouncedSearchQuery, statusFilter, filterGroup]);
@@ -394,9 +401,8 @@ export default function TasksV2Page() {
       await bulkDeleteActivities.mutateAsync(selectedTasks);
       setSelectedTasks([]);
       setShowBulkDelete(false);
-      toast.success("Tasks deleted successfully");
     } catch {
-      toast.error("Failed to delete tasks");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }
@@ -450,9 +456,8 @@ export default function TasksV2Page() {
       });
       setSelectedTasks([]);
       setShowBulkUpdateStatus(false);
-      toast.success("Tasks updated successfully");
     } catch {
-      toast.error("Failed to update tasks");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }
@@ -650,6 +655,25 @@ export default function TasksV2Page() {
         ),
       },
       {
+        key: "assigned_to",
+        label: "Assigned To",
+        render: (_value: unknown, row: ActivityV2) => {
+          const name = row.display_assigned_to || resolveMemberName(row.assigned_to_id);
+          return (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {name ? (
+                <>
+                  <User className="h-4 w-4" />
+                  <span>{name}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground/50">—</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
         key: "created_at",
         label: "Created",
         render: (value: string) => (
@@ -660,7 +684,7 @@ export default function TasksV2Page() {
         ),
       },
     ],
-    [router]
+    [router, resolveMemberName]
   );
 
   const actionMenuItems = useCallback(
@@ -680,6 +704,7 @@ export default function TasksV2Page() {
             {
               label: "Mark Complete",
               icon: Check,
+              disabled: task.status === "completed",
               onClick: () => {
                 completeActivityV2.mutate(task.id);
                 toast.success("Task marked complete");
@@ -929,6 +954,12 @@ export default function TasksV2Page() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Flag className="h-4 w-4" />
                       <span>{task.display_contact || task.display_company}</span>
+                    </div>
+                  )}
+                  {(task.display_assigned_to || resolveMemberName(task.assigned_to_id)) && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <User className="h-4 w-4" />
+                      <span>{task.display_assigned_to || resolveMemberName(task.assigned_to_id)}</span>
                     </div>
                   )}
                 </div>

@@ -1,7 +1,11 @@
+import json
+import time as time_mod
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from django.http import HttpResponse
 from django.utils import timezone
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDate
@@ -9,8 +13,13 @@ from datetime import timedelta, datetime
 
 from .models import ActivityV2
 from .serializers import ActivityV2Serializer, ActivityV2ListSerializer
+from .resources import ActivityV2ExportResource
 from crm_service.audit_v2 import AuditLogV2Mixin
 from crm.permissions import CRMResourcePermission
+from crm.services.base_service import AdvancedFilterMixin
+from crm.utils import fetch_member_names
+
+EXPORT_MAX_ROWS = 10000
 
 
 class ActivityV2Pagination(PageNumberPagination):
@@ -19,13 +28,60 @@ class ActivityV2Pagination(PageNumberPagination):
     max_page_size = 100
 
 
-class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
+class ActivityV2ViewSet(AdvancedFilterMixin, AuditLogV2Mixin, viewsets.ModelViewSet):
     resource = 'activities'
     permission_classes = [CRMResourcePermission]
     audit_tracked_fields = ['status', 'priority', 'activity_type', 'owner_id', 'assigned_to_id']
     queryset = ActivityV2.objects.filter(deleted_at__isnull=True)
     serializer_class = ActivityV2Serializer
     pagination_class = ActivityV2Pagination
+
+    FILTER_FIELD_MAP = {
+        'subject': 'subject',
+        'status': 'status',
+        'priority': 'priority',
+        'activity_type': 'activity_type',
+        'activityType': 'activity_type',
+        'description': 'description',
+        'assignedTo': 'assigned_to_id',
+        'assigned_to': 'assigned_to_id',
+        'assigned_to_id': 'assigned_to_id',
+        'call_direction': 'call_direction',
+        'callDirection': 'call_direction',
+        'call_outcome': 'call_outcome',
+        'callOutcome': 'call_outcome',
+        'email_direction': 'email_direction',
+        'emailDirection': 'email_direction',
+        'contact_id': 'contact_id',
+        'contactId': 'contact_id',
+        'company_id': 'company_id',
+        'companyId': 'company_id',
+        'deal_id': 'deal_id',
+        'dealId': 'deal_id',
+        'lead_id': 'lead_id',
+        'leadId': 'lead_id',
+        'due_date': 'due_date',
+        'dueDate': 'due_date',
+    }
+
+    UUID_FIELDS = {
+        'assigned_to_id', 'contact_id', 'company_id',
+        'deal_id', 'lead_id',
+    }
+
+    def _parse_advanced_filters(self):
+        """Parse the 'filters' JSON query param from the request."""
+        filters_param = self.request.query_params.get('filters')
+        if not filters_param:
+            return None, 'and'
+        try:
+            filter_data = json.loads(filters_param)
+            logic = filter_data.get('logic', 'and')
+            if isinstance(logic, str):
+                logic = logic.lower()
+            return filter_data.get('conditions', []), logic
+        except (json.JSONDecodeError, TypeError):
+            return None, 'and'
 
     def get_queryset(self):
         org_id = self.request.headers.get('X-Org-Id')
@@ -52,11 +108,30 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
         company_id = self.request.query_params.get('company_id')
         if company_id:
-            queryset = queryset.filter(company_id=company_id)
+            from contacts_v2.models import ContactCompanyV2
+            company_contact_ids = list(
+                ContactCompanyV2.objects.filter(company_id=company_id)
+                .values_list('contact_id', flat=True)
+            )
+            queryset = queryset.filter(
+                Q(company_id=company_id) | Q(contact_id__in=company_contact_ids)
+            )
 
         deal_id = self.request.query_params.get('deal_id')
         if deal_id:
-            queryset = queryset.filter(deal_id=deal_id)
+            from deals_v2.models import DealV2
+            deal_contact_q = Q(deal_id=deal_id)
+            try:
+                deal = DealV2.objects.only('contact_id', 'company_id').get(
+                    id=deal_id, org_id=org_id
+                )
+                if deal.contact_id:
+                    deal_contact_q = deal_contact_q | Q(contact_id=deal.contact_id)
+                if deal.company_id:
+                    deal_contact_q = deal_contact_q | Q(company_id=deal.company_id)
+            except DealV2.DoesNotExist:
+                pass
+            queryset = queryset.filter(deal_contact_q)
 
         lead_id = self.request.query_params.get('lead_id')
         if lead_id:
@@ -72,9 +147,20 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 Q(subject__icontains=search) | Q(description__icontains=search)
             )
 
+        call_direction = self.request.query_params.get('call_direction')
+        if call_direction:
+            queryset = queryset.filter(call_direction=call_direction)
+
+        call_outcome = self.request.query_params.get('call_outcome')
+        if call_outcome:
+            queryset = queryset.filter(call_outcome=call_outcome)
+
         email_direction = self.request.query_params.get('email_direction')
         if email_direction:
             queryset = queryset.filter(email_direction=email_direction)
+
+        advanced_filters, filter_logic = self._parse_advanced_filters()
+        queryset = self.apply_advanced_filters(queryset, advanced_filters, filter_logic)
 
         ALLOWED_ORDERING = {
             'created_at', '-created_at', 'due_date', '-due_date',
@@ -85,7 +171,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         ordering = self.request.query_params.get('ordering', '-created_at')
         if ordering not in ALLOWED_ORDERING:
             ordering = '-created_at'
-        queryset = queryset.order_by(ordering)
+        queryset = queryset.order_by(ordering).distinct()
 
         return queryset
 
@@ -105,8 +191,7 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        deleted_by = request.user.id if hasattr(request, 'user') else None
-        instance.soft_delete(deleted_by=deleted_by)
+        instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'])
@@ -303,6 +388,42 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
         serializer = ActivityV2ListSerializer(qs, many=True)
         return Response({'results': serializer.data})
 
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        org_id = request.headers.get('X-Org-Id')
+        if not org_id:
+            return Response({'error': 'X-Org-Id header required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ids_param = request.query_params.get('ids', '')
+        if ids_param:
+            from uuid import UUID as UUIDType
+            parsed_ids = []
+            for raw in ids_param.split(','):
+                raw = raw.strip()
+                if raw:
+                    try:
+                        parsed_ids.append(UUIDType(raw))
+                    except ValueError:
+                        continue
+            qs = ActivityV2.objects.filter(
+                id__in=parsed_ids, org_id=org_id, deleted_at__isnull=True
+            )
+        else:
+            qs = self.get_queryset()
+
+        qs = qs[:EXPORT_MAX_ROWS]
+        member_map = fetch_member_names(org_id)
+        resource = ActivityV2ExportResource(member_map=member_map)
+        dataset = resource.export(list(qs))
+        ts = time_mod.strftime('%Y-%m-%d')
+
+        activity_type = request.query_params.get('activity_type', 'activities')
+        filename = f'{activity_type}-{ts}.csv'
+
+        response = HttpResponse(dataset.csv, content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
     @action(detail=False, methods=['post'])
     def bulk_delete(self, request):
         ids = request.data.get('ids', [])
@@ -310,15 +431,10 @@ class ActivityV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
             return Response({'error': 'ids list required'}, status=status.HTTP_400_BAD_REQUEST)
 
         org_id = request.headers.get('X-Org-Id')
-        deleted_by = request.user.id if hasattr(request, 'user') else None
-        now = timezone.now()
 
-        count = ActivityV2.objects.filter(
+        count, _ = ActivityV2.objects.filter(
             id__in=ids, org_id=org_id
-        ).update(
-            deleted_at=now,
-            deleted_by=deleted_by,
-        )
+        ).delete()
 
         return Response({'deleted': count})
 

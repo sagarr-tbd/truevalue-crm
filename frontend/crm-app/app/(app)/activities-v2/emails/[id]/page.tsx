@@ -19,12 +19,12 @@ import {
   XCircle,
   Circle,
   Link as LinkIcon,
-  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { ActivityV2FormDrawer } from "@/components/Forms/ActivitiesV2";
+import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import {
   useActivityV2,
   useUpdateActivityV2,
@@ -124,7 +124,7 @@ export default function EmailV2DetailPage() {
   };
 
   const displayAssignedTo =
-    email?.display_assigned_to ?? resolveMemberName(email?.assigned_to_id ?? undefined) ?? null;
+    email?.display_assigned_to || resolveMemberName(email?.assigned_to_id) || null;
 
   const handleDeleteConfirm = async () => {
     if (!email?.id) return;
@@ -163,12 +163,7 @@ export default function EmailV2DetailPage() {
   const StatusIcon = email ? getStatusIcon(email.status) : Circle;
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading email...</p>
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (isError || !email) {

@@ -613,13 +613,14 @@ class ContactV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
                 'priority': a.priority,
                 'due_date': a.due_date.isoformat() if a.due_date else None,
                 'completed_at': a.completed_at.isoformat() if a.completed_at else None,
+                'duration_minutes': a.duration_minutes,
                 'created_at': a.created_at.isoformat(),
                 'owner_id': str(a.owner_id),
             }
             for a in activities
         ]
 
-        return Response({'data': timeline, 'count': len(timeline)})
+        return Response({'results': timeline, 'count': len(timeline)})
 
     @action(detail=False, methods=['post'], url_path='import')
     def import_contacts(self, request):
