@@ -1307,19 +1307,19 @@ def _get_pipeline_stage_options():
             stages = pipeline.stages.all().order_by('order')
             if stages.exists():
                 return [
-                    {'value': s.name.lower().replace(' ', '_'), 'label': s.name, 'color': s.color}
+                    {'value': s.name, 'label': s.name, 'color': s.color}
                     for s in stages
-                ], stages.first().name.lower().replace(' ', '_')
+                ], stages.first().name
     except Exception:
         pass
     return [
-        {'value': 'prospecting', 'label': 'Prospecting'},
-        {'value': 'qualification', 'label': 'Qualification'},
-        {'value': 'proposal', 'label': 'Proposal'},
-        {'value': 'negotiation', 'label': 'Negotiation'},
-        {'value': 'closed_won', 'label': 'Closed Won'},
-        {'value': 'closed_lost', 'label': 'Closed Lost'},
-    ], 'prospecting'
+        {'value': 'Qualification', 'label': 'Qualification'},
+        {'value': 'Discovery', 'label': 'Discovery'},
+        {'value': 'Proposal', 'label': 'Proposal'},
+        {'value': 'Negotiation', 'label': 'Negotiation'},
+        {'value': 'Closed Won', 'label': 'Closed Won'},
+        {'value': 'Closed Lost', 'label': 'Closed Lost'},
+    ], 'Qualification'
 
 
 def get_default_deal_schema():

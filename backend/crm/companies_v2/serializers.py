@@ -77,7 +77,10 @@ class CompanyV2Serializer(serializers.ModelSerializer):
         return representation
 
     def validate(self, attrs):
-        entity_data = attrs.get('entity_data', {})
+        if 'entity_data' not in attrs:
+            return attrs
+
+        entity_data = attrs['entity_data']
 
         if 'status' in entity_data:
             status_value = entity_data.pop('status')

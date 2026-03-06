@@ -526,14 +526,28 @@ class DealV2ViewSet(AuditLogV2Mixin, viewsets.ModelViewSet):
 
         if new_status == 'won':
             deal.actual_close_date = timezone.now().date()
-            update_fields.append('actual_close_date')
+            deal.probability = 100
+            update_fields.extend(['actual_close_date', 'probability'])
         elif new_status == 'lost':
             loss_reason = request.data.get('loss_reason')
             if loss_reason:
                 deal.loss_reason = loss_reason
                 update_fields.append('loss_reason')
             deal.actual_close_date = timezone.now().date()
-            update_fields.append('actual_close_date')
+            deal.probability = 0
+            update_fields.extend(['actual_close_date', 'probability'])
+        elif new_status == 'open':
+            if deal.pipeline_id:
+                try:
+                    from pipelines_v2.models import PipelineStageV2
+                    stage_obj = PipelineStageV2.objects.filter(
+                        pipeline_id=deal.pipeline_id, name=deal.stage
+                    ).first()
+                    if stage_obj and stage_obj.probability is not None:
+                        deal.probability = stage_obj.probability
+                        update_fields.append('probability')
+                except Exception:
+                    pass
 
         deal.save(update_fields=update_fields)
 

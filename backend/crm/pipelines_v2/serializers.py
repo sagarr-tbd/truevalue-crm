@@ -46,6 +46,7 @@ class PipelineV2Serializer(serializers.ModelSerializer):
 
 
 class PipelineV2ListSerializer(serializers.ModelSerializer):
+    stages = PipelineStageV2Serializer(many=True, read_only=True)
     stage_count = serializers.SerializerMethodField()
     deal_count = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
@@ -55,7 +56,7 @@ class PipelineV2ListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description',
             'is_default', 'is_active', 'currency', 'order',
-            'stage_count', 'deal_count', 'total_value',
+            'stages', 'stage_count', 'deal_count', 'total_value',
             'created_at',
         ]
 

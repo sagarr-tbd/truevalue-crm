@@ -22,7 +22,7 @@ class DealV2Serializer(serializers.ModelSerializer):
         default=DealV2.Status.OPEN
     )
     stage = serializers.CharField(
-        max_length=50, default='qualification'
+        max_length=50, default='Qualification'
     )
 
     value = serializers.DecimalField(
@@ -160,17 +160,37 @@ class DealV2Serializer(serializers.ModelSerializer):
         return representation
 
     def validate(self, attrs):
-        entity_data = attrs.get('entity_data', {})
+        if 'entity_data' not in attrs:
+            return attrs
+
+        entity_data = attrs['entity_data']
 
         if 'status' in entity_data:
             status_value = entity_data.pop('status')
-            if status_value and status_value in dict(DealV2.Status.choices):
+            if not self.instance and status_value and status_value in dict(DealV2.Status.choices):
                 attrs['status'] = status_value
 
         if 'stage' in entity_data:
             stage_value = entity_data.pop('stage')
             if stage_value:
-                attrs['stage'] = stage_value
+                pipeline_id = attrs.get('pipeline_id') or (self.instance.pipeline_id if self.instance else None)
+                if pipeline_id:
+                    try:
+                        from pipelines_v2.models import PipelineStageV2
+                        stage_obj = PipelineStageV2.objects.filter(
+                            pipeline_id=pipeline_id, name=stage_value
+                        ).first()
+                        if stage_obj:
+                            attrs['stage'] = stage_obj.name
+                        else:
+                            stage_obj = PipelineStageV2.objects.filter(
+                                pipeline_id=pipeline_id, name__iexact=stage_value
+                            ).first()
+                            attrs['stage'] = stage_obj.name if stage_obj else stage_value
+                    except Exception:
+                        attrs['stage'] = stage_value
+                else:
+                    attrs['stage'] = stage_value
 
         if 'value' in entity_data:
             try:
@@ -368,11 +388,25 @@ class DealV2Serializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        if validated_data.get('probability') is None and validated_data.get('stage'):
+            try:
+                from pipelines_v2.models import PipelineStageV2
+                pipeline_id = validated_data.get('pipeline_id')
+                if pipeline_id:
+                    stage_obj = PipelineStageV2.objects.filter(
+                        pipeline_id=pipeline_id, name=validated_data['stage']
+                    ).first()
+                    if stage_obj and stage_obj.probability is not None:
+                        validated_data['probability'] = stage_obj.probability
+            except Exception:
+                pass
         return DealV2.objects.create(**validated_data)
 
     @transaction.atomic
     def update(self, instance, validated_data):
         old_stage = instance.stage
+        old_probability = instance.probability
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -384,6 +418,23 @@ class DealV2Serializer(serializers.ModelSerializer):
                 time_in_stage = int((now - instance.stage_entered_at).total_seconds())
 
             instance.stage_entered_at = now
+
+            probability_unchanged = (
+                'probability' not in validated_data or
+                validated_data.get('probability') == old_probability
+            )
+            if probability_unchanged:
+                try:
+                    from pipelines_v2.models import PipelineStageV2
+                    pipeline_id = instance.pipeline_id
+                    if pipeline_id:
+                        stage_obj = PipelineStageV2.objects.filter(
+                            pipeline_id=pipeline_id, name=validated_data['stage']
+                        ).first()
+                        if stage_obj and stage_obj.probability is not None:
+                            instance.probability = stage_obj.probability
+                except Exception:
+                    pass
 
             try:
                 from deals_v2.models import DealStageHistoryV2

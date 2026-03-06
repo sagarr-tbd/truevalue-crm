@@ -51,6 +51,7 @@ import { BulkActionsToolbar } from "@/components/BulkActionsToolbar";
 import { useUIStore } from "@/stores";
 import { usePermission, DEALS_READ, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
 import { usePipelinesV2, useDefaultPipelineV2 } from "@/lib/queries/usePipelinesV2";
+import type { PipelineV2 } from "@/lib/api/pipelinesV2";
 import { KanbanBoard, type KanbanColumn, type KanbanDeal } from "@/components/KanbanBoard";
 
 const DeleteConfirmationModal = dynamic(
@@ -65,25 +66,24 @@ const BulkDeleteModal = dynamic(
 
 import { BulkUpdateModal } from "@/components/BulkUpdateModal";
 
-const STAGE_LABELS: Record<string, string> = {
-  prospecting: "Prospecting",
-  qualification: "Qualification",
-  discovery: "Discovery",
-  proposal: "Proposal",
-  negotiation: "Negotiation",
-  closed_won: "Closed Won",
-  closed_lost: "Closed Lost",
+const STAGE_COLORS_BY_HEX: Record<string, string> = {
+  '#6B7280': "bg-gray-500/10 text-gray-600",
+  '#3B82F6': "bg-blue-500/10 text-blue-600",
+  '#8B5CF6': "bg-purple-500/10 text-purple-600",
+  '#F59E0B': "bg-amber-500/10 text-amber-600",
+  '#10B981': "bg-green-500/10 text-green-600",
+  '#EF4444': "bg-red-500/10 text-red-600",
 };
 
-const STAGE_COLORS: Record<string, string> = {
-  prospecting: "bg-blue-500/10 text-blue-600",
-  qualification: "bg-gray-500/10 text-gray-600",
-  discovery: "bg-blue-500/10 text-blue-600",
-  proposal: "bg-purple-500/10 text-purple-600",
-  negotiation: "bg-amber-500/10 text-amber-600",
-  closed_won: "bg-green-500/10 text-green-600",
-  closed_lost: "bg-red-500/10 text-red-600",
-};
+function getStageColor(stageName: string, pipeline?: PipelineV2 | null): string {
+  if (pipeline?.stages) {
+    const stage = pipeline.stages.find(s => s.name === stageName);
+    if (stage?.color && STAGE_COLORS_BY_HEX[stage.color]) {
+      return STAGE_COLORS_BY_HEX[stage.color];
+    }
+  }
+  return 'bg-muted text-muted-foreground';
+}
 
 function formatCurrency(value: string | number, currency = "USD") {
   const num = typeof value === "string" ? parseFloat(value) : value;
@@ -175,7 +175,7 @@ export default function DealsV2Page() {
 
   // Kanban: fetch all deals for the active pipeline (when in kanban mode)
   const { data: kanbanDealsResponse, isLoading: isKanbanLoading } = useDealsV2(
-    { pipeline_id: activePipelineId, page_size: 200, status: 'open' },
+    { pipeline_id: activePipelineId, page_size: 200 },
     { enabled: viewMode === 'kanban' && !!activePipelineId }
   );
 
@@ -294,7 +294,7 @@ export default function DealsV2Page() {
       currency: deal.currency || 'USD',
       formattedValue: formatCurrency(deal.value, deal.currency || 'USD'),
       stage: deal.stage,
-      stageLabel: STAGE_LABELS[deal.stage] || deal.stage,
+      stageLabel: deal.display_stage || deal.stage,
       status: deal.status,
       probability: deal.probability,
       pipeline: deal.display_pipeline || '',
@@ -384,7 +384,6 @@ export default function DealsV2Page() {
     setIsDeleting(true);
     try {
       await deleteDeal.mutateAsync(dealToDelete.id);
-      toast.success("Deal deleted successfully");
       setIsDeleteModalOpen(false);
       setDealToDelete(null);
     } catch {
@@ -461,7 +460,7 @@ export default function DealsV2Page() {
     try {
       if (formMode === "add" && data.entity_data?.name) {
         try {
-          const duplicateCheck = await dealsV2Api.checkDuplicate(data.entity_data.name);
+          const duplicateCheck = await dealsV2Api.checkDuplicate({ name: data.entity_data.name });
           if (duplicateCheck.has_duplicates) {
             toast.warning(
               `Found ${duplicateCheck.count} existing deal(s) with this name. Creating anyway.`,
@@ -506,7 +505,7 @@ export default function DealsV2Page() {
       chips.push({ id: 'status-filter', label: 'Status', value: statusFilter, color: 'primary' });
     }
     if (stageFilter) {
-      chips.push({ id: 'stage-filter', label: 'Stage', value: STAGE_LABELS[stageFilter] || stageFilter, color: 'secondary' });
+      chips.push({ id: 'stage-filter', label: 'Stage', value: stageFilter, color: 'secondary' });
     }
     return chips;
   }, [statusFilter, stageFilter]);
@@ -540,7 +539,7 @@ export default function DealsV2Page() {
       key: 'stage',
       label: 'Stage',
       type: 'select',
-      options: Object.entries(STAGE_LABELS).map(([value, label]) => ({ label, value })),
+      options: (activePipeline?.stages || []).map(s => ({ label: s.name, value: s.name })),
     },
     { key: 'name', label: 'Deal Name', type: 'text', placeholder: 'Enter deal name...' },
     { key: 'value', label: 'Deal Value', type: 'text', placeholder: 'Enter value...' },
@@ -570,7 +569,7 @@ export default function DealsV2Page() {
       key: "stageLabel",
       label: "Stage",
       render: (_: unknown, row: typeof transformedDeals[0]) => (
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[row.stage] || 'bg-muted text-muted-foreground'}`}>
+        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColor(row.stage, activePipeline)}`}>
           {row.stageLabel}
         </span>
       ),
@@ -872,7 +871,7 @@ export default function DealsV2Page() {
                     <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusColor(deal.status, 'deal')}`}>
                       {deal.status}
                     </span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[deal.stage] || 'bg-muted text-muted-foreground'}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColor(deal.stage, activePipeline)}`}>
                       {deal.stageLabel}
                     </span>
                   </div>

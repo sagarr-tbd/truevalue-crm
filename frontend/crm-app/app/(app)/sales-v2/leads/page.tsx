@@ -393,7 +393,6 @@ export default function LeadsV2Page() {
     
     try {
       await deleteLead.mutateAsync(leadToDelete.id);
-      toast.success("Lead deleted successfully");
       setIsDeleteModalOpen(false);
       setLeadToDelete(null);
     } catch {
@@ -477,7 +476,7 @@ export default function LeadsV2Page() {
       // Check for duplicates before creating
       if (formMode === "add" && data.entity_data?.email) {
         try {
-          const duplicateCheck = await leadsV2Api.checkDuplicate(data.entity_data.email);
+          const duplicateCheck = await leadsV2Api.checkDuplicate({ email: data.entity_data.email });
           if (duplicateCheck.has_duplicates) {
             toast.warning(
               `Found ${duplicateCheck.count} existing lead(s) with this email. Creating anyway.`,

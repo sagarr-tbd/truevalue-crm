@@ -499,7 +499,7 @@ class Command(BaseCommand):
                 self.stats['deals']['skipped'] += 1
                 continue
 
-            stage_name = d.stage.name if d.stage else 'qualification'
+            stage_name = d.stage.name if d.stage else 'Qualification'
 
             entity_data = {}
             if d.name:
