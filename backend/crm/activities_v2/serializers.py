@@ -141,6 +141,9 @@ class ActivityV2ListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'activity_type', 'subject', 'status', 'priority',
             'due_date', 'completed_at', 'start_time', 'end_time',
+            'duration_minutes',
+            'call_direction', 'call_outcome',
+            'email_direction',
             'contact_id', 'company_id', 'deal_id', 'lead_id',
             'assigned_to_id',
             'display_contact', 'display_company', 'display_assigned_to',

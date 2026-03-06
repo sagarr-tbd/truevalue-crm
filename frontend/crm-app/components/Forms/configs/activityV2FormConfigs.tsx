@@ -166,7 +166,7 @@ function buildCallConfig(opts: ActivityV2ConfigOptions): FormDrawerConfig {
       durationMinutes: { dependsOn: ["startTime", "endTime"], compute: computeDuration },
     },
     quickFormSections: [
-      { label: "Call Information", icon: <Phone className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />, fields: ["subject", "description", "callDirection", "status"] },
+      { label: "Call Information", icon: <Phone className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />, fields: ["subject", "description", "callDirection", "callOutcome", "priority", "status"] },
       { label: "Schedule", icon: <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />, fields: ["dueDate", "startTime", "endTime"] },
       { label: "Assignment", icon: <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />, fields: ["assignedTo"] },
     ],

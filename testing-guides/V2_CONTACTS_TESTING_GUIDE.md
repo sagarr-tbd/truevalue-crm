@@ -1,11 +1,52 @@
 # CRM V2 Contacts — UI Testing Guide
 
+## Organisation & Environment
+
+| Item | Value |
+|------|-------|
+| **Organisation** | TrueValue CRM (multi-tenant) |
+| **Frontend URL** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:8000/crm/api/v2/` |
+| **Docker Backend** | `crm-backend` container |
+
+## User Roles & Permissions
+
+| Role | Permissions | Use For Testing |
+|------|------------|-----------------|
+| **Super Admin** | Full access — all modules, all actions | Primary testing role (bypasses all permission checks) |
+| **Org Admin / Owner** | Full access within organisation | Equivalent to Super Admin for CRM testing |
+| **Manager** | Read, Write, Delete on assigned modules | Test permission-gated buttons (Edit, Delete, Bulk) |
+| **Member** | Read, Write on assigned modules | Test limited write access |
+| **Viewer** | Read-only | Test that Add/Edit/Delete buttons are hidden |
+
+### Permission Codes (Contacts)
+
+| Code | Description |
+|------|-------------|
+| `contacts:read` | View contacts list and detail pages |
+| `contacts:write` | Create, edit contacts, link/unlink companies |
+| `contacts:delete` | Delete contacts (single and bulk) |
+| `contacts:export` | Export contacts to CSV |
+| `contacts:import` | Import contacts from JSON |
+
+> **Testing Condition:** Unless testing role-based access specifically, log in as **Super Admin** or **Org Admin** to ensure all buttons and actions are available.
+
 ## Prerequisites
 
-1. Backend running, frontend running
-2. Forms seeded (`docker exec crm-backend python manage.py seed_default_forms`)
-3. Logged in with a valid user
-4. **Have at least one company created** (needed to test Company lookup and Companies card)
+1. Backend running via Docker (`docker compose up`) or locally
+2. Frontend running (`cd frontend/crm-app && npm run dev`)
+3. Forms seeded (`docker exec crm-backend python manage.py seed_default_forms`)
+4. Logged in with a valid user (Super Admin or Org Admin recommended)
+5. **Have at least one company created** (needed to test Company lookup and Companies card)
+
+## Testing Conditions
+
+- All tests assume the **Leads testing guide** has been completed (some contacts come from lead conversion)
+- Tests should be run in **order** (Test 1 → Test 18) as later tests depend on earlier data
+- After each create/edit/delete, verify **no duplicate toast** notifications appear
+- After each mutation, verify **no page reload** — UI should update via React Query cache invalidation
+- Cross-check **Stats cards** after every create/edit/delete to confirm counts are correct
+- When testing **Find & Merge**, ensure you have at least two contacts with the same name for duplicate detection to work
 
 ---
 

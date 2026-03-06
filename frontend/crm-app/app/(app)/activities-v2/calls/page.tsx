@@ -201,10 +201,10 @@ export default function CallsV2Page() {
     };
 
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) params.status = statusCond.value;
-      if (subjectCond?.value) params.search = subjectCond.value;
+      params.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
 
     return params;
@@ -338,10 +338,10 @@ export default function CallsV2Page() {
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find((c) => c.field === "status");
-      const subjectCond = filterGroup.conditions.find((c) => c.field === "subject");
-      if (statusCond?.value) p.status = statusCond.value;
-      if (subjectCond?.value) p.search = subjectCond.value;
+      p.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return p;
   }, [debouncedSearchQuery, statusFilter, filterGroup]);
@@ -404,9 +404,8 @@ export default function CallsV2Page() {
       await bulkDeleteActivities.mutateAsync(selectedCalls);
       setSelectedCalls([]);
       setShowBulkDelete(false);
-      toast.success("Calls deleted successfully");
     } catch {
-      toast.error("Failed to delete calls");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }
@@ -460,9 +459,8 @@ export default function CallsV2Page() {
       });
       setSelectedCalls([]);
       setShowBulkUpdateStatus(false);
-      toast.success("Calls updated successfully");
     } catch {
-      toast.error("Failed to update calls");
+      // Error toast handled by mutation hook
     } finally {
       setIsBulkProcessing(false);
     }
@@ -717,6 +715,7 @@ export default function CallsV2Page() {
             {
               label: "Mark Complete",
               icon: Check,
+              disabled: call.status === "completed",
               onClick: () => {
                 completeActivityV2.mutate(call.id);
                 toast.success("Call marked complete");

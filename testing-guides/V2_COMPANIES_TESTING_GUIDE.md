@@ -1,11 +1,49 @@
 # CRM V2 Companies — UI Testing Guide
 
+## Organisation & Environment
+
+| Item | Value |
+|------|-------|
+| **Organisation** | TrueValue CRM (multi-tenant) |
+| **Frontend URL** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:8000/crm/api/v2/` |
+| **Docker Backend** | `crm-backend` container |
+
+## User Roles & Permissions
+
+| Role | Permissions | Use For Testing |
+|------|------------|-----------------|
+| **Super Admin** | Full access — all modules, all actions | Primary testing role (bypasses all permission checks) |
+| **Org Admin / Owner** | Full access within organisation | Equivalent to Super Admin for CRM testing |
+| **Manager** | Read, Write, Delete on assigned modules | Test permission-gated buttons (Edit, Delete, Bulk) |
+| **Member** | Read, Write on assigned modules | Test limited write access |
+| **Viewer** | Read-only | Test that Add/Edit/Delete buttons are hidden |
+
+### Permission Codes (Companies)
+
+| Code | Description |
+|------|-------------|
+| `companies:read` | View companies list and detail pages |
+| `companies:write` | Create, edit companies, link/unlink contacts |
+| `companies:delete` | Delete companies (single and bulk) |
+
+> **Testing Condition:** Unless testing role-based access specifically, log in as **Super Admin** or **Org Admin** to ensure all buttons and actions are available.
+
 ## Prerequisites
 
-1. Backend running, frontend running
-2. Forms seeded (`docker exec crm-backend python manage.py seed_default_forms`)
-3. Logged in with a valid user
-4. Recommended: have contacts created (for Link Contact testing)
+1. Backend running via Docker (`docker compose up`) or locally
+2. Frontend running (`cd frontend/crm-app && npm run dev`)
+3. Forms seeded (`docker exec crm-backend python manage.py seed_default_forms`)
+4. Logged in with a valid user (Super Admin or Org Admin recommended)
+5. Recommended: have contacts created (for Link Contact testing)
+
+## Testing Conditions
+
+- Tests should be run in **order** (Test 1 → Test 15) as later tests depend on earlier data
+- After each create/edit/delete, verify **no duplicate toast** notifications appear
+- After each mutation, verify **no page reload** — UI should update via React Query cache invalidation
+- Cross-check **Stats cards** after every create/edit/delete to confirm counts are correct
+- When testing **Link Contact**, ensure the contact list loads (up to 50 contacts) and shows name, title, and department correctly
 
 ---
 

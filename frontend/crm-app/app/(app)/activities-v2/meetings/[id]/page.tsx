@@ -19,12 +19,12 @@ import {
   XCircle,
   Circle,
   Link as LinkIcon,
-  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { ActivityV2FormDrawer } from "@/components/Forms/ActivitiesV2";
+import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import {
   useActivityV2,
   useUpdateActivityV2,
@@ -33,7 +33,7 @@ import {
 } from "@/lib/queries/useActivitiesV2";
 import { useMemberOptions } from "@/lib/queries/useMembers";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE, ACTIVITIES_READ } from "@/lib/permissions";
-import type { ActivityV2, CreateActivityV2Input } from "@/lib/api/activitiesV2";
+import type { CreateActivityV2Input } from "@/lib/api/activitiesV2";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -136,8 +136,8 @@ export default function MeetingV2DetailPage() {
   };
 
   const displayAssignedTo =
-    meeting?.display_assigned_to ??
-    resolveMemberName(meeting?.assigned_to_id ?? undefined) ??
+    meeting?.display_assigned_to ||
+    resolveMemberName(meeting?.assigned_to_id) ||
     null;
 
   const handleDeleteConfirm = async () => {
@@ -196,12 +196,7 @@ export default function MeetingV2DetailPage() {
   }
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading meeting...</p>
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (isError || !meeting) {

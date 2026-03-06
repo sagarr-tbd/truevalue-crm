@@ -2,6 +2,51 @@
 
 **URL:** `/activities-v2/notes`
 
+## Organisation & Environment
+
+| Item | Value |
+|------|-------|
+| **Organisation** | TrueValue CRM (multi-tenant) |
+| **Frontend URL** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:8000/crm/api/v2/activities/` |
+| **Docker Backend** | `crm-backend` container |
+
+## User Roles & Permissions
+
+| Role | Permissions | Use For Testing |
+|------|------------|-----------------|
+| **Super Admin** | Full access — all modules, all actions | Primary testing role (bypasses all permission checks) |
+| **Org Admin / Owner** | Full access within organisation | Equivalent to Super Admin for CRM testing |
+| **Manager** | Read, Write, Delete on assigned modules | Test permission-gated buttons (Edit, Delete, Bulk) |
+| **Member** | Read, Write on assigned modules | Test limited write access |
+| **Viewer** | Read-only | Test that Add/Edit/Delete buttons are hidden |
+
+### Permission Codes (Activities — Notes)
+
+| Code | Description |
+|------|-------------|
+| `activities:read` | View notes list and detail pages |
+| `activities:write` | Create and edit notes |
+| `activities:delete` | Delete notes (single and bulk) |
+
+> **Testing Condition:** Unless testing role-based access specifically, log in as **Super Admin** or **Org Admin** to ensure all buttons and actions are available.
+
+## Prerequisites
+
+1. Backend running via Docker (`docker compose up`) or locally
+2. Frontend running (`cd frontend/crm-app && npm run dev`)
+3. Logged in with a valid user (Super Admin or Org Admin recommended)
+4. Contacts, Companies, and Deals created (from prior V2 testing guides) for relation linking
+
+## Testing Conditions
+
+- Tests should be run in **order** (Test 1 → Test 12) as later tests depend on earlier data
+- After each create/edit/delete, verify **no duplicate toast** notifications appear
+- After each mutation, verify **no page reload** — UI should update via React Query cache invalidation
+- Cross-check **Stats cards** after every create/edit/delete to confirm counts are correct
+- Notes have a **simplified form** — no Priority, Due Date, Start/End Time, Duration, Reminder, or Assigned To fields
+- Notes use **soft delete** — deleted notes are hidden from the UI but retained in the database
+
 ---
 
 ## Test 1: Create a New Note

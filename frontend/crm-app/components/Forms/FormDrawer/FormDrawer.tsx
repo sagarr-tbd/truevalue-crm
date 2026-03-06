@@ -74,12 +74,37 @@ export function FormDrawer<T = any>({
     });
   }, [config.detailedSections]);
 
+  // Map of field name → field type, derived from config
+  const fieldTypeMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const field of allFields) {
+      map.set(field.name, field.type);
+    }
+    return map;
+  }, [allFields]);
+
   // Fields not in quick mode that need hidden registration
   const hiddenQuickFields = useMemo(() => {
     return allFields.filter(f => !quickFieldNames.has(f.name) && f.type !== "tags" && f.type !== "profile");
   }, [allFields, quickFieldNames]);
 
-  // Sanitize data: convert null values to undefined for form compatibility
+  // Format an ISO datetime string to YYYY-MM-DD for <input type="date">
+  const toDateInputValue = useCallback((iso: string): string => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  // Format an ISO datetime string to YYYY-MM-DDTHH:mm for <input type="datetime-local">
+  const toDatetimeLocalInputValue = useCallback((iso: string): string => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }, []);
+
+  // Sanitize data: convert nulls to undefined and format date/datetime values
+  // to match the format expected by their respective HTML input types
   const sanitizeFormData = useCallback((data: Record<string, any>): Record<string, any> => {
     const sanitized: Record<string, any> = {};
     for (const [key, value] of Object.entries(data)) {
@@ -89,12 +114,21 @@ export function FormDrawer<T = any>({
         sanitized[key] = value;
       } else if (typeof value === 'object' && value !== null) {
         sanitized[key] = sanitizeFormData(value);
+      } else if (typeof value === "string" && value) {
+        const type = fieldTypeMap.get(key);
+        if (type === "date") {
+          sanitized[key] = toDateInputValue(value);
+        } else if (type === "datetime-local") {
+          sanitized[key] = toDatetimeLocalInputValue(value);
+        } else {
+          sanitized[key] = value;
+        }
       } else {
         sanitized[key] = value;
       }
     }
     return sanitized;
-  }, []);
+  }, [fieldTypeMap, toDateInputValue, toDatetimeLocalInputValue]);
 
   // Initialize form data
   useEffect(() => {

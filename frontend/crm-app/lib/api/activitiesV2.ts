@@ -80,6 +80,9 @@ export interface ActivityV2ListParams {
   page?: number;
   page_size?: number;
   email_direction?: string;
+  call_direction?: string;
+  call_outcome?: string;
+  filters?: string;
 }
 
 const BASE_URL = '/crm/api/v2/activities';

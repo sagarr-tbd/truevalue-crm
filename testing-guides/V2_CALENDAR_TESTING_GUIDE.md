@@ -2,7 +2,32 @@
 
 **URL:** `/activities-v2/calendar`
 
----
+## Organisation & Environment
+
+| Item | Value |
+|------|-------|
+| **Organisation** | TrueValue CRM (multi-tenant) |
+| **Frontend URL** | `http://localhost:3000` |
+| **Backend API** | `http://localhost:8000/crm/api/v2/activities/` |
+| **Docker Backend** | `crm-backend` container |
+
+## User Roles & Permissions
+
+| Role | Permissions | Use For Testing |
+|------|------------|-----------------|
+| **Super Admin** | Full access — all modules, all actions | Primary testing role |
+| **Org Admin / Owner** | Full access within organisation | Equivalent to Super Admin |
+| **Manager / Member** | Read access to activities | Can view calendar |
+| **Viewer** | Read-only | Can view calendar (no create/edit actions on this page) |
+
+### Permission Codes (Calendar)
+
+| Code | Description |
+|------|-------------|
+| `tasks:read` | View tasks on calendar |
+| `activities:read` | View calls and meetings on calendar |
+
+> **Testing Condition:** The Calendar page is read-only (no create/edit actions). Any user with read access to activities can view it. Log in as **Super Admin** or **Org Admin** for full testing.
 
 ## Prerequisites
 

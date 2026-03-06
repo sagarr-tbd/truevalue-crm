@@ -133,8 +133,10 @@ export default function EmailsV2Page() {
       status: statusFilter || undefined,
     };
     if (filterGroup && filterGroup.conditions.length > 0) {
-      const statusCond = filterGroup.conditions.find(c => c.field === "status");
-      if (statusCond?.value) params.status = statusCond.value;
+      params.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
     }
     return params;
   }, [currentPage, itemsPerPage, debouncedSearchQuery, statusFilter, filterGroup]);
@@ -211,15 +213,15 @@ export default function EmailsV2Page() {
 
   const handleBulkDelete = async () => {
     setIsBulkProcessing(true);
-    try { await bulkDelete.mutateAsync(selectedItems); setSelectedItems([]); setShowBulkDelete(false); toast.success("Emails deleted"); }
-    catch { toast.error("Failed to delete emails"); }
+    try { await bulkDelete.mutateAsync(selectedItems); setSelectedItems([]); setShowBulkDelete(false); }
+    catch { /* Error toast handled by mutation hook */ }
     finally { setIsBulkProcessing(false); }
   };
 
   const handleBulkUpdateStatus = async (newStatus: "pending" | "in_progress" | "completed" | "cancelled") => {
     setIsBulkProcessing(true);
-    try { await bulkUpdate.mutateAsync({ ids: selectedItems, updates: { status: newStatus } }); setSelectedItems([]); setShowBulkUpdateStatus(false); toast.success("Emails updated"); }
-    catch { toast.error("Failed to update emails"); }
+    try { await bulkUpdate.mutateAsync({ ids: selectedItems, updates: { status: newStatus } }); setSelectedItems([]); setShowBulkUpdateStatus(false); }
+    catch { /* Error toast handled by mutation hook */ }
     finally { setIsBulkProcessing(false); }
   };
 
@@ -227,8 +229,14 @@ export default function EmailsV2Page() {
     const p: Record<string, string> = { activity_type: "email" };
     if (debouncedSearchQuery) p.search = debouncedSearchQuery;
     if (statusFilter) p.status = statusFilter;
+    if (filterGroup && filterGroup.conditions.length > 0) {
+      p.filters = JSON.stringify({
+        conditions: filterGroup.conditions,
+        logic: filterGroup.logic,
+      });
+    }
     return p;
-  }, [debouncedSearchQuery, statusFilter]);
+  }, [debouncedSearchQuery, statusFilter, filterGroup]);
 
   const handleBulkExport = async () => {
     if (selectedItems.length === 0) {
@@ -330,7 +338,7 @@ export default function EmailsV2Page() {
   const actionMenuItems = useCallback((item: ActivityV2) => [
     ...(can(ACTIVITIES_WRITE) ? [
       { label: "Edit Email", icon: Edit, onClick: () => handleEditItem(item) },
-      { label: "Mark Complete", icon: Check, onClick: () => updateActivity.mutateAsync({ id: item.id, data: { status: "completed" } }) },
+      { label: "Mark Complete", icon: Check, disabled: item.status === "completed", onClick: () => updateActivity.mutateAsync({ id: item.id, data: { status: "completed" } }) },
     ] : []),
     ...(can(ACTIVITIES_DELETE) ? [
       { divider: true, label: "", onClick: () => {} },

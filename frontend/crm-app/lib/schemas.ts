@@ -1127,15 +1127,23 @@ export const activityV2CallFormSchema = activityV2FormBase
 
 export const activityV2MeetingFormSchema = activityV2FormBase.superRefine(v2TimingRefine);
 
-export const activityV2NoteFormSchema = activityV2FormBase.omit({
-  priority: true,
-  dueDate: true,
-  startTime: true,
-  endTime: true,
-  durationMinutes: true,
-  reminderAt: true,
-  assignedTo: true,
-});
+export const activityV2NoteFormSchema = activityV2FormBase
+  .omit({
+    priority: true,
+    status: true,
+    dueDate: true,
+    startTime: true,
+    endTime: true,
+    durationMinutes: true,
+    reminderAt: true,
+    assignedTo: true,
+  })
+  .extend({
+    status: z.preprocess(
+      (val) => (val === "" || val === null || val === undefined ? undefined : val),
+      z.enum(["pending", "in_progress", "completed", "cancelled"]).optional()
+    ),
+  });
 
 export const activityV2EmailFormSchema = activityV2FormBase.superRefine(v2TimingRefine);
 

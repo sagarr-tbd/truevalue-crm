@@ -13,22 +13,20 @@ import {
   AlertCircle,
   Clock,
   Flag,
-  User,
   Link as LinkIcon,
-  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal";
 import { ActivityV2FormDrawer } from "@/components/Forms/ActivitiesV2";
+import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import {
   useActivityV2,
   useUpdateActivityV2,
   useDeleteActivityV2,
 } from "@/lib/queries/useActivitiesV2";
-import { useMemberOptions } from "@/lib/queries/useMembers";
 import { usePermission, ACTIVITIES_WRITE, ACTIVITIES_DELETE } from "@/lib/permissions";
-import type { ActivityV2, CreateActivityV2Input } from "@/lib/api/activitiesV2";
+import type { CreateActivityV2Input } from "@/lib/api/activitiesV2";
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -113,18 +111,6 @@ export default function NoteV2DetailPage() {
   const { data: note, isLoading, isError } = useActivityV2(id);
   const updateActivityV2 = useUpdateActivityV2();
   const deleteActivityV2 = useDeleteActivityV2();
-  const { data: memberOptions = [], isLoading: isMembersLoading } = useMemberOptions();
-
-  const resolveMemberName = (uuid?: string | null): string | null => {
-    if (!uuid) return null;
-    if (isMembersLoading) return "Loading...";
-    const member = memberOptions.find((m) => m.value === uuid);
-    return member?.label || "Unknown Member";
-  };
-
-  const displayAssignedTo =
-    note?.display_assigned_to ?? resolveMemberName(note?.assigned_to_id ?? undefined) ?? null;
-
   const handleDeleteConfirm = async () => {
     if (!note?.id) return;
     try {
@@ -151,12 +137,7 @@ export default function NoteV2DetailPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading note...</p>
-      </div>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (isError || !note) {
@@ -246,7 +227,7 @@ export default function NoteV2DetailPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6"
         >
           <Card>
             <CardHeader className="pb-3">
@@ -293,17 +274,6 @@ export default function NoteV2DetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Assigned To
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm font-medium">{displayAssignedTo || "—"}</p>
-            </CardContent>
-          </Card>
         </motion.div>
 
         {/* Main Content with Sidebar */}
@@ -340,12 +310,6 @@ export default function NoteV2DetailPage() {
                           <Flag className="h-3 w-3 inline mr-1" />
                           {PRIORITY_DISPLAY[note.priority] || note.priority}
                         </span>
-                      </div>
-                    )}
-                    {displayAssignedTo && (
-                      <div className="flex justify-between items-start">
-                        <span className="text-sm text-muted-foreground">Assigned To</span>
-                        <span className="text-sm font-medium">{displayAssignedTo}</span>
                       </div>
                     )}
                   </div>
