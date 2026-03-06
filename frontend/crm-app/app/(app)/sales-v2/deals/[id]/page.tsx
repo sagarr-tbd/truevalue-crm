@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Edit, Trash2, DollarSign,
   TrendingUp, FileText, MessageSquare, Plus,
@@ -17,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DealV2FormDrawer } from "@/components/Forms/Sales";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
-import { useDealV2, useUpdateDealV2, useDeleteDealV2 } from "@/lib/queries/useDealsV2";
+import { useDealV2, useUpdateDealV2, useDeleteDealV2, dealsV2QueryKeys } from "@/lib/queries/useDealsV2";
 import type { CreateDealV2Input, DealV2 } from "@/lib/api/dealsV2";
 import { dealsV2Api } from "@/lib/api/dealsV2";
 import { THEME_COLORS, getStatusColor } from "@/lib/utils";
@@ -25,25 +26,27 @@ import { usePermission, DEALS_WRITE, DEALS_DELETE } from "@/lib/permissions";
 import { useEntityTagsV2, useTagsV2, useAssignTagV2, useUnassignTagV2 } from "@/lib/queries/useTagsV2";
 import { useActivitiesV2 } from "@/lib/queries/useActivitiesV2";
 import { useContactV2 } from "@/lib/queries/useContactsV2";
+import { usePipelineV2 } from "@/lib/queries/usePipelinesV2";
 import Link from "next/link";
 
-const STAGE_LABELS: Record<string, string> = {
-  prospecting: "Prospecting",
-  qualification: "Qualification",
-  proposal: "Proposal",
-  negotiation: "Negotiation",
-  closed_won: "Closed Won",
-  closed_lost: "Closed Lost",
+const PIPELINE_COLOR_MAP: Record<string, string> = {
+  '#6B7280': "bg-gray-500/10 text-gray-600",
+  '#3B82F6': "bg-blue-500/10 text-blue-600",
+  '#8B5CF6': "bg-purple-500/10 text-purple-600",
+  '#F59E0B': "bg-amber-500/10 text-amber-600",
+  '#10B981': "bg-green-500/10 text-green-600",
+  '#EF4444': "bg-red-500/10 text-red-600",
 };
 
-const STAGE_COLORS: Record<string, string> = {
-  prospecting: "bg-blue-500/10 text-blue-600",
-  qualification: "bg-indigo-500/10 text-indigo-600",
-  proposal: "bg-purple-500/10 text-purple-600",
-  negotiation: "bg-amber-500/10 text-amber-600",
-  closed_won: "bg-green-500/10 text-green-600",
-  closed_lost: "bg-red-500/10 text-red-600",
-};
+function getStageColorClass(stageName: string, stages?: { name: string; color: string }[]): string {
+  if (stages) {
+    const stage = stages.find(s => s.name === stageName);
+    if (stage?.color && PIPELINE_COLOR_MAP[stage.color]) {
+      return PIPELINE_COLOR_MAP[stage.color];
+    }
+  }
+  return 'bg-muted text-muted-foreground';
+}
 
 function formatCurrency(value: string | number | undefined, currency = "USD") {
   if (value === undefined || value === null) return `${currency} 0.00`;
@@ -112,11 +115,15 @@ export default function DealV2DetailPage() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showLossReasonInput, setShowLossReasonInput] = useState(false);
   const [lossReason, setLossReason] = useState("");
+  const [lossNotes, setLossNotes] = useState("");
 
   const { can } = usePermission();
+  const queryClient = useQueryClient();
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
 
   const { data: deal, isLoading, error } = useDealV2(dealId);
+  const { data: pipeline } = usePipelineV2(deal?.pipeline_id || undefined);
+  const pipelineStages = pipeline?.stages;
   const updateDeal = useUpdateDealV2();
   const deleteDeal = useDeleteDealV2();
 
@@ -147,7 +154,6 @@ export default function DealV2DetailPage() {
     setIsDeleting(true);
     try {
       await deleteDeal.mutateAsync(dealId);
-      toast.success("Deal deleted successfully");
       router.push("/sales-v2/deals");
     } catch {
       toast.error("Failed to delete deal");
@@ -197,12 +203,18 @@ export default function DealV2DetailPage() {
     }
   };
 
+  const invalidateDealQueries = () => {
+    queryClient.invalidateQueries({ queryKey: dealsV2QueryKeys.detail(dealId) });
+    queryClient.invalidateQueries({ queryKey: dealsV2QueryKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: dealsV2QueryKeys.stats() });
+  };
+
   const handleWinDeal = async () => {
     setIsUpdatingStatus(true);
     try {
       await dealsV2Api.updateStatus(dealId, 'won');
       toast.success("Deal marked as won!");
-      window.location.reload();
+      invalidateDealQueries();
     } catch {
       toast.error("Failed to update deal status");
     } finally {
@@ -211,27 +223,30 @@ export default function DealV2DetailPage() {
   };
 
   const handleLoseDeal = async () => {
-    if (showLossReasonInput && !lossReason.trim()) {
-      setShowLossReasonInput(true);
-      return;
-    }
     setIsUpdatingStatus(true);
     try {
-      await dealsV2Api.updateStatus(dealId, 'lost');
+      const extra: { loss_reason?: string } = {};
       if (lossReason.trim()) {
+        extra.loss_reason = lossReason.trim();
+      }
+      await dealsV2Api.updateStatus(dealId, 'lost', extra);
+
+      if (lossNotes.trim()) {
+        const { status: _s, stage: _st, probability: _p, value: _v, ...safeData } = deal!.entity_data;
         await updateDeal.mutateAsync({
           id: dealId,
-          data: { entity_data: { ...deal!.entity_data, loss_notes: lossReason.trim() } },
+          data: { entity_data: { ...safeData, loss_reason: lossReason.trim() || undefined, loss_notes: lossNotes.trim() } },
         });
       }
       toast.success("Deal marked as lost");
-      window.location.reload();
+      invalidateDealQueries();
     } catch {
       toast.error("Failed to update deal status");
     } finally {
       setIsUpdatingStatus(false);
       setShowLossReasonInput(false);
       setLossReason("");
+      setLossNotes("");
     }
   };
 
@@ -240,7 +255,7 @@ export default function DealV2DetailPage() {
     try {
       await dealsV2Api.updateStatus(dealId, 'open');
       toast.success("Deal reopened");
-      window.location.reload();
+      invalidateDealQueries();
     } catch {
       toast.error("Failed to reopen deal");
     } finally {
@@ -308,8 +323,8 @@ export default function DealV2DetailPage() {
                       {deal.display_company}
                     </Link>
                   )}
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[deal.stage] || 'bg-muted text-muted-foreground'}`}>
-                    {STAGE_LABELS[deal.stage] || deal.display_stage || deal.stage}
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStageColorClass(deal.stage, pipelineStages)}`}>
+                    {deal.display_stage || deal.stage}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getDealStatusColor(deal.status)}`}>
                     {deal.status}
@@ -554,7 +569,7 @@ export default function DealV2DetailPage() {
                               </div>
                               <div className="flex justify-between items-center">
                                 <span className="text-sm text-muted-foreground">Stage</span>
-                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${STAGE_COLORS[deal.stage] || 'bg-muted text-muted-foreground'}`}>{STAGE_LABELS[deal.stage] || deal.stage}</span>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStageColorClass(deal.stage, pipelineStages)}`}>{deal.display_stage || deal.stage}</span>
                               </div>
                               {deal.expected_close_date && (
                                 <div className="flex justify-between items-start">
@@ -853,9 +868,24 @@ export default function DealV2DetailPage() {
                       </Button>
                       {showLossReasonInput && (
                         <div className="space-y-2 pt-2 border-t border-border">
-                          <Textarea value={lossReason} onChange={(e) => setLossReason(e.target.value)} placeholder="Loss reason (optional)..." className="min-h-[60px] resize-none text-sm" />
+                          <select
+                            value={lossReason}
+                            onChange={(e) => setLossReason(e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="">Select reason (optional)</option>
+                            <option value="price">Price</option>
+                            <option value="competitor">Competitor</option>
+                            <option value="no_budget">No Budget</option>
+                            <option value="no_decision">No Decision</option>
+                            <option value="timing">Timing</option>
+                            <option value="product_fit">Product Fit</option>
+                            <option value="relationship">Relationship</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <Textarea value={lossNotes} onChange={(e) => setLossNotes(e.target.value)} placeholder="Loss notes (optional)..." className="min-h-[60px] resize-none text-sm" />
                           <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => { setShowLossReasonInput(false); setLossReason(""); }}>Cancel</Button>
+                            <Button size="sm" variant="outline" onClick={() => { setShowLossReasonInput(false); setLossReason(""); setLossNotes(""); }}>Cancel</Button>
                             <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={handleLoseDeal} disabled={isUpdatingStatus}>
                               {isUpdatingStatus ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
                               Confirm Lost

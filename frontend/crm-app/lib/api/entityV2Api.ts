@@ -73,8 +73,8 @@ export function createEntityV2Api<
       return response.data;
     },
 
-    updateStatus: async (id: string, status: string) => {
-      const response = await apiClient.post(`${basePath}/${id}/update_status/`, { status });
+    updateStatus: async (id: string, status: string, extra?: { loss_reason?: string }) => {
+      const response = await apiClient.post(`${basePath}/${id}/update_status/`, { status, ...extra });
       if (!response.data) throw new Error('Failed to update status');
       return response.data;
     },
@@ -115,10 +115,10 @@ export function createEntityV2Api<
       window.URL.revokeObjectURL(url);
     },
 
-    checkDuplicate: async (email: string) => {
+    checkDuplicate: async (params: { email?: string; phone?: string; name?: string }) => {
       const response = await apiClient.post<DuplicateCheckResponse<TListItem>>(
         `${basePath}/check_duplicate/`,
-        { email }
+        params
       );
       if (!response.data) throw new Error('Failed to check duplicates');
       return response.data;

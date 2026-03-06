@@ -20,7 +20,7 @@ import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
 import { useCompanyV2, useUpdateCompanyV2, useDeleteCompanyV2 } from "@/lib/queries/useCompaniesV2";
 import { useActivitiesV2 } from "@/lib/queries/useActivitiesV2";
-import { useContactsV2, useUpdateContactV2 } from "@/lib/queries/useContactsV2";
+import { useContactsV2, useUpdateContactV2, useAddContactCompanyV2 } from "@/lib/queries/useContactsV2";
 import { useDealsV2 } from "@/lib/queries/useDealsV2";
 import type { CreateCompanyV2Input } from "@/lib/api/companiesV2";
 import { THEME_COLORS, getStatusColor, formatCurrency } from "@/lib/utils";
@@ -110,26 +110,51 @@ export default function CompanyV2DetailPage() {
   const companyDeals = dealsData?.results || [];
 
   const updateContact = useUpdateContactV2();
+  const addContactCompany = useAddContactCompanyV2();
   const [showLinkContactModal, setShowLinkContactModal] = useState(false);
   const [contactSearchTerm, setContactSearchTerm] = useState("");
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [linkTitle, setLinkTitle] = useState("");
   const [linkDepartment, setLinkDepartment] = useState("");
   const { data: contactSearchResults } = useContactsV2(
-    { search: contactSearchTerm || undefined, page_size: 10 },
-    { enabled: showLinkContactModal && contactSearchTerm.length > 0 }
+    { search: contactSearchTerm || undefined, page_size: 50 },
+    { enabled: showLinkContactModal }
   );
   const existingContactIds = new Set(companyContacts.map(c => c.id));
   const filteredContactResults = (contactSearchResults?.results ?? []).filter(c => !existingContactIds.has(c.id));
 
+  console.log("companyContacts",companyContacts)
   const handleLinkContact = async () => {
     if (!selectedContactId) return;
     try {
-      await updateContact.mutateAsync({
-        id: selectedContactId,
-        data: { company_id: companyId },
+      const trimmedTitle = linkTitle.trim();
+      const trimmedDept = linkDepartment.trim();
+
+      await addContactCompany.mutateAsync({
+        contactId: selectedContactId,
+        data: {
+          company_id: companyId,
+          title: trimmedTitle || undefined,
+          department: trimmedDept || undefined,
+          is_primary: true,
+          is_current: true,
+        },
       });
-      toast.success("Contact linked to company");
+
+      if (trimmedTitle || trimmedDept) {
+        const selectedContact = filteredContactResults.find(c => c.id === selectedContactId);
+        const existingData = selectedContact?.entity_data || {};
+        const entityUpdate: Record<string, unknown> = {};
+        if (trimmedTitle && !existingData.title) entityUpdate.title = trimmedTitle;
+        if (trimmedDept && !existingData.department) entityUpdate.department = trimmedDept;
+        if (Object.keys(entityUpdate).length > 0) {
+          await updateContact.mutateAsync({
+            id: selectedContactId,
+            data: { entity_data: { ...existingData, ...entityUpdate } },
+          });
+        }
+      }
+
       setShowLinkContactModal(false);
       setContactSearchTerm("");
       setSelectedContactId(null);
@@ -144,8 +169,14 @@ export default function CompanyV2DetailPage() {
     try {
       await updateContact.mutateAsync({
         id: contactId,
-        data: { company_id: null as unknown as string },
+        data: { company_id: null },
       });
+      const { contactCompaniesV2Api } = await import("@/lib/api/contactsV2");
+      const associations = await contactCompaniesV2Api.list(contactId);
+      const match = associations.find((a: { company_id: string }) => a.company_id === companyId);
+      if (match) {
+        await contactCompaniesV2Api.remove(contactId, match.id);
+      }
       toast.success("Contact unlinked from company");
     } catch {
       toast.error("Failed to unlink contact");
@@ -176,7 +207,6 @@ export default function CompanyV2DetailPage() {
     setIsDeleting(true);
     try {
       await deleteCompany.mutateAsync(companyId);
-      toast.success("Company deleted successfully");
       router.push("/sales-v2/companies");
     } catch {
       toast.error("Failed to delete company");
@@ -732,7 +762,9 @@ export default function CompanyV2DetailPage() {
                                   </div>
                                   <div>
                                     <p className="font-medium">{contact.display_name || `${contact.entity_data?.first_name || ''} ${contact.entity_data?.last_name || ''}`.trim()}</p>
-                                    <p className="text-sm text-muted-foreground">{contact.entity_data?.title || 'No title'}</p>
+                                    <p className="text-sm text-muted-foreground">
+                                      {[contact.entity_data?.title, contact.entity_data?.department].filter(Boolean).join(' · ') || contact.display_email || contact.display_phone || 'No details'}
+                                    </p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -1097,7 +1129,7 @@ export default function CompanyV2DetailPage() {
                   />
                 </div>
 
-                {!selectedContactId && contactSearchTerm.length > 0 && (
+                {!selectedContactId && filteredContactResults.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
                     {filteredContactResults.length > 0 ? (
                       filteredContactResults.map((c) => (
@@ -1156,8 +1188,8 @@ export default function CompanyV2DetailPage() {
                 <Button variant="outline" onClick={() => { setShowLinkContactModal(false); setContactSearchTerm(""); setSelectedContactId(null); setLinkTitle(""); setLinkDepartment(""); }}>
                   Cancel
                 </Button>
-                <Button onClick={handleLinkContact} disabled={!selectedContactId || updateContact.isPending}>
-                  {updateContact.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                <Button onClick={handleLinkContact} disabled={!selectedContactId || addContactCompany.isPending}>
+                  {addContactCompany.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                   Link Contact
                 </Button>
               </div>

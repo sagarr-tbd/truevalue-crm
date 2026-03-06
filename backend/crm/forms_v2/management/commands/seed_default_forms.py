@@ -49,199 +49,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('\n✅ Default forms seeded successfully!'))
     
     def seed_lead_forms(self, org_id):
-        self.stdout.write('  Creating Lead form with inline fields...')
-        
-        form_schema = {
-            'version': '1.0.0',
-            'sections': [
-                {
-                    'id': 'contact_info',
-                    'title': 'Contact Information',
-                    'description': 'Basic contact details',
-                    'columns': 2,
-                    'collapsible': False,
-                    'fields': [
-                        {
-                            'name': 'first_name',
-                            'label': 'First Name',
-                            'field_type': 'text',
-                            'is_required': True,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': 'Enter first name',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                        {
-                            'name': 'last_name',
-                            'label': 'Last Name',
-                            'field_type': 'text',
-                            'is_required': True,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': 'Enter last name',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                        {
-                            'name': 'email',
-                            'label': 'Email',
-                            'field_type': 'email',
-                            'is_required': True,
-                            'is_unique': True,
-                            'is_searchable': True,
-                            'placeholder': 'email@example.com',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                        {
-                            'name': 'phone',
-                            'label': 'Phone',
-                            'field_type': 'phone',
-                            'is_required': False,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': '+1 (555) 123-4567',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                    ]
-                },
-                {
-                    'id': 'company_info',
-                    'title': 'Company Information',
-                    'columns': 2,
-                    'fields': [
-                        {
-                            'name': 'company_name',
-                            'label': 'Company',
-                            'field_type': 'text',
-                            'is_required': False,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': 'Company name',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                        {
-                            'name': 'title',
-                            'label': 'Job Title',
-                            'field_type': 'text',
-                            'is_required': False,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': 'e.g., Sales Manager',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                    ]
-                },
-                {
-                    'id': 'qualification',
-                    'title': 'Lead Qualification',
-                    'columns': 2,
-                    'fields': [
-                        {
-                            'name': 'status',
-                            'label': 'Status',
-                            'field_type': 'select',
-                            'is_required': True,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': '',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {
-                                'options': [
-                                    {'value': 'new', 'label': 'New', 'color': '#3b82f6'},
-                                    {'value': 'contacted', 'label': 'Contacted', 'color': '#8b5cf6'},
-                                    {'value': 'qualified', 'label': 'Qualified', 'color': '#10b981'},
-                                    {'value': 'unqualified', 'label': 'Unqualified', 'color': '#ef4444'},
-                                    {'value': 'converted', 'label': 'Converted', 'color': '#22c55e'},
-                                ]
-                            },
-                            'default_value': 'new',
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                        {
-                            'name': 'source',
-                            'label': 'Lead Source',
-                            'field_type': 'select',
-                            'is_required': False,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': '',
-                            'help_text': '',
-                            'validation_rules': {},
-                            'options': {
-                                'options': [
-                                    {'value': 'website', 'label': 'Website'},
-                                    {'value': 'referral', 'label': 'Referral'},
-                                    {'value': 'cold_call', 'label': 'Cold Call'},
-                                    {'value': 'trade_show', 'label': 'Trade Show'},
-                                    {'value': 'social_media', 'label': 'Social Media'},
-                                    {'value': 'advertisement', 'label': 'Advertisement'},
-                                    {'value': 'partner', 'label': 'Partner'},
-                                    {'value': 'other', 'label': 'Other'},
-                                ]
-                            },
-                            'default_value': None,
-                            'width': 'half',
-                            'readonly': False,
-                        },
-                    ]
-                },
-                {
-                    'id': 'additional',
-                    'title': 'Additional Information',
-                    'columns': 1,
-                    'collapsible': True,
-                    'fields': [
-                        {
-                            'name': 'description',
-                            'label': 'Notes',
-                            'field_type': 'textarea',
-                            'is_required': False,
-                            'is_unique': False,
-                            'is_searchable': True,
-                            'placeholder': 'Add notes about this lead...',
-                            'help_text': 'Any additional information about the lead',
-                            'validation_rules': {},
-                            'options': {},
-                            'default_value': None,
-                            'width': 'full',
-                            'readonly': False,
-                        },
-                    ]
-                }
-            ]
-        }
-        
+        from forms_v2.default_schemas import get_default_lead_schema
         form, created = FormDefinition.objects.update_or_create(
             org_id=org_id,
             entity_type='lead',
@@ -250,14 +58,13 @@ class Command(BaseCommand):
             defaults={
                 'description': 'Standard form for creating leads with inline field definitions',
                 'is_default': True,
-                'schema': form_schema,
+                'schema': get_default_lead_schema(),
             }
         )
-        
         if created:
-            self.stdout.write('    ✓ Created Default Lead Form with inline fields')
+            self.stdout.write('    ✓ Created Default Lead Form')
         else:
-            self.stdout.write('    ✓ Updated Default Lead Form with inline fields')
+            self.stdout.write('    ✓ Updated Default Lead Form')
     
     def seed_contact_forms(self, org_id):
         from forms_v2.default_schemas import get_default_contact_schema

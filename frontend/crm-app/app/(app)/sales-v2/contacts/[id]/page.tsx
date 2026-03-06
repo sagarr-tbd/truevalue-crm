@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Edit, Trash2, Mail, Phone, Building2,
   TrendingUp, FileText, MessageSquare, Users, Plus, DollarSign,
@@ -17,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { ContactV2FormDrawer } from "@/components/Forms/Sales";
 import { DetailPageSkeleton } from "@/components/LoadingSkeletons";
 import { toast } from "sonner";
-import { useContactV2, useUpdateContactV2, useDeleteContactV2, useContactV2Timeline, useMergeContactsV2, useContactCompaniesV2, useAddContactCompanyV2, useRemoveContactCompanyV2 } from "@/lib/queries/useContactsV2";
+import { useContactV2, useUpdateContactV2, useDeleteContactV2, useContactV2Timeline, useMergeContactsV2, useContactCompaniesV2, useAddContactCompanyV2, useRemoveContactCompanyV2, contactsV2QueryKeys } from "@/lib/queries/useContactsV2";
 import type { CreateContactV2Input } from "@/lib/api/contactsV2";
 import { contactsV2Api } from "@/lib/api/contactsV2";
 import { MergeContactModal, type ContactSummary } from "@/components/MergeContactModal";
@@ -100,6 +101,7 @@ export default function ContactV2DetailPage() {
   const [newNote, setNewNote] = useState("");
 
   const { can } = usePermission();
+  const queryClient = useQueryClient();
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
 
   const { data: contact, isLoading, error } = useContactV2(contactId);
@@ -157,7 +159,6 @@ export default function ContactV2DetailPage() {
     setIsDeleting(true);
     try {
       await deleteContact.mutateAsync(contactId);
-      toast.success("Contact deleted successfully");
       router.push("/sales-v2/contacts");
     } catch {
       toast.error("Failed to delete contact");
@@ -251,13 +252,23 @@ export default function ContactV2DetailPage() {
   };
 
   const handleFindDuplicates = async () => {
-    if (!contact?.entity_data?.email) {
-      toast.info("No email on this contact — cannot check for duplicates");
+    const email = contact?.entity_data?.email;
+    const firstName = contact?.entity_data?.first_name;
+    const lastName = contact?.entity_data?.last_name;
+    const phone = contact?.entity_data?.phone || contact?.entity_data?.mobile;
+
+    if (!email && !firstName && !phone) {
+      toast.info("No email, name, or phone on this contact — cannot check for duplicates");
       return;
     }
     setIsCheckingDuplicates(true);
     try {
-      const result = await contactsV2Api.checkDuplicate(contact.entity_data.email);
+      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+      const result = await contactsV2Api.checkDuplicate({
+        ...(email ? { email } : {}),
+        ...(fullName ? { name: fullName } : {}),
+        ...(phone ? { phone } : {}),
+      });
       if (result.has_duplicates) {
         const others = result.duplicates.filter((d) => d.id !== contactId);
         if (others.length > 0) {
@@ -276,15 +287,16 @@ export default function ContactV2DetailPage() {
     }
   };
 
-  const handleMergeComplete = (mergedContactId: string) => {
+  const handleMergeComplete = useCallback((mergedContactId: string) => {
     setShowMergeModal(false);
     setSelectedDuplicateId(null);
-    if (mergedContactId === contactId) {
-      window.location.reload();
-    } else {
+    queryClient.invalidateQueries({ queryKey: contactsV2QueryKeys.detail(mergedContactId) });
+    queryClient.invalidateQueries({ queryKey: contactsV2QueryKeys.lists() });
+    queryClient.invalidateQueries({ queryKey: contactsV2QueryKeys.stats() });
+    if (mergedContactId !== contactId) {
       router.push(`/sales-v2/contacts/${mergedContactId}`);
     }
-  };
+  }, [contactId, queryClient, router]);
 
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return "N/A";
@@ -1191,9 +1203,8 @@ export default function ContactV2DetailPage() {
               { primaryId, secondaryId, mergeStrategy: v2Strategy },
               {
                 onSuccess: (result) => {
-                  if (result.id) {
-                    handleMergeComplete(result.id);
-                  }
+                  const mergedId = result.merged_contact?.id || primaryId;
+                  handleMergeComplete(mergedId);
                 },
               }
             );
